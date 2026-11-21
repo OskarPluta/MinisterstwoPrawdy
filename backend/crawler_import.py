@@ -20,6 +20,9 @@ from .timeutil import WARSAW, parse_ts
 
 ARTICLE_KINDS = {"komunikat": "article", "ostrzezenie": "article", "informacja": "article", "raport": "report"}
 STRUCTURED_SOURCE_TYPES = {"ostrzezenie_meteo", "ostrzezenie_hydro"}
+# Crawl-run statuses that mean the source was reached successfully (crawler SPEC §5);
+# `not_modified` is a healthy run that found nothing new.
+SUCCESS_STATUSES = {"ok", "not_modified"}
 
 # Voivodeship by the first two TERYT digits.
 TERYT_WOJ = {
@@ -58,7 +61,7 @@ def _int(v: str | None) -> int | None:
 def _paragraphs(content: str, title: str) -> str:
     """One paragraph per non-empty line; drop a leading line that repeats the title."""
     lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
-    if lines and lines[0].casefold() == title.strip().casefold():
+    if lines and title and lines[0].casefold() == title.strip().casefold():
         lines = lines[1:]
     return "\n\n".join(lines)
 
@@ -122,7 +125,7 @@ def convert_document(doc: dict[str, Any]) -> dict[str, Any]:
     base: dict[str, Any] = {
         "source_id": doc["source"],
         "upstream_id": doc["url"],
-        "title": doc["title"],
+        "title": doc.get("title") or doc["url"],
         "citation_url": doc["url"],
         "published_at": _utc(doc.get("published_at")),
         "fetched_at": _utc(doc.get("fetched_at"), naive_tz=timezone.utc),
@@ -134,22 +137,35 @@ def convert_document(doc: dict[str, Any]) -> dict[str, Any]:
     if dtype == "ostrzezenie_hydro":
         return _hydro(doc, base)
     rec = {**base, "kind": ARTICLE_KINDS.get(dtype, "article"),
-           "sections": [{"heading": None, "text": _paragraphs(doc["content"], doc["title"])}]}
+           "sections": [{"heading": None, "text": _paragraphs(doc["content"], doc.get("title") or "")}]}
     if doc.get("attribution"):
         rec["fields"] = {"attribution": doc["attribution"]}
     return rec
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    """Parse JSONL; skip a truncated last line (the crawler may be appending right now)."""
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    out = []
+    for i, ln in enumerate(lines):
+        try:
+            out.append(json.loads(ln))
+        except json.JSONDecodeError:
+            if i == len(lines) - 1:
+                break
+            raise
+    return out
 
 
 def convert(documents: Path, crawl_log: Path | None = None) -> dict[str, Any]:
     docs = _read_jsonl(documents)
     runs: dict[str, dict[str, Any]] = {}
+    last_success: dict[str, str | None] = {}
     if crawl_log and crawl_log.exists():
         for run in _read_jsonl(crawl_log):
             runs[run["source"]] = run  # last run per source wins
+            if run.get("status") in SUCCESS_STATUSES:
+                last_success[run["source"]] = _utc(run.get("finished_at"), naive_tz=timezone.utc)
 
     sources: dict[str, dict[str, Any]] = {}
     for doc in docs:
@@ -169,8 +185,8 @@ def convert(documents: Path, crawl_log: Path | None = None) -> dict[str, Any]:
         }
         run = runs.get(sid)
         if run:
-            ok = run.get("status") == "ok"
-            src["last_success_at"] = _utc(run.get("finished_at"), naive_tz=timezone.utc) if ok else None
+            ok = run.get("status") in SUCCESS_STATUSES
+            src["last_success_at"] = last_success.get(sid)  # an earlier success survives a later failure
             src["last_error"] = None if ok else f"{run.get('status')}: {run.get('message')}"
         sources[sid] = src
 

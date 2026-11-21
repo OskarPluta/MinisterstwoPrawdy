@@ -318,7 +318,7 @@ class Verifier:
         claims = ext.claims[:MAX_CLAIMS]
         if len(ext.claims) > MAX_CLAIMS:
             res.message = f"Sprawdzam pierwsze {MAX_CLAIMS} z {len(ext.claims)} twierdzeń."
-        # Retrieval shares one SQLite connection, so it runs here; LLM calls run in parallel.
+        # Retrieval shares one database connection, so it runs here; LLM calls run in parallel.
         shortlists = [self.retrieve(c) if c.checkable else [] for c in claims]
         with ThreadPoolExecutor(max_workers=max(1, min(self.workers, len(claims)))) as pool:
             res.claims = list(pool.map(lambda c, h: self._check_isolated(c, h, now), claims, shortlists))
