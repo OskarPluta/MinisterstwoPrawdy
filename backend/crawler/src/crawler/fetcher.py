@@ -270,8 +270,9 @@ class Fetcher:
 
     # ---------- HTTP ----------
     def _raw_get(self, url: str, headers: dict, check_robots: bool = True,
-                 max_redirects: int = 5) -> httpx.Response:
-        """GET z ręcznym śledzeniem przekierowań: każdy skok przechodzi robots + limit zapytań."""
+                 max_redirects: int = 5, private: dict | None = None) -> httpx.Response:
+        """GET z ręcznym śledzeniem przekierowań: każdy skok przechodzi robots + limit zapytań.
+        `private` (np. klucz API) idzie tylko do hosta z `url`, nigdy po przekierowaniu na inny host."""
         current = url
         for _ in range(max_redirects + 1):
             host = host_of(current)
@@ -280,7 +281,7 @@ class Fetcher:
             if check_robots:
                 delay = self.check_allowed(current).crawl_delay
             self._wait_turn(host, delay)
-            r = self.client.get(current, headers=headers)
+            r = self.client.get(current, headers={**headers, **private} if private and host == host_of(url) else headers)
             if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
                 # RFC 9309 pozwala śledzić do 5 przekierowań robots.txt (także na inny host)
                 current = strip_fragment(urljoin(current, r.headers["location"]))
@@ -288,8 +289,10 @@ class Fetcher:
             return r
         raise HttpError(f"Za dużo przekierowań: {url}")
 
-    def http_get(self, url: str, conditional: bool = True, accept: str | None = None) -> Resp:
+    def http_get(self, url: str, conditional: bool = True, accept: str | None = None,
+                 private: dict | None = None) -> Resp:
         """GET z robots.txt, limitem zapytań i (opcjonalnie) If-None-Match / If-Modified-Since.
+        `private`: dodatkowe nagłówki (np. klucz API) tylko dla hosta z `url`.
 
         429/503 → Throttled, 403 i wyzwania antybotowe → Blocked (oba ustawiają wycofanie hosta),
         inne ≥400 → HttpError. Walidatory zapisuje dopiero commit_validators()."""
@@ -305,7 +308,7 @@ class Fetcher:
             if v.get("last_modified"):
                 headers["If-Modified-Since"] = v["last_modified"]
         try:
-            r = self._raw_get(url, headers)
+            r = self._raw_get(url, headers, private=private)
         except httpx.HTTPError as e:
             raise HttpError(f"{url}: {type(e).__name__}: {e}") from e
         status = r.status_code

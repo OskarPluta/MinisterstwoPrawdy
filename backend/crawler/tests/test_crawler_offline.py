@@ -380,3 +380,60 @@ def test_readonly_store_writes_nothing(tmp_path):
     (ro_dir / "documents.jsonl").write_text(json.dumps({"url": "u", "version": 1, "content_hash": "h", "id": "x-v1"}) + "\n")
     Store(ro_dir, readonly=True)
     assert not (ro_dir / "current.json").exists(), "status (Store readonly) niczego nie zapisuje"
+
+
+def test_private_headers_stay_on_source_host(fetcher):
+    """Klucz API (private) idzie do hosta źródła, ale nie po przekierowaniu na inny host."""
+    sent = []
+
+    def fake_get(url, headers):
+        sent.append((url, dict(headers)))
+        if "a.invalid" in url:
+            return mock.Mock(status_code=302, headers={"location": "https://b.invalid/x"}, url=url)
+        return mock.Mock(status_code=200, headers={}, url=url, content=b"{}")
+
+    with mock.patch.object(fetcher.client, "get", side_effect=fake_get):
+        fetcher._raw_get("https://a.invalid/api", {"Accept": "application/json"}, check_robots=False,
+                         private={"X-Goog-Api-Key": "SEKRET"})
+    assert sent[0][1].get("X-Goog-Api-Key") == "SEKRET", "klucz wysłany do hosta źródła"
+    assert "X-Goog-Api-Key" not in sent[1][1] and sent[1][1].get("Accept"), "klucz nie idzie na inny host"
+
+
+def test_json_api_env_headers_and_url_template(tmp_path, monkeypatch):
+    seen_private = []
+
+    class KeyFetcher:
+        def http_get(self, url, conditional=True, accept=None, private=None):
+            seen_private.append(private)
+            review = {"url": "https://fc.invalid/weryfikacja-1", "title": "Fałsz", "reviewDate": "2026-11-20T10:00:00Z"}
+            body = {"claims": [{"text": "Twierdzenie", "claimReview": [review]},
+                               {"text": "Drugie twierdzenie z tej samej weryfikacji", "claimReview": [review]}]}
+            return Resp(url=url, final_url=url, status=200, text=json.dumps(body), headers={})
+
+        def commit_validators(self, resp):
+            pass
+
+    src = {"name": "fc", "institution": "X", "urls": ["https://api.invalid/claims"], "records_path": "claims",
+           "headers": {"X-Api-Key": "${TEST_FC_KEY}"}, "url_template": "{claimReview[0].url}",
+           "id_template": "{claimReview[0].url}", "title_template": "{claimReview[0].title}",
+           "date_fields": ["claimReview[0].reviewDate"]}
+    store = Store(tmp_path / "fc")
+    monkeypatch.delenv("TEST_FC_KEY", raising=False)
+    with pytest.raises(ValueError, match="TEST_FC_KEY"):  # brak zmiennej: błąd źródła, bez wartości w komunikacie
+        run_json_api(Ctx(store=store, fetcher=KeyFetcher()), src, store.source_state("fc"), Stats())
+    monkeypatch.setenv("TEST_FC_KEY", "SEKRET")
+    run_json_api(Ctx(store=store, fetcher=KeyFetcher()), src, store.source_state("fc"), Stats())
+    d, d2 = docs(tmp_path / "fc")
+    assert seen_private[-1] == {"X-Api-Key": "SEKRET"}, "nagłówek z wartością ze środowiska"
+    assert d["url"] == "https://fc.invalid/weryfikacja-1" and d["title"] == "Fałsz", "url_template jako adres dokumentu"
+    assert d2["url"] == "https://fc.invalid/weryfikacja-1#2" and d2["version"] == 1, \
+        "powtórzony adres z url_template: osobny dokument, a nie nowa wersja"
+    assert "SEKRET" not in json.dumps(d), "klucz nie trafia do dokumentu"
+    with pytest.raises(ValueError, match="User-Agent"):
+        run_json_api(Ctx(store=store, fetcher=KeyFetcher()), {**src, "headers": {"User-Agent": "x"}},
+                     store.source_state("fc"), Stats())
+
+
+def test_parse_compact_date():
+    from crawler.extract import parse_any_date
+    assert parse_any_date("20261120160042").isoformat() == "2026-11-20T16:00:42+01:00"

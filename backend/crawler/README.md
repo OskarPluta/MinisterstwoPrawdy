@@ -9,6 +9,7 @@ Wynikiem są wyłącznie pliki w `data/crawl/`: crawler nie zna bazy ani RAG, a 
 ```bash
 uv run playwright install chromium         # raz; przeglądarka do renderowania stron
 export CRAWLER_CONTACT=zespol@example.pl   # obowiązkowy mail w User-Agencie; crawler nie czyta .env
+set -a; . ./.env; set +a                   # klucze API źródeł (np. GOOGLE_FACTCHECK_API_KEY dla factcheck-*)
 uv run crawler once --max-items 5          # jeden przebieg, maks. 5 nowych pozycji na źródło
 uv run crawler once --source rcb           # tylko wybrane źródła (opcja powtarzalna, działa też dla wyłączonych)
 uv run crawler run                         # pętla: każde źródło co interval_minutes
@@ -40,7 +41,7 @@ Wybieraj w tej kolejności, od najlepszego. **Jeśli źródło ma API** (udokume
 | Typ | Kiedy | Uwagi |
 | --- | --- | --- |
 | `rss` | Źródło ma kanał RSS/Atom | Domyślnie pobiera pełny artykuł (`fetch_full`). Odrzuca wpisy spoza domeny kanału. |
-| `json_api` | Publiczne API (IMGW, RSO, GIOŚ) | Każdy rekord to dokument `endpoint#id` z treścią w liniach `klucz: wartość`. Co przebieg przetwarza wszystkie rekordy, a o zapisie decyduje hasz. Obsługuje stronicowanie i dociąganie szczegółów rekordu (niżej). |
+| `json_api` | Publiczne API (IMGW, RSO, GIOŚ, Odyseusz, Google Fact Check) | Każdy rekord to dokument `endpoint#id` z treścią w liniach `klucz: wartość`. Co przebieg przetwarza wszystkie rekordy, a o zapisie decyduje hasz. Obsługuje stronicowanie i dociąganie szczegółów rekordu (niżej). |
 | `sitemap` | Brak kanału, jest sitemap.xml | Ponownie sprawdza adres, gdy wzrośnie jego `lastmod`. |
 | `html_list` | Lista aktualności z datami | Heurystyka bierze linki, przy których stoi data, w kafelku z jednym linkiem, i pomija `nav`/`header`/`footer`. Gdy nie wystarcza, ustaw `link_selector`. |
 | `static_page` | Pojedyncza strona, której zmiany śledzimy | Pobierana co przebieg. Data tylko z metadanych strony. |
@@ -76,6 +77,8 @@ Dodatkowe klucze `json_api` (przykłady: źródła `rso-*` i `gios-indeks-powiet
 | `detail_url`, `detail_path`, `detail_as` | Szablon adresu szczegółów pobieranych dla każdego rekordu (np. indeks stacji GIOŚ). Wynik trafia pod klucz `detail_as`, a URL dokumentu to `detail_url#id` |
 | `drop_fields` | Wzorce (`fnmatch`) pól usuwanych z treści, np. `"provinces.*.id"` |
 | `require_fields` | Rekord bez któregoś z tych pól jest pomijany (`skipped`) |
+| `headers` | Dodatkowe nagłówki, np. `{X-Goog-Api-Key: "${GOOGLE_FACTCHECK_API_KEY}"}`. `${ZMIENNA}` pochodzi ze środowiska (brak zmiennej daje `error` źródła). Idą tylko do hosta źródła, nie po przekierowaniu na inny host. `User-Agent` jest zabroniony. Klucza nie wpisuj do `sources.yaml` ani do URL, bo URL trafia do danych |
+| `url_template` | Adres dokumentu z pól rekordu zamiast `endpoint#id`, np. `{claimReview[0].url}` (artykuł weryfikacji) |
 
 Przy `page_template` lub `detail_url` zapytania są bezwarunkowe, bo 304 dla pierwszej strony nic nie mówi o reszcie.
 Endpointy aplikacji JS najłatwiej znaleźć w narzędziach deweloperskich przeglądarki (zakładka Sieć, filtr Fetch/XHR).

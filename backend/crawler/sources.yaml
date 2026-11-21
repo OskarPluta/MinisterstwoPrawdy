@@ -11,7 +11,8 @@
 #   strip_title_suffix (regex), drop_selectors
 # json_api: endpoint, records_path, id_field | id_template, title_template, date_fields, attribution, sort_lists,
 #   accept, page_template + page_start + max_pages (stronicowanie), record_filter{pole: [wartości]},
-#   detail_url + detail_path + detail_as (szczegóły każdego rekordu), drop_fields (wzorce), require_fields
+#   detail_url + detail_path + detail_as (szczegóły każdego rekordu), drop_fields (wzorce), require_fields,
+#   headers{Nazwa: "${ZMIENNA}"} (sekrety ze środowiska, tylko do hosta źródła), url_template (adres dokumentu)
 # Zasada: jeśli źródło ma API (udokumentowane albo endpoint JSON, z którego korzysta sama strona), używamy json_api.
 
 settings:
@@ -37,11 +38,12 @@ x-govpl: &govpl
 
 sources:
   # ======================= Wykluczone źródła (nie crawlujemy; blokad nie obchodzimy → wniosek o dane) =======================
-  # - cert-polska-komunikaty  https://moje.cert.pl/komunikaty/  – lista dopuszczona w robots.txt; czeka na decyzję
+  # - cert-polska (RSS)  https://moje.cert.pl/advisories/feed/  – robots.txt "Disallow: /" + "Allow: /komunikaty/"; zamiast niego cert-polska-komunikaty
+  # - sar  https://www.sar.gov.pl/sitemap.xml  – sitemapa się pobiera, ale artykuły dostają wyzwanie Incapsula (blocked)
+  # - monitoring.paa.gov.pl  – API mapy (/_api/maps/...) daje tylko pomiary pojedynczych stacji, bez komunikatów
   # - utk  https://utk.gov.pl/dokumenty/rss/  – robots.txt "User-agent: * / Disallow: /" (tylko Googlebot)
   # - wody-polskie-nawigacyjne  https://www.gov.pl/web/wody-polskie/komunikaty-nawigacyjne  – brak list z datami; czeka na decyzję
   # - ulc  https://ulc.gov.pl/  – Imperva/Incapsula (wyzwanie JS zamiast treści)
-  # - odyseusz  https://odyseusz.gov.pl/api/v1/informacje/profile-panstw  – API dozwolone w robots.txt (239 profili krajów, ~8,6 MB z flagami); do dodania jako json_api
   # - gddkia  https://drogi.gddkia.gov.pl  – Incapsula; utrudnienia drogowe GDDKiA przychodzą przez rso-drogowe
   # - portal-pasazera  https://portalpasazera.pl  – blokuje automaty
   # - monitoring.paa.gov.pl, powietrze.gios.gov.pl, meteo/hydro/baltyk.imgw.pl  – dane pomiarowe (IMGW: zamiast nich API)
@@ -68,14 +70,14 @@ sources:
     interval_minutes: 10
     silence_alert_hours: 48
 
-  - name: cert-polska
-    type: rss
+  # robots.txt moje.cert.pl: "Disallow: /" + "Allow: /komunikaty/", więc zamiast kanału RSS bierzemy listę komunikatów.
+  - name: cert-polska-komunikaty
+    type: html_list
     institution: CERT Polska (NASK)
     doc_type: ostrzezenie
-    url: https://moje.cert.pl/advisories/feed/
+    url: https://moje.cert.pl/komunikaty/
+    path_prefix: /komunikaty/20
     interval_minutes: 15
-    # robots.txt moje.cert.pl: "Disallow: /" + "Allow: /komunikaty/" → kanał /advisories/feed/ zablokowany.
-    # Źródło dostaje status blocked i nic nie pobiera (zgodnie z założeniem).
 
   - name: kgsok
     type: rss
@@ -155,13 +157,6 @@ sources:
     institution: Państwowa Agencja Atomistyki
     url: https://www.gov.pl/web/paa/panstwowa-agencja-atomistyki
     path_prefix: /web/paa/
-
-  # ======================= sitemap =======================
-  # SAR: sitemapa się pobiera, ale strony artykułów dostają wyzwanie Incapsula → blocked. Nie obchodzimy → do wniosku.
-  - name: sar
-    type: sitemap
-    institution: Morska Służba Poszukiwania i Ratownictwa (SAR)
-    url: https://www.sar.gov.pl/sitemap.xml
 
   # ======================= API =======================
   - name: imgw-meteo
@@ -271,6 +266,82 @@ sources:
     interval_minutes: 60
     silence_alert_hours: null
 
+  # MSZ Odyseusz: profile 239 krajów z poziomem zagrożenia i bieżącym komunikatem dla podróżujących. Endpoint aplikacji
+  # odyseusz.gov.pl (robots.txt pozwala). ~8,6 MB, z czego prawie wszystko to flagi w base64 (usuwane z treści).
+  - name: msz-odyseusz
+    type: json_api
+    institution: Ministerstwo Spraw Zagranicznych (Odyseusz)
+    doc_type: ostrzezenie_podroze
+    endpoint: https://odyseusz.gov.pl/api/v1/informacje/profile-panstw
+    id_field: kodIso
+    title_template: "Odyseusz – {nazwa}: {bazowyKodPoziomuZagrozenia}"
+    date_fields: [dataZatwierdzenia]
+    drop_fields: [flaga, uporzadkowanie]
+    interval_minutes: 360
+    silence_alert_hours: null
+
+  # IMGW Bałtyk: ostrzeżenia morskie (meteo) i hydrologiczne dla wybrzeża; endpointy aplikacji baltyk.imgw.pl.
+  - name: imgw-baltyk-meteo
+    type: json_api
+    institution: Instytut Meteorologii i Gospodarki Wodnej – PIB
+    doc_type: ostrzezenie_baltyk
+    endpoint: https://baltyk-api.imgw.pl/data/meteo_warnings
+    records_path: result
+    id_field: number
+    title_template: "Ostrzeżenie morskie IMGW: {phenomenon} – stopień {alertLevel} ({areaName})"
+    date_fields: [issuedAt, validFrom]
+    attribution: "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy."
+    interval_minutes: 15
+    silence_alert_hours: null
+
+  - name: imgw-baltyk-hydro
+    type: json_api
+    institution: Instytut Meteorologii i Gospodarki Wodnej – PIB
+    doc_type: ostrzezenie_baltyk
+    endpoint: https://baltyk-api.imgw.pl/data/hydro_warnings
+    records_path: result
+    id_template: "{no}-{released:.4}-{office}"  # numer jest liczony w ramach biura i roku
+    title_template: "Ostrzeżenie hydrologiczne IMGW (Bałtyk) nr {no}: {event} – stopień {degree}"
+    date_fields: [released, from]
+    drop_fields: [author, sms, "provinces*.areas"]  # author = imię i nazwisko synoptyka; areas = kody obszarów
+    attribution: "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy."
+    interval_minutes: 15
+    silence_alert_hours: null
+
+  # Google Fact Check Tools API (claims:search): weryfikacje polskich redakcji fact-checkingowych (ClaimReview).
+  # Klucz tylko w środowisku (GOOGLE_FACTCHECK_API_KEY), wysyłany nagłówkiem X-Goog-Api-Key, więc nie trafia do danych.
+  # Adres dokumentu = artykuł weryfikacji. 100 najtrafniejszych na wydawcę (kolejne strony wymagają nextPageToken).
+  # Bez wyników: konkret24.tvn24.pl, pravda.org.pl.
+  - &factcheck
+    name: factcheck-demagog
+    type: json_api
+    institution: Demagog
+    doc_type: weryfikacja
+    endpoint: https://factchecktools.googleapis.com/v1alpha1/claims:search?languageCode=pl&reviewPublisherSiteFilter=demagog.org.pl&pageSize=100
+    headers: {X-Goog-Api-Key: "${GOOGLE_FACTCHECK_API_KEY}"}
+    records_path: claims
+    url_template: "{claimReview[0].url}"
+    id_template: "{claimReview[0].url}"
+    title_template: "{claimReview[0].title}"
+    date_fields: ["claimReview[0].reviewDate", claimDate]
+    interval_minutes: 360
+    silence_alert_hours: null
+
+  - <<: *factcheck
+    name: factcheck-afp-sprawdzam
+    institution: AFP Sprawdzam
+    endpoint: https://factchecktools.googleapis.com/v1alpha1/claims:search?languageCode=pl&reviewPublisherSiteFilter=sprawdzam.afp.com&pageSize=100
+
+  - <<: *factcheck
+    name: factcheck-fakenews-pl
+    institution: FakeNews.pl
+    endpoint: https://factchecktools.googleapis.com/v1alpha1/claims:search?languageCode=pl&reviewPublisherSiteFilter=fakenews.pl&pageSize=100
+
+  - <<: *factcheck
+    name: factcheck-oko-press
+    institution: OKO.press
+    endpoint: https://factchecktools.googleapis.com/v1alpha1/claims:search?languageCode=pl&reviewPublisherSiteFilter=oko.press&pageSize=100
+
   # ======================= strony statyczne =======================
   # Treść to w praktyce lista tytułów komunikatów (same komunikaty są w podlinkowanych plikach), wykrywa ich zmianę.
   - name: ums-warunki-zeglugi
@@ -307,7 +378,18 @@ sources:
     urls:
       - https://www.gov.pl/web/infrastruktura/prawa-pasazerow
       - https://www.gov.pl/web/infrastruktura/infolinia-dla-obywatela
+      - https://www.gov.pl/web/infrastruktura/dane-kontaktowe
       # https://ulc.gov.pl/prawa-pasazera, https://ulc.gov.pl/prawa-pasazera/poradnik-dla-pasazerow:
       #   Incapsula. https://utk.gov.pl/pl/pasazerowie: robots.txt UTK blokuje.
+    interval_minutes: 10080     # raz w tygodniu
+    silence_alert_hours: null
+
+  # GDDKiA: drogi.gddkia.gov.pl jest za Incapsulą (utrudnienia bierzemy z rso-drogowe); opis infolinii 19 111 jest na gov.pl.
+  - name: gddkia-informacja-drogowa
+    <<: *govpl
+    type: static_page
+    institution: Generalna Dyrekcja Dróg Krajowych i Autostrad
+    doc_type: informacja
+    url: https://www.gov.pl/web/gddkia/informacja-drogowa---19-111
     interval_minutes: 10080     # raz w tygodniu
     silence_alert_hours: null

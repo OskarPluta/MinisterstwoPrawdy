@@ -71,6 +71,11 @@ def parse_any_date(value: str | None) -> datetime | None:
         return dt if dt.tzinfo else dt.replace(tzinfo=WARSAW)
     except ValueError:
         pass
+    if re.fullmatch(r"\d{14}", value):  # YYYYMMDDHHMMSS (np. API Bałtyku IMGW)
+        try:
+            return datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=WARSAW)
+        except ValueError:
+            pass
     return find_date(value)
 
 

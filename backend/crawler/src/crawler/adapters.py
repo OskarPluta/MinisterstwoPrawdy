@@ -4,6 +4,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import logging
+import os
 import re
 import unicodedata
 from dataclasses import asdict, dataclass, field
@@ -485,15 +486,42 @@ def _matches_filter(flat: dict[str, str], record_filter: dict[str, Any] | None) 
     return True
 
 
+_ENV_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+
+def _private_headers(src: dict) -> dict[str, str] | None:
+    """`headers` źródła z ${ZMIENNA} podstawionymi ze środowiska (np. klucz API spoza repo).
+    Brak zmiennej przerywa źródło komunikatem bez wartości. Nadpisanie User-Agenta jest zabronione."""
+    raw = src.get("headers") or {}
+    out = {}
+    for name, value in raw.items():
+        if name.lower() == "user-agent":
+            raise ValueError("headers: nie wolno zmieniać User-Agenta")
+
+        def env(m: re.Match) -> str:
+            if not os.environ.get(m.group(1)):
+                raise ValueError(f"brak zmiennej środowiskowej {m.group(1)} (nagłówek {name})")
+            return os.environ[m.group(1)]
+        out[name] = _ENV_RE.sub(env, str(value))
+    return out or None
+
+
+def _private_kw(src: dict) -> dict:
+    """Argument `private` dla http_get tylko wtedy, gdy źródło ma `headers`."""
+    private = _private_headers(src)
+    return {"private": private} if private else {}
+
+
 def _fetch_json_pages(ctx: Ctx, src: dict, stats: Stats) -> tuple[list, list] | None:
     """Pobiera rekordy (ze stronicowaniem). Zwraca (rekordy, odpowiedzi do commit_validators)
     albo None, gdy pojedyncza strona odpowiedziała 304."""
     endpoint = src["urls"][0]
     accept = src.get("accept") or "application/json"
+    priv = _private_kw(src)
     page_tpl = src.get("page_template")
     # Przy stronicowaniu i dociąganiu szczegółów 304 na liście nic nie mówi o całości – pobieramy zawsze.
     conditional = not page_tpl and not src.get("detail_url")
-    resp = ctx.fetcher.http_get(endpoint, conditional=conditional, accept=accept)
+    resp = ctx.fetcher.http_get(endpoint, conditional=conditional, accept=accept, **priv)
     if resp.not_modified:
         return None
     records = _records_of(json.loads(resp.text), src.get("records_path"))
@@ -505,7 +533,7 @@ def _fetch_json_pages(ctx: Ctx, src: dict, stats: Stats) -> tuple[list, list] | 
         n = first_len
         seen = {json.dumps(r, sort_keys=True) for r in records}
         while n and n >= first_len and page < last:
-            r = ctx.fetcher.http_get(page_tpl.replace("{page}", str(page)), conditional=False, accept=accept)
+            r = ctx.fetcher.http_get(page_tpl.replace("{page}", str(page)), conditional=False, accept=accept, **priv)
             more = [x for x in _records_of(json.loads(r.text), src.get("records_path"))
                     if json.dumps(x, sort_keys=True) not in seen]
             if not more:  # strona bez nowych rekordów (np. API zwraca ostatnią stronę dla dalszych numerów)
@@ -524,7 +552,8 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
 
     Opcjonalnie: stronicowanie (page_template), filtr rekordów (record_filter), dociąganie szczegółów
     każdego rekordu (detail_url + detail_path, wynik pod kluczem detail_as), usuwanie pól (drop_fields),
-    pomijanie rekordów bez wymaganych pól (require_fields)."""
+    pomijanie rekordów bez wymaganych pól (require_fields), nagłówki z sekretami ze środowiska (headers),
+    własny adres dokumentu (url_template)."""
     endpoint = src["urls"][0]
     got = _fetch_json_pages(ctx, src, stats)
     if got is None:
@@ -552,7 +581,7 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
             if detail_url:
                 url_d = render_template(detail_url, dict(_flatten(rec)))
                 dr = ctx.fetcher.http_get(url_d, conditional=False,
-                                          accept=src.get("accept") or "application/json")
+                                          accept=src.get("accept") or "application/json", **_private_kw(src))
                 rec = {**rec, detail_as: _dig(json.loads(dr.text), src.get("detail_path"))}
             flat = [(k, v) for k, v in _flatten(rec, sort_lists=sort_lists)
                     if not any(fnmatch.fnmatchcase(k, pat) for pat in drop)]
@@ -576,7 +605,14 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
                 stats.msg(f"powtórzony identyfikator {rid!r} w odpowiedzi – zapisany jako {rid}~{n}")
                 rid = f"{rid}~{n}"
             seen_ids.append(rid)
-            url = f"{url_d or endpoint}#{rid}"  # przy detail_url cytujemy adres szczegółów rekordu
+            if src.get("url_template"):  # własny adres rekordu, np. artykuł weryfikacji zamiast API
+                url = render_template(src["url_template"], dict(flat)).strip()
+                if not url.startswith(("http://", "https://")):
+                    raise ValueError(f"url_template dał niepoprawny adres {url[:80]!r}")
+                if "~" in rid:  # powtórzony rekord (np. jedna weryfikacja dla dwóch twierdzeń): osobny dokument
+                    url = f"{url}#{rid.rsplit('~', 1)[1]}"
+            else:
+                url = f"{url_d or endpoint}#{rid}"  # przy detail_url cytujemy adres szczegółów rekordu
             content = "\n".join(f"{k}: {v}" for k, v in flat)
             if attribution:
                 content += f"\n\n{attribution}"
