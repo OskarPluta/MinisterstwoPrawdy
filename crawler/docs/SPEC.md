@@ -35,7 +35,7 @@ Z tych plików korzysta później RAG (indeksowanie nie należy do crawlera).
 * Nie pobiera i nie parsuje załączników (PDF, DOC…). Gdy treść strony jest krótka, zapisuje tylko listę linków
   do załączników (§7.5).
 * Nie zachowuje linków wychodzących z treści artykułu. Tekst jest „płaski”, adresy z `<a href>` giną, a plan
-  `PLAN_OBSLUGI_ZRODEL.md` przewiduje `outbound_links`.
+  `docs/PLAN_OBSLUGI_ZRODEL.md` (w katalogu głównym repo) przewiduje `outbound_links`.
 * Nie wykrywa usunięcia dokumentu u źródła. Wyjątkiem jest `json_api`: lista `active_ids` w stanie (§6.4).
 * Nie deduplikuje treści między różnymi adresami URL.
 * Nie obchodzi zabezpieczeń: brak proxy, rotacji UA, wtyczek stealth, rozwiązywania CAPTCHA i logowania.

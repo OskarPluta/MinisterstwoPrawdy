@@ -1,8 +1,10 @@
 # Prawdowid: RAG prototype
 
-First version of the verification core from [`docs/plan.md`](docs/plan.md): PostgreSQL store with full-text search, BM25-style + multilingual-e5 + RRF retrieval, an LLM verifier with code-side citation checks, and Polish answers. Everything currently runs on **fake test data** (`fixtures/`, all URLs on the reserved `.test` TLD).
+First version of the verification core from [`docs/plan.md`](../docs/plan.md): PostgreSQL store with full-text search, BM25-style + multilingual-e5 + RRF retrieval, an LLM verifier with code-side citation checks, and Polish answers. Tests and evaluations run on **fake test data** (`fixtures/`, all URLs on the reserved `.test` TLD); real evidence comes from the crawler in `crawler/` via `prawdowid convert-crawler` (see the Polish top-level `README.md`).
 
 ## Setup
+Run every command below from the repository root (where `pyproject.toml` is).
+
 ```bash
 cp .env.example .env    # then set POSTGRES_PASSWORD / DATABASE_URL and API keys
 docker compose up -d db # PostgreSQL 16 on localhost:5432 (or point DATABASE_URL at any Postgres >= 14)
