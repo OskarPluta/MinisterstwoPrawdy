@@ -4,21 +4,25 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Callable
-from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Callable
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .extract import (SKIP_EXT, ListItem, extract_article, find_attachments, find_dated_links, parse_any_date,
                       parse_feed, parse_sitemap, to_iso)
 from .fetcher import Blocked, Fetcher, RobotsBlocked, RobotsUnavailable, Throttled, host_of
 from .storage import Store, iso, now_utc, parse_iso, sha256
 
+if TYPE_CHECKING:
+    from .pii import PiiMasker
+
 log = logging.getLogger(__name__)
 
-MIN_CONTENT_CHARS = 80
-MAX_PENDING = 300
-MAX_FAILS = 3
+MIN_CONTENT_CHARS = 80   # krótszy tekst = ekstrakcja się nie udała
+MAX_PENDING = 300        # limit zaległych adresów odkładanych na kolejne przebiegi
+MAX_FAILS = 3            # po tylu błędach z rzędu adres jest oznaczany jako failed
 
 
 class SourceBlocked(Exception):
@@ -26,11 +30,12 @@ class SourceBlocked(Exception):
 
 
 class SkipItem(Exception):
-    pass
+    """Pomijamy pojedynczy wpis (np. nie-HTML, brak opisu w kanale) – to nie błąd."""
 
 
 @dataclass
 class Stats:
+    """Liczniki i komunikaty jednego przebiegu źródła (trafiają do crawl_log.jsonl)."""
     found: int = 0
     new: int = 0
     updated: int = 0
@@ -52,9 +57,10 @@ class Stats:
 
 @dataclass
 class Ctx:
+    """Wspólne obiekty przebiegu przekazywane adapterom."""
     store: Store
     fetcher: Fetcher
-    masker: Any  # PiiMasker | None
+    masker: PiiMasker | None
     max_items_override: int | None = None
 
 
@@ -69,6 +75,7 @@ def base_domain(host: str) -> str:
 # ---------------- zapis dokumentu ----------------
 def save_doc(ctx: Ctx, src: dict, url: str, title: str | None, content: str, published: str | None,
              method: str) -> str:
+    """Maskuje PII (jeśli źródło tego wymaga) i zapisuje dokument; zwraca new | updated | unchanged."""
     if src.get("mask_pii"):
         if ctx.masker is None:  # nie powinno się zdarzyć – start jest blokowany wcześniej
             raise RuntimeError("mask_pii=true, a maskowanie niedostępne – nie zapisuję")
@@ -88,6 +95,7 @@ def save_doc(ctx: Ctx, src: dict, url: str, title: str | None, content: str, pub
 
 def fetch_article(ctx: Ctx, src: dict, item: ListItem, prefer_list_title: bool,
                   allow_guessed_date: bool = True) -> str:
+    """Pobiera (renderuje) artykuł, wyciąga treść i zapisuje; zwraca new | updated | unchanged."""
     url = item.url
     resp = ctx.fetcher.render(url, conditional=url in ctx.store.current)
     if resp.not_modified:
@@ -107,13 +115,12 @@ def fetch_article(ctx: Ctx, src: dict, item: ListItem, prefer_list_title: bool,
     if len(text) < MIN_CONTENT_CHARS and item.summary and len(item.summary) >= 40:
         text, method = item.summary, "http"  # RSS: zostaje opis z kanału
     if attachments:
-        lines = [f"- {name}: {url}" for name, url in attachments[:10]]
+        lines = [f"- {name}: {att_url}" for name, att_url in attachments[:10]]
         text = ((text + "\n\n") if text else "") + "Komunikat opublikowany w załączniku:\n" + "\n".join(lines)
     if len(text) < MIN_CONTENT_CHARS:
         if not resp.is_html:
             raise SkipItem(f"nie-HTML ({resp.content_type}): {url}")
-        else:
-            raise ValueError(f"nie udało się wyciągnąć treści ({len(text)} znaków): {url}")
+        raise ValueError(f"nie udało się wyciągnąć treści ({len(text)} znaków): {url}")
     if prefer_list_title:
         title = item.title or title
     else:
@@ -143,6 +150,7 @@ def _sort_key_newest(it: ListItem) -> float:
 
 
 def recheck_due(src: dict) -> Callable[[ListItem, dict], bool]:
+    """Kryterium ponownego sprawdzenia znanego adresu: minęło `recheck_hours` od ostatniego."""
     hours = float(src.get("recheck_hours", 24))
 
     def due(it: ListItem, k: dict) -> bool:
@@ -155,8 +163,10 @@ def recheck_due(src: dict) -> Callable[[ListItem, dict], bool]:
 
 def select_candidates(ctx: Ctx, src: dict, st: dict, items: list[ListItem],
                       is_due: Callable[[ListItem, dict], bool]) -> list[ListItem]:
+    """Wybiera do `limit` adresów: najpierw nowe (najświeższe), potem do ponownego sprawdzenia
+    (najdawniej sprawdzane). Nadmiarowe nowe odkłada do st["pending"]."""
     known: dict = st["known"]
-    limit = ctx.max_items_override or int(src.get("max_items_per_run", 30))
+    limit = ctx.max_items_override if ctx.max_items_override is not None else int(src.get("max_items_per_run", 30))
     new: list[ListItem] = []
     due: list[ListItem] = []
     seen: set[str] = set()
@@ -180,6 +190,12 @@ def select_candidates(ctx: Ctx, src: dict, st: dict, items: list[ListItem],
     return cands
 
 
+def _requeue(st: dict, it: ListItem) -> None:
+    """Odkłada nieprzetworzony nowy adres na początek kolejki zaległych."""
+    if it.url not in st["known"]:
+        st["pending"] = ([_item_to_dict(it)] + st.get("pending", []))[:MAX_PENDING]
+
+
 def _mark_known(st: dict, it: ListItem, **extra) -> None:
     k = st["known"].setdefault(it.url, {"first_seen": iso(now_utc())})
     k["checked_at"] = iso(now_utc())
@@ -194,18 +210,19 @@ def _mark_known(st: dict, it: ListItem, **extra) -> None:
 
 def process_items(ctx: Ctx, src: dict, st: dict, stats: Stats, cands: list[ListItem],
                   handler: Callable[[ListItem], str]) -> None:
+    """Przetwarza kandydatów; blokada/wycofanie hosta wstrzymuje tylko ten host. Jeśli stoją
+    wszystkie hosty źródła – ponownie rzuca wyjątek (status źródła blocked/throttled)."""
     dead: dict[str, Exception] = {}  # host → powód (blokada / wycofanie); innych hostów to nie dotyczy
-    for i, it in enumerate(cands):
+    for it in cands:
         host = host_of(it.url)
         if host in dead:
-            if it.url not in st["known"]:
-                st["pending"] = ([_item_to_dict(it)] + st.get("pending", []))[:MAX_PENDING]
+            _requeue(st, it)
             continue
         try:
             outcome = handler(it)
             stats.count(outcome)
             _mark_known(st, it)
-        except RobotsBlocked as e:
+        except RobotsBlocked:
             stats.skipped += 1
             stats.blocked_urls.append(it.url)
             log.warning("[%s] pomijam (robots.txt): %s", src["name"], it.url)
@@ -218,8 +235,7 @@ def process_items(ctx: Ctx, src: dict, st: dict, stats: Stats, cands: list[ListI
             # nie męczymy dalej tego hosta; nieprzetworzone nowe adresy zostają na następny przebieg
             dead[host] = e
             stats.msg(str(e))
-            if it.url not in st["known"]:
-                st["pending"] = ([_item_to_dict(it)] + st.get("pending", []))[:MAX_PENDING]
+            _requeue(st, it)
         except Exception as e:
             stats.errors += 1
             stats.msg(f"{type(e).__name__}: {str(e)[:200]}")
@@ -241,6 +257,7 @@ def process_items(ctx: Ctx, src: dict, st: dict, stats: Stats, cands: list[ListI
 
 # ---------------- adaptery ----------------
 def run_rss(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
+    """Kanały RSS/Atom; wpisy spoza domeny kanału są pomijane."""
     items: list[ListItem] = []
     resps = []
     blocked = 0
@@ -309,6 +326,7 @@ def _page_url(url: str, template: str, n: int) -> str:
 
 
 def run_html_list(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
+    """Listy aktualności (np. gov.pl) z opcjonalnym stronicowaniem."""
     items: list[ListItem] = []
     resps = []
     fetched_pages = 0
@@ -352,6 +370,7 @@ def run_html_list(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
 
 
 def run_sitemap(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
+    """Sitemapy (także sitemapindex) – tylko adresy z hosta pierwszej sitemapy."""
     root = src["urls"][0]
     host = host_of(root)
     excl = re.compile(src["exclude_regex"]) if src.get("exclude_regex") else None
@@ -391,16 +410,16 @@ def run_sitemap(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
     if resps and not items:
         stats.status = "warn"
         stats.msg("sitemapa nie zawiera adresów z tej domeny")
-    hours = float(src.get("recheck_hours", 24))
+    time_due = recheck_due(src)
 
     def is_due(it: ListItem, k: dict) -> bool:
+        # z lastmod: sprawdzamy ponownie tylko, gdy się zmienił; bez lastmod – co recheck_hours
         if k.get("failed"):
             return False
         if it.lastmod is not None:
             prev = parse_iso(k.get("lastmod"))
             return prev is None or it.lastmod > prev
-        checked = parse_iso(k.get("checked_at"))
-        return checked is None or now_utc() - checked >= timedelta(hours=hours)
+        return time_due(it, k)
 
     # sitemapy: najświeższe najpierw (lastmod jako proxy daty)
     cands = select_candidates(ctx, src, st, items, is_due)
@@ -412,6 +431,7 @@ def run_sitemap(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
 
 
 def _flatten(obj: Any, prefix: str = "", sort_lists: bool = False) -> list[tuple[str, str]]:
+    """JSON → [(klucz, wartość)], np. obszary[0].wojewodztwo; listy skalarów łączone przecinkami."""
     out: list[tuple[str, str]] = []
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -442,13 +462,14 @@ def render_template(template: str, flat: dict[str, str]) -> str:
 
 
 def _slug(s: str) -> str:
-    import unicodedata
+    """ASCII-owy identyfikator z małych liter, cyfr i myślników."""
     s = unicodedata.normalize("NFKD", s.replace("ł", "l").replace("Ł", "L"))
     s = "".join(c for c in s if not unicodedata.combining(c)).lower()
     return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
 
 
 def _dig(obj: Any, path: str | None) -> Any:
+    """Wartość pod ścieżką „a.0.b” (liczby indeksują listy); pusta ścieżka = cały obiekt."""
     if not path:
         return obj
     for part in path.split("."):
@@ -457,6 +478,7 @@ def _dig(obj: Any, path: str | None) -> Any:
 
 
 def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
+    """API JSON: każdy rekord to dokument o adresie endpoint#id (treść = spłaszczone pola)."""
     endpoint = src["urls"][0]
     resp = ctx.fetcher.http_get(endpoint, accept="application/json")
     if resp.not_modified:
@@ -492,6 +514,10 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
                 rid = str(rid)
             else:
                 rid = sha256(json.dumps(rec, sort_keys=True, ensure_ascii=False))[:16]
+            if rid in seen_ids:  # ten sam id dwa razy w odpowiedzi – bez sufiksu wersje by się przeplatały
+                n = sum(1 for s in seen_ids if s == rid or s.startswith(rid + "~")) + 1
+                stats.msg(f"powtórzony identyfikator {rid!r} w odpowiedzi – zapisany jako {rid}~{n}")
+                rid = f"{rid}~{n}"
             seen_ids.append(rid)
             url = f"{endpoint}#{rid}"
             content = "\n".join(f"{k}: {v}" for k, v in flat)
@@ -506,7 +532,7 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
                 if v and (dt := parse_any_date(v)):
                     published = to_iso(dt)
                     break
-            stats.count(save_doc(ctx, src, url, title or None, content, published, "http"))
+            stats.count(save_doc(ctx, src, url, title, content, published, "http"))
         except Exception as e:
             stats.errors += 1
             stats.msg(f"{type(e).__name__}: {str(e)[:200]}")
@@ -516,6 +542,7 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
 
 
 def run_static_page(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
+    """Pojedyncze strony obserwowane pod kątem zmian treści."""
     items = [ListItem(url=u) for u in src["urls"]]
     stats.found = len(items)
     process_items(ctx, src, st, stats, items,

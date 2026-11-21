@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 # ---------------- wyjątki ----------------
 class FetchError(Exception):
-    pass
+    """Bazowy wyjątek pobierania."""
 
 
 class RobotsBlocked(FetchError):
@@ -42,11 +42,12 @@ class Blocked(FetchError):
 
 
 class HttpError(FetchError):
-    pass
+    """Błąd sieci, status 4xx/5xx (poza obsługiwanymi wyżej) albo za dużo przekierowań."""
 
 
 @dataclass
 class Resp:
+    """Odpowiedź po pobraniu (HTTP) lub renderowaniu (Playwright)."""
     url: str                     # adres żądany (bez fragmentu)
     final_url: str               # po przekierowaniach
     status: int
@@ -109,15 +110,18 @@ def looks_like_challenge(html: str, status: int = 200) -> str | None:
 
 # ---------------- pomocnicze ----------------
 def strip_fragment(url: str) -> str:
+    """Adres bez #fragmentu, z pustą ścieżką zamienioną na „/”."""
     p = urlsplit(url)
     return urlunsplit((p.scheme, p.netloc, p.path or "/", p.query, ""))
 
 
 def host_of(url: str) -> str:
+    """Nazwa hosta małymi literami (bez portu)."""
     return (urlsplit(url).hostname or "").lower()
 
 
 def _retry_after_seconds(value: str | None, default: float) -> float:
+    """Retry-After w sekundach (liczba albo data HTTP), co najmniej 1 s; bez nagłówka – `default`."""
     if not value:
         return default
     value = value.strip()
@@ -137,6 +141,8 @@ _BLOCKED_RESOURCES = {"image", "media", "font", "stylesheet", "imageset", "textt
 
 
 class Fetcher:
+    """Jedyna droga do sieci: pilnuje robots.txt, odstępów między zapytaniami i wycofań."""
+
     def __init__(self, settings: dict, store: Store, user_agent: str):
         self.settings = settings
         self.store = store
@@ -172,6 +178,7 @@ class Fetcher:
 
     # ---------- wycofanie ----------
     def backoff_until(self, host: str) -> datetime | None:
+        """Koniec aktywnego wycofania dla hosta (wygasłe usuwa ze stanu) albo None."""
         b = self.store.state["backoff"].get(host)
         if not b:
             return None
@@ -188,6 +195,15 @@ class Fetcher:
         log.warning("Wycofanie z %s do %s (%s)", host, until.isoformat(), reason)
         return until
 
+    def _backoff_seconds(self, r: httpx.Response, setting: str) -> float:
+        """Czas wycofania: Retry-After z odpowiedzi albo domyślna liczba minut z ustawień."""
+        return _retry_after_seconds(r.headers.get("retry-after"), float(self.settings[setting]) * 60)
+
+    def _challenge_backoff(self, host: str, marker: str) -> None:
+        """Wyzwanie antybotowe traktujemy jak 403: wycofanie (kind=blocked), bez prób obejścia."""
+        self._set_backoff(host, float(self.settings["forbidden_backoff_minutes"]) * 60,
+                          f"wyzwanie antybotowe ({marker})", kind="blocked")
+
     def _check_backoff(self, host: str) -> None:
         until = self.backoff_until(host)
         if until:
@@ -197,10 +213,16 @@ class Fetcher:
 
     # ---------- robots.txt ----------
     def robots_for(self, url: str) -> RobotsRules:
+        """Reguły robots.txt dla schematu+hosta adresu (z pamięci podręcznej z TTL).
+
+        RFC 9309: 2xx → parsujemy, 4xx → brak ograniczeń, 5xx / błąd sieci → nic nie pobieramy
+        z hosta przez `robots_unavailable_retry_minutes` (RobotsUnavailable)."""
         p = urlsplit(url)
         key = f"{p.scheme}://{p.netloc}"
         cached = self._robots.get(key)
         if cached and cached[1] > time.monotonic():
+            if cached[0].disallow_all:  # zapamiętana niedostępność robots.txt (5xx / błąd sieci)
+                raise RobotsUnavailable(f"robots.txt {key}/robots.txt był niedostępny – czekam do ponownej próby")
             return cached[0]
         host = (p.hostname or "").lower()
         self._check_backoff(host)
@@ -213,26 +235,34 @@ class Fetcher:
             if 200 <= status < 300:
                 rules = parse_robots(r.text, self.product_token)
                 ttl = ttl_ok
+            elif status == 429:
+                # 429 to nie „brak robots.txt” (jak inne 4xx), tylko prośba o zwolnienie → wycofanie
+                self._set_backoff(host, self._backoff_seconds(r, "default_backoff_minutes"), "429 na robots.txt")
+                raise Throttled(f"{host}: 429 na robots.txt")
             elif 400 <= status < 500:
-                # RFC 9309: 4xx (także 429? – nie: 429 traktujemy jak wycofanie) = brak ograniczeń
-                if status == 429:
-                    self._set_backoff(host, _retry_after_seconds(r.headers.get("retry-after"),
-                                      self.settings["default_backoff_minutes"] * 60), "429 na robots.txt")
-                    raise Throttled(f"{host}: 429 na robots.txt")
+                # RFC 9309: robots.txt niedostępny (4xx) = brak ograniczeń
                 rules, ttl = RobotsRules(allow_all=True), ttl_ok
             else:
                 log.warning("robots.txt %s → %s: wstrzymuję pobieranie z hosta", robots_url, status)
-                rules, ttl = RobotsRules(disallow_all=True), ttl_bad
-                self._robots[key] = (rules, time.monotonic() + ttl)
+                self._robots[key] = (RobotsRules(disallow_all=True), time.monotonic() + ttl_bad)
                 raise RobotsUnavailable(f"robots.txt {robots_url} zwrócił {status}")
-        except httpx.HTTPError as e:
-            rules = RobotsRules(disallow_all=True)
-            self._robots[key] = (rules, time.monotonic() + ttl_bad)
+        except (httpx.HTTPError, HttpError) as e:  # HttpError: pętla przekierowań robots.txt
+            self._robots[key] = (RobotsRules(disallow_all=True), time.monotonic() + ttl_bad)
             raise RobotsUnavailable(f"robots.txt {robots_url}: błąd sieci {type(e).__name__}") from e
         self._robots[key] = (rules, time.monotonic() + ttl)
         return rules
 
+    def cached_robots_allows(self, url: str) -> bool:
+        """Bez zapytań sieciowych: czy zapamiętany robots.txt originu pozwala na adres
+        (brak wpisu w pamięci = nie wiemy, więc nie blokujemy). Dla podzasobów w przeglądarce."""
+        p = urlsplit(url)
+        cached = self._robots.get(f"{p.scheme}://{p.netloc}")
+        if not cached or cached[1] <= time.monotonic():
+            return True
+        return cached[0].allowed(url)
+
     def check_allowed(self, url: str) -> RobotsRules:
+        """Rzuca RobotsBlocked, jeśli robots.txt zabrania adresu; zwraca reguły (Crawl-delay)."""
         rules = self.robots_for(url)
         if not rules.allowed(url):
             raise RobotsBlocked(f"robots.txt blokuje {url}")
@@ -259,6 +289,10 @@ class Fetcher:
         raise HttpError(f"Za dużo przekierowań: {url}")
 
     def http_get(self, url: str, conditional: bool = True, accept: str | None = None) -> Resp:
+        """GET z robots.txt, limitem zapytań i (opcjonalnie) If-None-Match / If-Modified-Since.
+
+        429/503 → Throttled, 403 i wyzwania antybotowe → Blocked (oba ustawiają wycofanie hosta),
+        inne ≥400 → HttpError. Walidatory zapisuje dopiero commit_validators()."""
         url = strip_fragment(url)
         host = host_of(url)
         headers: dict[str, str] = {}
@@ -276,19 +310,17 @@ class Fetcher:
             raise HttpError(f"{url}: {type(e).__name__}: {e}") from e
         status = r.status_code
         if status in (429, 503):
-            secs = _retry_after_seconds(r.headers.get("retry-after"),
-                                        float(self.settings["default_backoff_minutes"]) * 60)
+            secs = self._backoff_seconds(r, "default_backoff_minutes")
             self._set_backoff(host, secs, f"HTTP {status}")
             raise Throttled(f"{url}: HTTP {status}, wycofanie na {int(secs)} s")
         if status == 403:
-            secs = _retry_after_seconds(r.headers.get("retry-after"),
-                                        float(self.settings["forbidden_backoff_minutes"]) * 60)
+            secs = self._backoff_seconds(r, "forbidden_backoff_minutes")
             self._set_backoff(host, secs, "HTTP 403", kind="blocked")
             raise Blocked(f"{url}: HTTP 403 (odmowa dostępu) – nie obchodzimy, wycofanie na {int(secs)} s")
         if status == 304:
             return Resp(url=url, final_url=str(r.url), status=304, headers=dict(r.headers),
                         etag=r.headers.get("etag"), last_modified=r.headers.get("last-modified"))
-        if status >= 400:
+        if status >= 300:  # 3xx z Location obsługuje _raw_get; tu zostają 3xx bez Location i błędy
             raise HttpError(f"{url}: HTTP {status}")
         content = r.content
         if content[:2] == b"\x1f\x8b":
@@ -306,8 +338,7 @@ class Fetcher:
         if resp.is_html:
             hit = looks_like_challenge(resp.text, status)
             if hit:
-                self._set_backoff(host, float(self.settings["forbidden_backoff_minutes"]) * 60,
-                                  f"wyzwanie antybotowe ({hit})", kind="blocked")
+                self._challenge_backoff(host, hit)
                 raise Blocked(f"{url}: wyzwanie antybotowe/CAPTCHA (znacznik {hit!r}) – nie obchodzimy")
         return resp
 
@@ -337,12 +368,13 @@ class Fetcher:
         resp.method = "playwright"
         hit = looks_like_challenge(resp.text)
         if hit:
-            self._set_backoff(host_of(url), float(self.settings["forbidden_backoff_minutes"]) * 60,
-                              f"wyzwanie antybotowe ({hit})", kind="blocked")
+            self._challenge_backoff(host_of(url), hit)
             raise Blocked(f"{url}: wyzwanie antybotowe/CAPTCHA po renderowaniu (znacznik {hit!r})")
         return resp
 
     def _render_html(self, url: str, body: bytes, content_type: str) -> str:
+        """Renderuje pobrany już dokument. Inne nawigacje, obrazy/czcionki/style, trackery
+        i zasoby (poza skryptami/XHR) z obcych hostów są blokowane."""
         from playwright.sync_api import TimeoutError as PWTimeout
         browser = self._ensure_browser()
         ctx = browser.new_context(user_agent=self.ua, locale="pl-PL", service_workers="block",
@@ -368,6 +400,9 @@ class Fetcher:
                     if rhost != target_host and request.resource_type not in ("script", "xhr", "fetch"):
                         route.abort()
                         return
+                    if not self.cached_robots_allows(request.url):
+                        route.abort()  # skrypt strony chce pobrać adres zabroniony w robots.txt
+                        return
                     route.continue_()
                 except Exception:  # strona zamknięta w trakcie
                     pass
@@ -383,6 +418,7 @@ class Fetcher:
             ctx.close()
 
     def close(self) -> None:
+        """Zamyka klienta HTTP i przeglądarkę (jeśli została uruchomiona)."""
         try:
             self.client.close()
         finally:

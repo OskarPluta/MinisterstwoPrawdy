@@ -7,8 +7,8 @@ Służy do opisania, skąd aplikacje JS (np. gov.pl/web/gov/ostrzezenia) biorą 
 """
 from __future__ import annotations
 
-import json
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -20,7 +20,6 @@ from faktbot.storage import Store  # noqa: E402
 
 def main(urls: list[str]) -> None:
     cfg = load_config(Path(__file__).resolve().parent.parent / "sources.yaml")
-    import tempfile
     store = Store(Path(tempfile.mkdtemp(prefix="inspect-")))
     f = Fetcher(cfg.settings, store, cfg.user_agent())
     from playwright.sync_api import sync_playwright

@@ -9,12 +9,14 @@ from urllib.parse import urlsplit
 
 @dataclass
 class RobotsRules:
+    """Reguły dla naszego User-Agenta; allow_all / disallow_all dla 4xx / 5xx robots.txt."""
     rules: list[tuple[bool, str, re.Pattern]] = field(default_factory=list)  # (allow, pattern, regex)
     crawl_delay: float | None = None
     allow_all: bool = False
     disallow_all: bool = False
 
     def allowed(self, url: str) -> bool:
+        """Czy wolno pobrać adres (najdłuższe dopasowanie; przy remisie wygrywa Allow)."""
         if self.disallow_all:
             return False
         if self.allow_all:
@@ -34,6 +36,7 @@ class RobotsRules:
 
 
 def _compile(pattern: str) -> re.Pattern:
+    """Wzorzec robots.txt (* = dowolny ciąg, $ na końcu = koniec adresu) → regex od początku ścieżki."""
     anchored = pattern.endswith("$")
     if anchored:
         pattern = pattern[:-1]
@@ -42,6 +45,7 @@ def _compile(pattern: str) -> re.Pattern:
 
 
 def parse_robots(text: str, product_token: str) -> RobotsRules:
+    """Wybiera grupy pasujące do `product_token` (albo „*”, gdy żadna nie pasuje) i scala ich reguły."""
     token = product_token.lower()
     groups: list[dict] = []
     cur: dict | None = None
@@ -74,7 +78,8 @@ def parse_robots(text: str, product_token: str) -> RobotsRules:
             except ValueError:
                 pass
 
-    specific = [g for g in groups if any(a == token or (a != "*" and token.startswith(a)) for a in g["agents"])]
+    # RFC 9309: dopasowanie tokenu produktu bez rozróżniania wielkości liter; akceptujemy też „FaktBot/1.0”
+    specific = [g for g in groups if any(a == token or a.split("/", 1)[0] == token for a in g["agents"])]
     chosen = specific or [g for g in groups if "*" in g["agents"]]
     if not chosen:
         return RobotsRules(allow_all=True)

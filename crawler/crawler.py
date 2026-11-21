@@ -23,6 +23,7 @@ from faktbot.storage import Store
 
 
 def setup_logging(data_dir: Path, verbose: bool) -> None:
+    """Log na stderr i do data_dir/crawler.log."""
     data_dir.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S")
     root = logging.getLogger()
@@ -38,6 +39,7 @@ def setup_logging(data_dir: Path, verbose: bool) -> None:
 
 
 def install_signal_handlers() -> None:
+    """Pierwszy SIGINT/SIGTERM: dokończ bieżące źródło; drugi: przerwij od razu."""
     def handler(signum, frame):
         if STOP.is_set():
             logging.getLogger().warning("Drugi sygnał – przerywam natychmiast")
@@ -71,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.cmd == "status":
-        print(status_report(cfg, Store(cfg.data_dir)))
+        print(status_report(cfg, Store(cfg.data_dir, readonly=True)))
         return 0
 
     setup_logging(cfg.data_dir, args.verbose)
@@ -81,6 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "once" and args.source:
         try:
             sources = [cfg.source(n) for n in args.source]
+            for s in sources:
+                if not s.get("enabled", True):
+                    log.warning("Źródło %s jest wyłączone w sources.yaml – uruchamiam, bo podano je w --source", s["name"])
         except ConfigError as e:
             log.error("%s", e)
             return 2

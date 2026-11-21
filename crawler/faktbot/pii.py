@@ -2,7 +2,7 @@
 
 NER (spaCy, etykieta persName) + dwa wzmocnienia:
  * wejście do NER jest normalizowane bez zmiany długości (offsety się zgadzają): separatory typu „/”
-   zamieniamy na spacje („Anna Sakowska/KPP”), a linie PISANE WERSALIKAMI – na Title Case,
+   zamieniamy na spacje („Anna Kowalska/KPP”), a linie PISANE WERSALIKAMI – na Title Case,
  * nazwiska/imiona znalezione gdziekolwiek w dokumencie maskujemy też w pozostałych miejscach
    (np. ten sam człowiek w nagłówku wersalikami).
 Wolimy zamaskować za dużo niż za mało.
@@ -26,10 +26,11 @@ _NO_PROPAGATE = {"policja", "policji", "komendant", "komendanta", "polska", "pol
 
 
 class PiiUnavailable(RuntimeError):
-    pass
+    """Brak spaCy / modelu z NER – crawler nie może startować, gdy źródło wymaga mask_pii."""
 
 
 def _ner_input(para: str) -> str:
+    """Wejście do NER o tej samej długości co akapit (separatory → spacje, WERSALIKI → Title Case)."""
     s = para.translate(_SEPARATORS)
     letters = [c for c in s if c.isalpha()]
     if len(letters) >= 8 and sum(c.isupper() for c in letters) / len(letters) > 0.8:
@@ -41,7 +42,7 @@ def _ner_input(para: str) -> str:
 
 class PiiMasker:
     def __init__(self, models: list[str]):
-        import spacy  # noqa: F401  (import tu – brak spaCy też ma blokować start)
+        import spacy  # import tutaj: brak spaCy ma blokować start (PiiUnavailable), a nie import modułu
 
         last_err: Exception | None = None
         self.nlp = None
@@ -64,6 +65,7 @@ class PiiMasker:
         return [(e.start_char, e.end_char) for e in doc.ents if e.label_ == "persName"]
 
     def mask(self, text: str | None, also_names: set[str] | None = None) -> str | None:
+        """Zamienia osoby na [OSOBA] i PESEL na [PESEL]; `also_names` – dodatkowe nazwiska do maskowania."""
         if not text:
             return text
         paras = text.split("\n")

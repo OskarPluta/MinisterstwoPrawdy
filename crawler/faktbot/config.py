@@ -46,11 +46,12 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class ConfigError(Exception):
-    pass
+    """Błędna konfiguracja albo brak warunków startu (np. maila kontaktowego)."""
 
 
 @dataclass
 class Config:
+    """Wczytane ustawienia i źródła (z domyślnymi wartościami)."""
     settings: dict[str, Any]
     sources: list[dict[str, Any]]
     path: Path
@@ -72,6 +73,7 @@ class Config:
         return c.strip() if c else None
 
     def user_agent(self) -> str:
+        """Uczciwy User-Agent `FaktBot/<wersja> (+kontakt)`; bez poprawnego maila – ConfigError."""
         c = self.contact
         if not c:
             raise ConfigError(
@@ -84,6 +86,7 @@ class Config:
 
 
 def load_config(path: str | Path, data_dir: str | None = None) -> Config:
+    """Wczytuje i waliduje sources.yaml; `data_dir` nadpisuje settings.data_dir."""
     path = Path(path).resolve()
     if not path.exists():
         raise ConfigError(f"Nie znaleziono pliku konfiguracji {path}")

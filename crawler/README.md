@@ -45,15 +45,17 @@ Stan przetrwa restart. Dwa procesy na tym samym katalogu `data/` się nie urucho
 ## Zasady „grzecznego” crawlowania (wbudowane, bez wyłącznika)
 
 * robots.txt przed każdym adresem, także przy przekierowaniach (RFC 9309: 4xx oznacza brak ograniczeń,
-  5xx lub błąd sieci wstrzymuje host na 30 min). Respektuje `Crawl-delay`.
+  5xx, błąd sieci lub pętla przekierowań wstrzymuje host na 30 min, w pamięci procesu). Respektuje `Crawl-delay`.
+  Skrypty/XHR ładowane przez stronę w Playwright też są sprawdzane z zapamiętanym robots.txt.
 * Uczciwy User-Agent, bez wtyczek stealth, bez CAPTCHA, proxy i logowania. Wyzwanie antybotowe daje status `blocked`.
 * Maks. 1 zapytanie na 3 s do jednego hosta, wspólnie dla wszystkich źródeł.
-* 429/503: wycofanie zgodnie z `Retry-After` (domyślnie 15 min). 403: wycofanie na godzinę. Bez ponawiania w pętli.
+* 429/503: wycofanie zgodnie z `Retry-After` (domyślnie 15 min). 403: `Retry-After`, domyślnie godzina.
+  Wyzwanie antybotowe: godzina. Bez ponawiania w pętli.
 * Zapytania warunkowe (`If-None-Match` / `If-Modified-Since`). Dokument główny strony pobieramy sami
   (z walidatorami) i podajemy go przeglądarce przez `route.fulfill`, więc renderowanie nie dubluje zapytania.
   Obrazy, fonty, CSS, media i trackery są blokowane.
 * `mask_pii: true` zamienia osoby na `[OSOBA]` (spaCy `persName`) i PESEL na `[PESEL]` **przed zapisem**.
-  Bez modelu spaCy crawler nie wystartuje.
+  Bez modelu spaCy crawler nie wystartuje, jeśli któreś uruchamiane źródło ma `mask_pii: true`.
 
 > **⚠️ Maskowanie jest obecnie wyłączone.** Na polecenie właściciela projektu (2026-11-21), na czas prototypu,
 > źródła policji mają `mask_pii: false`, więc w `data/` zapisywane są pełne imiona i nazwiska z komunikatów.
@@ -70,9 +72,15 @@ Uruchamia lokalny serwer z robots.txt, RSS, listą w stylu gov.pl, sitemapą, JS
 stroną renderowaną przez JS i endpointem 429. Sprawdza: brak ponownego pobierania, nowe wersje po zmianie treści,
 odfiltrowanie menu, robots.txt, 429 → `throttled`, maskowanie PII i odmowę startu bez maila lub modelu.
 
+## Specyfikacja
+
+Szczegółowy opis zachowania: [`docs/SPEC.md`](docs/SPEC.md) (architektura, zasady, adaptery, statusy, CLI),
+[`docs/DATA_FORMAT.md`](docs/DATA_FORMAT.md) (format plików w `data/`, JSON Schema, wskazówki dla RAG),
+[`docs/CONFIG.md`](docs/CONFIG.md) (wszystkie klucze `sources.yaml`, dodawanie źródła).
+
 ## Heurystyka `html_list`
 
-Domyślnie bierzemy link, przy którym stoi data (`21.11.2026`, `21.11.2026 14:05`, `2026-11-21`, `21 listopada 2026`).
+Domyślnie bierzemy link, przy którym stoi data (`21.11.2026`, `21.11.2026 14:05`, `2026-11-21`, `21 listopada 2026`, `21-11-2026`).
 Datę szukamy tylko w przodkach, w których ten link jest **jedynym** linkiem (kafelek artykułu), i tylko w krótkich
 blokach tekstu. Linki w `nav/header/footer` pomijamy. Pomijamy też PDF-y, obrazy, załączniki i obce domeny.
 0 znalezionych linków daje status `warn` (prawdopodobnie zmieniła się struktura strony).

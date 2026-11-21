@@ -1,10 +1,10 @@
-"""Ekstrakcja: daty, tekst artykułu (trafilatura → <article>/<main>), linki z datą, RSS/Atom, sitemapy."""
+"""Ekstrakcja: daty, tekst artykułu (selektor → trafilatura → <article>/<main>), linki z datą, RSS/Atom, sitemapy."""
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlsplit
 from zoneinfo import ZoneInfo
@@ -75,15 +75,17 @@ def parse_any_date(value: str | None) -> datetime | None:
 
 
 def to_iso(dt: datetime | None) -> str | None:
+    """datetime → ISO 8601 (None przechodzi bez zmian)."""
     return dt.isoformat() if dt else None
 
 
 # ---------------- tekst artykułu ----------------
-_WS = re.compile(r"[ \t ]+")
+_WS = re.compile(r"[ \t\u00a0]+")  # spacje, tabulatory i twarde spacje (&nbsp;)
 _NL = re.compile(r"\n{3,}")
 
 
 def clean_text(text: str) -> str:
+    """Zwija białe znaki w liniach i nadmiarowe puste linie (maks. jedna pusta z rzędu)."""
     lines = [_WS.sub(" ", ln).strip() for ln in text.splitlines()]
     return _NL.sub("\n\n", "\n".join(lines)).strip()
 
@@ -96,7 +98,7 @@ _ATTACH_EXT = re.compile(r"\.(pdf|docx?|odt|rtf|xlsx?|ods)(\?|$)", re.I)
 def _drop_cookie_banners(soup: BeautifulSoup) -> None:
     """Usuwa banery cookies/RODO (po id/klasie albo krótkie bloki o cookies), zanim cokolwiek wyciągniemy."""
     for el in soup.find_all(True):
-        if el.decomposed if hasattr(el, "decomposed") else False:
+        if getattr(el, "decomposed", False):  # potomek usuniętego już wcześniej banera
             continue
         attrs = " ".join([el.get("id") or ""] + list(el.get("class") or []))
         if attrs and _COOKIE_ATTR.search(attrs) and el.name not in ("html", "body", "main", "article"):
@@ -124,6 +126,7 @@ def find_attachments(html: str | bytes, base_url: str) -> list[tuple[str, str]]:
 
 @dataclass
 class Extracted:
+    """Wynik ekstrakcji artykułu; `method`: selector | trafilatura | bs4 | none."""
     title: str | None
     text: str
     date: datetime | None
@@ -154,6 +157,7 @@ def _soup_text(node: Tag) -> str:
 
 
 def _meta(soup: BeautifulSoup, *names: str) -> str | None:
+    """Treść pierwszego znalezionego <meta property|name=…>."""
     for n in names:
         tag = soup.find("meta", attrs={"property": n}) or soup.find("meta", attrs={"name": n})
         if tag and tag.get("content"):
@@ -164,6 +168,8 @@ def _meta(soup: BeautifulSoup, *names: str) -> str | None:
 def extract_article(html: str | bytes, url: str, content_selector: str | None = None,
                     title_selector: str | None = None, strip_title_suffix: str | None = None,
                     drop_selectors: list[str] | None = None) -> Extracted:
+    """Tytuł, tekst i data artykułu. Treść: `content_selector` → trafilatura → <article>/<main>
+    (kolejny sposób tylko, gdy poprzedni dał < 80 znaków)."""
     import trafilatura
 
     soup = BeautifulSoup(html, "lxml")
@@ -227,6 +233,7 @@ DEFAULT_EXCLUDE = re.compile(r"/attachment/|/(?:download|pobierz)/|[?&](?:print|
 
 @dataclass
 class ListItem:
+    """Wpis z listy / kanału / sitemapy – kandydat do pobrania."""
     url: str
     title: str | None = None
     published: datetime | None = None
@@ -235,6 +242,7 @@ class ListItem:
 
 
 def _norm_link(base: str, href: str | None) -> str | None:
+    """Absolutny adres http(s) bez fragmentu albo None (mailto:, javascript:, kotwice…)."""
     if not href:
         return None
     href = href.strip()
@@ -313,7 +321,8 @@ def find_dated_links(html: str | bytes, base_url: str, *, path_prefix: str | Non
 
 
 # ---------------- RSS / Atom ----------------
-def _xml_root(content: bytes):
+def _xml_root(content: bytes) -> etree._Element:
+    """Parsuje XML bez encji zewnętrznych i dostępu do sieci (ochrona przed XXE)."""
     parser = etree.XMLParser(recover=True, resolve_entities=False, no_network=True, huge_tree=False)
     root = etree.fromstring(content.lstrip(), parser=parser)
     if root is None:
@@ -321,7 +330,8 @@ def _xml_root(content: bytes):
     return root
 
 
-def _child(el, *names: str):
+def _child(el: etree._Element, *names: str) -> etree._Element | None:
+    """Pierwsze dziecko o jednej z nazw lokalnych (ignorując przestrzenie nazw); kolejność nazw = priorytet."""
     for n in names:
         for c in el:
             if isinstance(c.tag, str) and etree.QName(c).localname == n:
@@ -329,7 +339,8 @@ def _child(el, *names: str):
     return None
 
 
-def _text(el) -> str | None:
+def _text(el: etree._Element | None) -> str | None:
+    """Cały tekst elementu (z potomkami) albo None, gdy pusty."""
     if el is None:
         return None
     t = "".join(el.itertext()).strip()
@@ -337,6 +348,7 @@ def _text(el) -> str | None:
 
 
 def html_to_text(s: str | None) -> str | None:
+    """Fragment HTML (np. opis z RSS) → czysty tekst."""
     if not s:
         return None
     if "<" not in s:
@@ -345,6 +357,7 @@ def html_to_text(s: str | None) -> str | None:
 
 
 def parse_feed(content: bytes, base_url: str) -> list[ListItem]:
+    """Wpisy RSS 2.0 / Atom (link, tytuł, data, opis)."""
     root = _xml_root(content)
     items = root.xpath("//*[local-name()='item' or local-name()='entry']")
     out: list[ListItem] = []

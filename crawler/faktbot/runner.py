@@ -19,6 +19,7 @@ HISTORY_LEN = 10
 
 
 def run_source(ctx: Ctx, src: dict) -> dict:
+    """Jeden przebieg źródła: adapter → status → wpis w crawl_log.jsonl + stan źródła."""
     name = src["name"]
     st = ctx.store.source_state(name)
     stats = Stats()
@@ -83,6 +84,7 @@ def run_source(ctx: Ctx, src: dict) -> dict:
 
 
 def next_due(store: Store, src: dict) -> datetime:
+    """Kiedy źródło powinno być uruchomione (nigdy nieuruchomione – od razu)."""
     st = store.state["sources"].get(src["name"], {})
     last = parse_iso(st.get("last_run"))
     if last is None:
@@ -91,6 +93,7 @@ def next_due(store: Store, src: dict) -> datetime:
 
 
 def run_once(ctx: Ctx, sources: list[dict]) -> list[dict]:
+    """Po kolei wszystkie źródła; sygnał STOP przerywa przed kolejnym źródłem."""
     out = []
     for src in sources:
         if STOP.is_set():
@@ -101,14 +104,16 @@ def run_once(ctx: Ctx, sources: list[dict]) -> list[dict]:
 
 
 def run_loop(ctx: Ctx, sources: list[dict]) -> None:
+    """Tryb ciągły: uruchamia źródła wg interval_minutes aż do sygnału STOP."""
     log.info("Tryb ciągły: %d źródeł. Ctrl+C kończy po bieżącym źródle.", len(sources))
     while not STOP.is_set():
         now = now_utc()
-        due = sorted((next_due(ctx.store, s), s["name"], s) for s in sources if next_due(ctx.store, s) <= now)
+        schedule = [(next_due(ctx.store, s), s["name"], s) for s in sources]
+        due = sorted(entry for entry in schedule if entry[0] <= now)
         if due:
             run_source(ctx, due[0][2])  # najbardziej zaległe najpierw; po każdym ponowne sprawdzenie
             continue
-        wake = min(next_due(ctx.store, s) for s in sources)
+        wake = min(when for when, _, _ in schedule)
         log.debug("Następne źródło o %s", wake.isoformat())
         while not STOP.is_set() and now_utc() < wake:
             time.sleep(1)
@@ -124,6 +129,7 @@ def _fmt(ts: str | None) -> str:
 
 
 def status_report(cfg: Config, store: Store) -> str:
+    """Tabela stanu źródeł z alarmami (blokada, 3× błąd, cisza) dla `crawler.py status`."""
     logs = store.read_log()
     by_source: dict[str, list[dict]] = defaultdict(list)
     for e in logs:
@@ -180,6 +186,7 @@ def status_report(cfg: Config, store: Store) -> str:
 
 
 def build_ctx(cfg: Config, store: Store, sources: list[dict], max_items: int | None) -> Ctx:
+    """Kontekst przebiegu; odmawia startu bez maila kontaktowego lub bez maskowania PII, gdy jest potrzebne."""
     ua = cfg.user_agent()  # rzuca ConfigError bez maila kontaktowego
     masker = None
     if any(s.get("mask_pii") for s in sources):

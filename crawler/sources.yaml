@@ -3,7 +3,10 @@
 # Typy: rss | html_list | sitemap | json_api | static_page
 # Wspólne pola: name, type, institution, url/urls, interval_minutes, max_items_per_run, recheck_hours,
 #   doc_type, region, mask_pii, silence_alert_hours, enabled
+# rss: fetch_full (domyślnie true – pobiera pełny artykuł; false – zapisuje opis z kanału)
 # html_list: path_prefix, link_selector (CSS), exclude_regex, require_date, skip_chrome, pagination{template,start,max_pages}
+# sitemap: path_prefix, exclude_regex, max_sitemaps (domyślnie 20)
+# attribution: dopisek o źródle danych (każdy typ; pole w dokumencie, przy json_api także w treści)
 # ekstrakcja (rss/html_list/sitemap/static_page): content_selector (wszystkie dopasowania), title_selector,
 #   strip_title_suffix (regex), drop_selectors
 # json_api: endpoint, records_path, id_field | id_template, title_template, date_fields, attribution, sort_lists

@@ -15,11 +15,11 @@
 ## Wynik na prawdziwych stronach
 
 Przebieg `python crawler.py once --max-items 5` (2026-11-21 18:20–18:25), potem `status`:
-**98 dokumentów / 98 wersji**, 17 źródeł `ok`, 2 `blocked`, 6 wyłączonych (czekają na decyzję albo są zablokowane).
+**98 dokumentów / 98 wersji**, 17 źródeł `ok`, 2 `blocked`, 5 wyłączonych (czekają na decyzję albo są zablokowane).
 
 | źródło | status | dok. | uwagi |
 |---|---|---|---|
-| policja-kgp | ok | 5 | 2 kanały (21 wpisów). Treść czysta, PII zamaskowane (sprawdzone ręcznie, łącznie z nazwiskami WERSALIKAMI) |
+| policja-kgp | ok | 5 | 2 kanały (21 wpisów). Treść czysta. W tym przebiegu PII były maskowane (dziś maskowanie wyłączone, patrz README) |
 | policja-mazowiecka | ok | 5 | 20 wpisów. Podpisy autorów („nadkom. [OSOBA]/KMP…”) zamaskowane |
 | cert-polska | **blocked** | 0 | robots.txt moje.cert.pl blokuje `/advisories/feed/`. Nic nie pobrano. Alternatywa poniżej |
 | cert-polska-komunikaty | wyłączone | – | propozycja: `/komunikaty/` jest jawnie dozwolone w robots.txt (daty `19-11-2026` obsłużone) |
@@ -59,7 +59,7 @@ Do wniosku o udostępnienie danych (wymagałyby obejścia zabezpieczeń lub zła
 | gov.pl: tytuł = „gov.pl Serwis Rzeczypospolitej Polskiej” (to `<h1>` logo) | profil `x-govpl` w sources.yaml: `title_selector: article h2`, `content_selector: article .editor-content` |
 | gov.pl: trafilatura gubiła numery telefonów (zapisane jako `<h4>`) i dorzucała metryczkę BIP („historia zmian”) | j.w. + `drop_selectors: [.metrics, .metric-history]` |
 | strony statyczne: data publikacji „zgadnięta” z treści (np. 2011-01-01 z daty rozporządzenia) | dla `static_page` tylko data z metadanych strony, nigdy heurystyka |
-| PII: nazwiska WERSALIKAMI nie były maskowane („MACIEJ WALASZCZYK”), nazwisko sklejone z „/” uciekało („Sakowska/ KPP”), fałszywy alarm na „DYŻURNY” | normalizacja wejścia NER bez zmiany długości (separatory na spacje, linie wersalikami na Title Case) + propagacja nazwisk znalezionych w dokumencie na pozostałe wystąpienia (także w tytule) |
+| PII: nazwiska WERSALIKAMI nie były maskowane (np. „JAN KOWALSKI”), nazwisko sklejone z „/” uciekało (np. „Kowalska/ KPP”), fałszywy alarm na „DYŻURNY” | normalizacja wejścia NER bez zmiany długości (separatory na spacje, linie wersalikami na Title Case) + propagacja nazwisk znalezionych w dokumencie na pozostałe wystąpienia (także w tytule) |
 | fałszywe „wyzwanie antybotowe” na kgsok.pl i sar.gov.pl (reCAPTCHA w zwykłym formularzu WordPressa) | rozdzielone znaczniki: typowe dla stron-wyzwań (Cloudflare/Incapsula) vs ogólne słowa („captcha”), które liczą się tylko na niemal pustej stronie lub przy 403/429/503 |
 | linki z nagłówka/stopki z jedną datą w pobliżu (np. „© 2026-11-21”) przechodziły heurystykę | pomijanie linków w `nav/header/footer` + kafelek musi być krótki (≤1500 znaków) |
 | kanał 304 ⇒ `recheck_hours` nie działał (pusta lista) | zapamiętana ostatnia lista wpisów kanału/strony, używana przy 304 |
@@ -81,7 +81,7 @@ Do wniosku o udostępnienie danych (wymagałyby obejścia zabezpieczeń lub zła
 5. **Wody Polskie**: które regiony RZGW i które kategorie komunikatów nawigacyjnych?
 6. **UTK**: kanały 1803/1807/1894/51/64. Nie da się sprawdzić ich zawartości bez złamania robots.txt, więc nie proponuję wyboru.
    Najprościej poprosić UTK o dopisanie `User-agent: FaktBot` z `Allow`.
-7. **RODO a adresy URL**: slugi adresów policji zawierają nazwiska z tytułów (np. `…Podkom-Krzysztof-Gredzinski-…html`).
+7. **RODO a adresy URL**: slugi adresów policji zawierają nazwiska z tytułów (np. `…Podkom-Jan-Kowalski-…html`).
    Treść i tytuł są maskowane, URL nie (to identyfikator i link do cytatu). Zostawić, czy np. przechowywać URL tylko w
    zahashowanej postaci plus link generowany na żądanie?
 8. **Maskowanie jest „na wyrost”**: maskuje też funkcjonariuszy i urzędników publicznych wymienionych z nazwiska

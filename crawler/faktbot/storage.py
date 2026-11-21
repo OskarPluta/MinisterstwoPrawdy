@@ -14,14 +14,17 @@ log = logging.getLogger(__name__)
 
 
 def now_utc() -> datetime:
+    """Bieżący czas UTC z dokładnością do sekundy."""
     return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def iso(dt: datetime | None) -> str | None:
+    """datetime → ISO 8601 (None przechodzi bez zmian)."""
     return dt.isoformat() if dt else None
 
 
 def parse_iso(s: str | None) -> datetime | None:
+    """ISO 8601 → datetime; pusty lub niepoprawny napis → None."""
     if not s:
         return None
     try:
@@ -31,13 +34,16 @@ def parse_iso(s: str | None) -> datetime | None:
 
 
 def sha256(text: str) -> str:
+    """Skrót SHA-256 (hex) tekstu w UTF-8."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def atomic_write_json(path: Path, obj: Any) -> None:
+    """Zapis przez plik tymczasowy + os.replace – przerwanie nie zostawia połowy pliku."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
+        os.fchmod(fd, 0o644)  # jak zwykły plik (mkstemp daje 0600 – inne procesy, np. RAG, by nie czytały)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(obj, f, ensure_ascii=False, indent=1)
             f.flush()
@@ -70,12 +76,16 @@ def _append_line(path: Path, obj: dict) -> None:
 
 
 class Store:
+    """Pliki danych w `data_dir`. documents.jsonl tylko dopisujemy (nowa treść = nowa wersja)."""
+
+    # Pola rekordu documents.jsonl w kolejności zapisu (opisowo; musi odpowiadać save_document).
     DOC_FIELDS = (
         "id", "url", "source", "institution", "doc_type", "region", "title", "content",
         "content_hash", "version", "published_at", "fetched_at", "fetch_method",
     )
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, readonly: bool = False):
+        self.readonly = readonly  # tryb do odczytu (np. `status`) – nigdy nie zapisuje plików
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.docs_path = self.dir / "documents.jsonl"
@@ -110,7 +120,8 @@ class Store:
                 if prev is None or d["version"] > prev["version"]:
                     cur[d["url"]] = {"version": d["version"], "content_hash": d["content_hash"], "id": d["id"]}
         self.current = cur
-        atomic_write_json(self.current_path, cur)
+        if not self.readonly:
+            atomic_write_json(self.current_path, cur)
 
     def save_document(self, *, url: str, source: str, institution: str, doc_type: str | None,
                       region: str | None, title: str | None, content: str, published_at: str | None,
@@ -137,6 +148,7 @@ class Store:
 
     # ---------- walidatory HTTP ----------
     def validators(self, url: str) -> dict:
+        """Zapamiętane ETag / Last-Modified dla adresu."""
         return self.state["http_cache"].get(url, {})
 
     def set_validators(self, url: str, etag: str | None, last_modified: str | None) -> None:
@@ -147,6 +159,7 @@ class Store:
 
     # ---------- stan źródeł ----------
     def source_state(self, name: str) -> dict:
+        """Stan źródła w state.json (known / pending / history), tworzony przy pierwszym użyciu."""
         st = self.state["sources"].setdefault(name, {})
         st.setdefault("known", {})
         st.setdefault("pending", [])
@@ -160,6 +173,7 @@ class Store:
         _append_line(self.log_path, entry)
 
     def read_log(self) -> list[dict]:
+        """Wszystkie wpisy crawl_log.jsonl (uszkodzone linie pomijane)."""
         if not self.log_path.exists():
             return []
         out = []
@@ -172,6 +186,7 @@ class Store:
         return out
 
     def count_versions(self) -> int:
+        """Liczba linii (wersji dokumentów) w documents.jsonl."""
         if not self.docs_path.exists():
             return 0
         with self.docs_path.open("rb") as f:

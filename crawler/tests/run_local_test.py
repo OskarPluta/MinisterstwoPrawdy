@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import json
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -68,6 +70,10 @@ sources:
     type: static_page
     institution: Test JS
     url: {base}/js/page
+  - name: t-js-robots
+    type: static_page
+    institution: Test JS robots
+    url: {base}/js/robots-test
   - name: t-limited
     type: rss
     institution: Test 429
@@ -95,6 +101,83 @@ def last_log(data: Path) -> dict[str, dict]:
         e = json.loads(l)
         out[e["source"]] = e
     return out
+
+
+def unit_checks(base: str, tmp: Path) -> None:
+    import os
+    import stat
+    from unittest import mock
+
+    sys.path.insert(0, str(ROOT))
+    from faktbot.adapters import Ctx, Stats, run_json_api
+    from faktbot.config import SETTINGS_DEFAULTS
+    from faktbot.fetcher import Fetcher, HttpError, Resp, RobotsUnavailable
+    from faktbot.robots import parse_robots
+    from faktbot.storage import Store
+
+    r = parse_robots("User-agent:\nDisallow: /\n\nUser-agent: *\nDisallow: /tajne/\n", "FaktBot")
+    check(r.allowed("https://x.pl/strona") and not r.allowed("https://x.pl/tajne/a"),
+          "robots.txt: pusty User-agent nie dotyczy FaktBota (dokładny token, RFC 9309)")
+    r = parse_robots("User-agent: FaktBot/1.0\nDisallow: /a\n", "FaktBot")
+    check(not r.allowed("https://x.pl/a"), "robots.txt: grupa 'FaktBot/1.0' pasuje do FaktBota")
+
+    settings = dict(SETTINGS_DEFAULTS, min_delay_seconds=0.05)
+    f = Fetcher(settings, Store(tmp / "u1"), "FaktBot/1.0 (+t@example.com)")
+    resp500 = mock.Mock(status_code=500, text="", headers={})
+    with mock.patch.object(f, "_raw_get", return_value=resp500):
+        outcomes = []
+        for _ in range(2):
+            try:
+                f.check_allowed("https://example.invalid/a")
+                outcomes.append("ok")
+            except RobotsUnavailable:
+                outcomes.append("unavailable")
+            except Exception as e:
+                outcomes.append(type(e).__name__)
+    check(outcomes == ["unavailable", "unavailable"],
+          f"robots.txt 5xx: także z pamięci podręcznej → RobotsUnavailable ({outcomes})")
+    with mock.patch.object(f, "_raw_get", side_effect=HttpError("Za dużo przekierowań")):
+        try:
+            f.robots_for("https://petla.invalid/x")
+            ok = False
+        except RobotsUnavailable:
+            ok = True
+    check(ok, "robots.txt: pętla przekierowań → RobotsUnavailable")
+    try:
+        f.http_get(base + "/redirect-no-location", conditional=False)
+        ok = False
+    except HttpError:
+        ok = True
+    check(ok, "3xx bez Location → HttpError (nie sukces)")
+    f.close()
+
+    store = Store(tmp / "u2")
+
+    class FakeFetcher:
+        def http_get(self, url, conditional=True, accept=None):
+            body = json.dumps([{"id": "A", "v": 1}, {"id": "A", "v": 2}, {"id": "B", "v": 3}])
+            return Resp(url=url, final_url=url, status=200, text=body, headers={"content-type": "application/json"})
+
+        def commit_validators(self, resp):
+            pass
+
+    ctx = Ctx(store=store, fetcher=FakeFetcher(), masker=None)
+    src = {"name": "u", "institution": "X", "urls": ["https://api.invalid/w"], "id_field": "id"}
+    for _ in range(2):
+        st, stats = store.source_state("u"), Stats()
+        run_json_api(ctx, src, st, stats)
+    urls = sorted(store.current)
+    check(urls == ["https://api.invalid/w#A", "https://api.invalid/w#A~2", "https://api.invalid/w#B"]
+          and store.count_versions() == 3,
+          f"json_api: powtórzony id → osobny dokument, bez przeplatania wersji ({urls}, wersji {store.count_versions()})")
+    mode = stat.S_IMODE(os.stat(store.current_path).st_mode)
+    check(mode == 0o644, f"current.json zapisany z uprawnieniami 0644 (jest {oct(mode)})")
+
+    ro_dir = tmp / "u3"
+    ro_dir.mkdir()
+    (ro_dir / "documents.jsonl").write_text(json.dumps({"url": "u", "version": 1, "content_hash": "h", "id": "x-v1"}) + "\n")
+    Store(ro_dir, readonly=True)
+    check(not (ro_dir / "current.json").exists(), "status (Store readonly) niczego nie zapisuje")
 
 
 def main() -> int:
@@ -173,13 +256,16 @@ def main() -> int:
     js = by_url.get(f"{base}/js/page")
     check(bool(js) and "renderowany przez JavaScript" in (js["title"] or "") and "po wykonaniu skryptu" in js["content"],
           "Playwright: treść ładowana przez JS wyrenderowana")
+    check(local_server.HITS[("/js/robots-test", 200)] == 1 and
+          not any(k[0] == "/private/js-data" for k in local_server.HITS),
+          "Playwright: skrypt strony nie pobrał adresu zablokowanego w robots.txt")
     check(L["t-limited"]["status"] == "throttled", f"429 → throttled (jest {L['t-limited']['status']})")
     check(local_server.HITS[("/limited/feed.xml", 429)] == 1, "429: dokładnie jedno żądanie (bez ponawiania)")
     check(sum(v for (p, _), v in local_server.HITS.items() if p == "bad-ua") == 0, "każde żądanie z UA FaktBot/…")
     check(L["t-robots5xx"]["status"] == "throttled" and local_server.HITS[("robots-5xx", 500)] == 1
           and not any(k[0] == "after-robots-5xx" for k in local_server.HITS),
           f"robots.txt 5xx → nic nie pobrano z hosta ({L['t-robots5xx']['status']})")
-    for name in ("t-policja", "t-lista", "t-sitemap", "t-api", "t-static", "t-js"):
+    for name in ("t-policja", "t-lista", "t-sitemap", "t-api", "t-static", "t-js", "t-js-robots"):
         check(L[name]["status"] == "ok", f"{name}: status ok (jest {L[name]['status']}: {L[name]['message']})")
 
     # ---------- 2. drugi przebieg: nic nowego ----------
@@ -230,7 +316,6 @@ def main() -> int:
 
     # ---------- 5. tryb ciągły + SIGTERM ----------
     print("\n[5] run + SIGTERM")
-    import signal, time
     data5 = tmp / "data5"
     cfg5 = tmp / "run.yaml"
     write_config(cfg5, base, limited, data5, robots5xx=r5)
@@ -247,6 +332,10 @@ def main() -> int:
           f"SIGTERM kończy pracę po bieżącym źródle (przebiegów: {n_runs}, kod {p.returncode})")
     st = json.loads((data5 / "state.json").read_text())
     check(all(v.get("last_run") for k, v in st["sources"].items()), "stan zapisany dla uruchomionych źródeł")
+
+    # ---------- 6. testy jednostkowe (bez sieci zewnętrznej) ----------
+    print("\n[6] Testy jednostkowe")
+    unit_checks(base, tmp)
 
     srv.shutdown()
     srv2.shutdown()

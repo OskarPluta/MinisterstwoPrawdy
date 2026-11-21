@@ -107,6 +107,9 @@ setTimeout(function(){
   });
 }, 300);
 </script></body></html>""")
+    p["/js/robots-test"] = ("text/html", article("Strona próbująca pobrać zablokowany adres", LOREM * 2)
+                            .replace("</body>", "<script>fetch('/private/js-data').catch(function(){});</script></body>"))
+    p["/redirect-no-location"] = ("text/html", "")  # obsługiwane specjalnie w do_GET (302 bez Location)
     p["/api/js-content"] = ("application/json", json.dumps({
         "title": "Komunikat renderowany przez JavaScript",
         "body": "Ta treść pojawia się dopiero po wykonaniu skryptu na stronie. " * 4}, ensure_ascii=False))
@@ -140,6 +143,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/limited/"):
             HITS[(path, 429)] += 1
             return self._send(429, body=b"Too Many Requests", headers={"Retry-After": "120"})
+        if path == "/redirect-no-location":
+            HITS[(path, 302)] += 1
+            return self._send(302, body=b"")
         pg = pages().get(path)
         if pg is None:
             HITS[(path, 404)] += 1
