@@ -1,0 +1,292 @@
+# FaktBot – konfiguracja źródeł. Nowe źródło = nowy wpis, bez zmian w kodzie.
+#
+# Typy: rss | html_list | sitemap | json_api | static_page
+# Wspólne pola: name, type, institution, url/urls, interval_minutes, max_items_per_run, recheck_hours,
+#   doc_type, region, mask_pii, silence_alert_hours, enabled
+# html_list: path_prefix, link_selector (CSS), exclude_regex, require_date, skip_chrome, pagination{template,start,max_pages}
+# ekstrakcja (rss/html_list/sitemap/static_page): content_selector (wszystkie dopasowania), title_selector,
+#   strip_title_suffix (regex), drop_selectors
+# json_api: endpoint, records_path, id_field | id_template, title_template, date_fields, attribution, sort_lists
+
+settings:
+  contact: testtest@gmail.com   # TYMCZASOWY – zmień na właściwy (albo export CRAWLER_CONTACT=...)
+  data_dir: data
+  min_delay_seconds: 3     # min. odstęp zapytań do jednego hosta (poniżej 3 s tylko dla localhost)
+  render_timeout_seconds: 20
+
+defaults:
+  interval_minutes: 60
+  max_items_per_run: 30
+  recheck_hours: 24
+  silence_alert_hours: 168
+
+# Wspólny profil CMS gov.pl (wstawiany przez "<<: *govpl").
+# <h1> na gov.pl to logo serwisu, a tytuł artykułu to <h2> w <article>. Treść jest w .editor-content.
+# trafilatura gubi tam np. numery telefonów zapisane jako <h4>. .metrics/.metric-history to metryczka BIP.
+x-govpl: &govpl
+  title_selector: "article h2"
+  content_selector: "article .editor-content"
+  drop_selectors: [".metrics", ".metric-history", ".gallery", ".main-photo"]
+  strip_title_suffix: " - [^-]+ - Portal Gov\\.pl"
+
+sources:
+  # ======================= RSS =======================
+  - name: policja-kgp
+    type: rss
+    institution: Komenda Główna Policji
+    # https://policja.pl/pol/rss to strona HTML ze spisem kanałów (nie kanał) – wskazuje dokładnie te dwa:
+    urls:
+      - https://policja.pl/dokumenty/rss/1-rss-1.rss      # Aktualności
+      - https://policja.pl/dokumenty/rss/1-rss-o-4.rss    # Ważne informacje
+    interval_minutes: 10
+    mask_pii: true
+    silence_alert_hours: 48
+
+  - name: policja-mazowiecka
+    type: rss
+    institution: Komenda Wojewódzka Policji zs. w Radomiu
+    region: mazowieckie
+    urls:
+      - https://mazowiecka.policja.gov.pl/dokumenty/rss/271-rss-o-1487.rss
+      - https://mazowiecka.policja.gov.pl/dokumenty/rss/271-rss-o-1488.rss
+    interval_minutes: 10
+    mask_pii: true
+    silence_alert_hours: 48
+
+  - name: cert-polska
+    type: rss
+    institution: CERT Polska (NASK)
+    doc_type: ostrzezenie
+    url: https://moje.cert.pl/advisories/feed/
+    interval_minutes: 15
+    # robots.txt moje.cert.pl: "Disallow: /" + "Allow: /komunikaty/" → kanał /advisories/feed/ zablokowany.
+    # Źródło dostaje status blocked i nic nie pobiera (zgodnie z założeniem).
+
+  # PROPOZYCJA (wymaga decyzji): te same komunikaty są na liście /komunikaty/, którą robots.txt jawnie dopuszcza.
+  - name: cert-polska-komunikaty
+    enabled: false
+    type: html_list
+    institution: CERT Polska (NASK)
+    doc_type: ostrzezenie
+    url: https://moje.cert.pl/komunikaty/
+    path_prefix: /komunikaty/20
+    interval_minutes: 15
+
+  # UTK: robots.txt ma "User-agent: * / Disallow: /" (dostęp ma tylko Googlebot). Cała witryna jest zamknięta
+  # dla innych robotów, więc nie da się nawet sprawdzić zawartości kanałów.
+  # → do wniosku o udostępnienie danych. Wpis zostaje (enabled: false), żeby było widać, czego brakuje.
+  - name: utk
+    enabled: false
+    type: rss
+    institution: Urząd Transportu Kolejowego
+    urls:
+      - https://utk.gov.pl/dokumenty/rss/1-rss-1803.rss
+      - https://utk.gov.pl/dokumenty/rss/1-rss-1807.rss
+      - https://utk.gov.pl/dokumenty/rss/1-rss-1894.rss
+      - https://utk.gov.pl/dokumenty/rss/1-rss-51.rss
+      - https://utk.gov.pl/dokumenty/rss/1-rss-64.rss
+
+  - name: kgsok
+    type: rss
+    institution: Komenda Główna Straży Ochrony Kolei
+    url: https://kgsok.pl/feed/          # nie comments/feed
+
+  # umgdy.gov.pl to Urząd MORSKI w Gdyni (nie Urząd Miasta). /rss → /feed/ jest pusty (WordPress, wpisy są
+  # typu „aktualnosc”), dlatego używamy kanału archiwum aktualności.
+  - name: um-gdynia
+    type: rss
+    institution: Urząd Morski w Gdyni
+    region: pomorskie
+    url: https://www.umgdy.gov.pl/aktualnosci/feed/
+    # Sitemapa (robots.txt) wskazuje na umgdynia.dev.kdmc.pl (serwer deweloperski wykonawcy) – NIE używać.
+
+  # ======================= listy aktualności (gov.pl) =======================
+  - name: kgpsp-aktualnosci
+    <<: *govpl
+    type: html_list
+    institution: Komenda Główna Państwowej Straży Pożarnej
+    url: https://www.gov.pl/web/kgpsp/aktualnosci
+    path_prefix: /web/kgpsp/
+    pagination: {template: "page={n}&size=10", start: 2, max_pages: 3}
+
+  - name: mon-aktualnosci
+    <<: *govpl
+    type: html_list
+    institution: Ministerstwo Obrony Narodowej
+    url: https://www.gov.pl/web/obrona-narodowa/aktualnosci5
+    path_prefix: /web/obrona-narodowa/
+
+  - name: mi-aktualnosci
+    <<: *govpl
+    type: html_list
+    institution: Ministerstwo Infrastruktury
+    url: https://www.gov.pl/web/infrastruktura/aktualnosci
+    path_prefix: /web/infrastruktura/
+
+  - name: gis-ostrzezenia
+    <<: *govpl
+    type: html_list
+    institution: Główny Inspektorat Sanitarny
+    doc_type: ostrzezenie
+    url: https://www.gov.pl/web/gis/ostrzezenia
+    path_prefix: /web/gis/
+    interval_minutes: 20
+
+  # Wody Polskie: /komunikaty-nawigacyjne to tylko węzeł → 10 serwisów regionalnych RZGW (osobne jednostki gov.pl,
+  # np. /web/wody-polskie-bydgoszcz/sdw) → w każdym 3 podstrony (komunikaty nawigacyjne / informacje żeglugowe /
+  # dodatkowe wiadomości) → „aktualne” / „archiwalne”. Na żadnym z tych poziomów nie ma listy z datami.
+  # WYMAGA DECYZJI: które regiony i kategorie, potem po jednym wpisie (lub static_page) na listę.
+  - name: wody-polskie-nawigacyjne
+    <<: *govpl
+    enabled: false
+    type: html_list
+    institution: Państwowe Gospodarstwo Wodne Wody Polskie
+    doc_type: komunikat_nawigacyjny
+    url: https://www.gov.pl/web/wody-polskie/komunikaty-nawigacyjne
+    path_prefix: /web/wody-polskie/
+
+  # Strony główne: sprawdzone 2026-11-21. Heurystyka łapie tylko kafelki aktualności (linki z menu/stopki odpadają).
+  - name: rcb
+    <<: *govpl
+    type: html_list
+    institution: Rządowe Centrum Bezpieczeństwa
+    url: https://www.gov.pl/web/rcb/strona-glowna-rzadowego-centrum-bezpieczenstwa
+    path_prefix: /web/rcb/
+    interval_minutes: 15
+
+  - name: mswia
+    <<: *govpl
+    type: html_list
+    institution: Ministerstwo Spraw Wewnętrznych i Administracji
+    url: https://www.gov.pl/web/mswia
+    path_prefix: /web/mswia/
+
+  - name: premier
+    <<: *govpl
+    type: html_list
+    institution: Kancelaria Prezesa Rady Ministrów
+    url: https://www.gov.pl/web/premier
+    path_prefix: /web/premier/
+
+  - name: paa
+    <<: *govpl
+    type: html_list
+    institution: Państwowa Agencja Atomistyki
+    url: https://www.gov.pl/web/paa/panstwowa-agencja-atomistyki
+    path_prefix: /web/paa/
+
+  # ULC: Imperva/Incapsula zwraca wyzwanie JS (212 B, pusta strona + skrypt _Incapsula_Resource) zamiast treści.
+  # Nie obchodzimy → do wniosku o udostępnienie danych. robots.txt (Joomla) sam w sobie nie blokuje.
+  - name: ulc
+    enabled: false
+    type: html_list
+    institution: Urząd Lotnictwa Cywilnego
+    url: https://ulc.gov.pl/
+    interval_minutes: 60
+
+  # ======================= sitemap =======================
+  - name: sar
+    type: sitemap
+    institution: Morska Służba Poszukiwania i Ratownictwa (SAR)
+    url: https://www.sar.gov.pl/sitemap.xml
+
+  # ======================= API =======================
+  - name: imgw-meteo
+    type: json_api
+    institution: Instytut Meteorologii i Gospodarki Wodnej – PIB
+    doc_type: ostrzezenie_meteo
+    endpoint: https://danepubliczne.imgw.pl/api/data/warningsmeteo
+    interval_minutes: 5
+    # Pola ustalone na podstawie odpowiedzi z 2026-11-21: id, nazwa_zdarzenia, stopien, prawdopodobienstwo,
+    # obowiazuje_od, obowiazuje_do, opublikowano, tresc, komentarz, biuro, teryt[] (kody powiatów).
+    id_field: id
+    title_template: "Ostrzeżenie meteorologiczne: {nazwa_zdarzenia} – stopień {stopien}"
+    date_fields: [opublikowano, obowiazuje_od]
+    sort_lists: true          # kolejność kodów TERYT nie ma znaczenia – nie twórz przez nią nowych wersji
+    attribution: "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy."
+    silence_alert_hours: null
+
+  - name: imgw-hydro
+    type: json_api
+    institution: Instytut Meteorologii i Gospodarki Wodnej – PIB
+    doc_type: ostrzezenie_hydro
+    endpoint: https://danepubliczne.imgw.pl/api/data/warningshydro
+    interval_minutes: 5
+    # Pola (2026-11-21): opublikowano, stopień, data_od, data_do (9999-12-31 = do odwołania), prawdopodobienstwo,
+    # numer, biuro, zdarzenie, przebieg, komentarz, obszary[{wojewodztwo, opis, kod_zlewni[]}].
+    # Brak pola id → identyfikator złożony: numer (numeracja w ramach biura) + rok publikacji + biuro.
+    id_template: "{numer}-{opublikowano:.4}-{biuro}"
+    title_template: "Ostrzeżenie hydrologiczne nr {numer}: {zdarzenie} – stopień {stopień} ({obszary[0].wojewodztwo})"
+    date_fields: [opublikowano, data_od]
+    sort_lists: true
+    attribution: "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy."
+    silence_alert_hours: null
+
+  # PROPOZYCJA (wymaga decyzji): RSO – publiczny endpoint, z którego korzysta https://www.gov.pl/web/gov/ostrzezenia.
+  # robots.txt gov.pl: "Allow: /". Kategorie: meteorologiczne, hydrologiczne, informacje-drogowe, ogolne, stany-wod.
+  # Ostatni segment ścieżki to numer strony (20 rekordów na stronę, od 0). Rekord: id, title, shortcut, content,
+  # valid_from, valid_to, rso_alarm…
+  - name: rso-ogolne
+    enabled: false
+    type: json_api
+    institution: Regionalny System Ostrzegania (KPRM / RCB)
+    doc_type: ostrzezenie_rso
+    endpoint: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/ogolne/0?_format=json
+    records_path: newses
+    id_field: id
+    title_template: "{title}"
+    date_fields: [valid_from]
+    interval_minutes: 10
+
+  # ======================= strony statyczne =======================
+  # Treść to w praktyce lista tytułów komunikatów (same komunikaty są w podlinkowanych plikach), wykrywa ich zmianę.
+  - name: ums-warunki-zeglugi
+    type: static_page
+    institution: Urząd Morski w Szczecinie
+    url: https://www.ums.gov.pl/bezpieczenstwo-morskie/warunki-zeglugi
+    interval_minutes: 60
+    silence_alert_hours: null
+
+  - name: rcb-raport-dobowy
+    <<: *govpl
+    type: static_page
+    institution: Rządowe Centrum Bezpieczeństwa
+    doc_type: raport
+    url: https://www.gov.pl/web/rcb/raport-dobowy3
+    interval_minutes: 60
+    silence_alert_hours: 48
+
+  # Uwaga: strona pokazuje tylko najnowszy komunikat dla podróżujących (jeden kraj). Pełne profile krajów
+  # i ostrzeżenia są w Odyseuszu (patrz koniec pliku).
+  - name: msz-informacje-dla-podrozujacych
+    <<: *govpl
+    type: static_page
+    institution: Ministerstwo Spraw Zagranicznych
+    url: https://www.gov.pl/web/dyplomacja/informacje-dla-podrozujacych
+    interval_minutes: 360
+    silence_alert_hours: null
+
+  - name: prawa-pasazera
+    <<: *govpl
+    type: static_page
+    institution: Ministerstwo Infrastruktury
+    doc_type: informacja
+    urls:
+      - https://www.gov.pl/web/infrastruktura/prawa-pasazerow
+      - https://www.gov.pl/web/infrastruktura/infolinia-dla-obywatela
+      # https://ulc.gov.pl/prawa-pasazera, https://ulc.gov.pl/prawa-pasazera/poradnik-dla-pasazerow:
+      #   Incapsula (jak wyżej). https://utk.gov.pl/pl/pasazerowie: robots.txt UTK blokuje.
+    interval_minutes: 10080     # raz w tygodniu
+    silence_alert_hours: null
+
+# ======================= Celowo NIE crawlujemy =======================
+# - https://www.gov.pl/web/gov/ostrzezenia oraz RSO: aplikacje w JS. Źródło danych: publiczne JSON API
+#   https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/<kategoria>/<strona>?_format=json
+#   (wpis „rso-ogolne” wyżej jest wyłączony, czeka na decyzję).
+# - https://odyseusz.gov.pl: aplikacja Angular. gov.pl/web/dyplomacja pokazuje tylko najnowszy komunikat, NIE pełne
+#   ostrzeżenia. Odyseusz pobiera dane z publicznego API (bez logowania): /api/v1/informacje/profile-panstw,
+#   /api/v1/informacje/profile-panstw/mini. robots.txt nie istnieje (SPA zwraca index.html = brak reguł). Czeka na decyzję.
+# - https://drogi.gddkia.gov.pl: ochrona antybotowa (Incapsula). Nie obchodzimy → wniosek o udostępnienie danych.
+# - https://portalpasazera.pl: blokuje automaty. Nie obchodzimy → wniosek o udostępnienie danych.
+# - monitoring.paa.gov.pl, powietrze.gios.gov.pl, meteo/hydro/baltyk.imgw.pl: dane pomiarowe
+#   albo zastąpione przez API danepubliczne.imgw.pl.
