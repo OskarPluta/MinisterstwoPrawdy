@@ -41,9 +41,8 @@ sources:
   # - utk  https://utk.gov.pl/dokumenty/rss/  – robots.txt "User-agent: * / Disallow: /" (tylko Googlebot)
   # - wody-polskie-nawigacyjne  https://www.gov.pl/web/wody-polskie/komunikaty-nawigacyjne  – brak list z datami; czeka na decyzję
   # - ulc  https://ulc.gov.pl/  – Imperva/Incapsula (wyzwanie JS zamiast treści)
-  # - rso-ogolne  https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/<kategoria>/<strona>?_format=json  – czeka na decyzję
-  # - odyseusz  https://odyseusz.gov.pl (API /api/v1/informacje/profile-panstw)  – aplikacja Angular; czeka na decyzję
-  # - gddkia  https://drogi.gddkia.gov.pl  – Incapsula
+  # - odyseusz  https://odyseusz.gov.pl/api/v1/informacje/profile-panstw  – API dozwolone w robots.txt (239 profili krajów, ~8,6 MB z flagami); do dodania jako json_api
+  # - gddkia  https://drogi.gddkia.gov.pl  – Incapsula; utrudnienia drogowe GDDKiA przychodzą przez rso-drogowe
   # - portal-pasazera  https://portalpasazera.pl  – blokuje automaty
   # - monitoring.paa.gov.pl, powietrze.gios.gov.pl, meteo/hydro/baltyk.imgw.pl  – dane pomiarowe (IMGW: zamiast nich API)
   # Włączone, ale dziś zablokowane (powód przy wpisach): cert-polska (robots.txt), sar (Incapsula).
