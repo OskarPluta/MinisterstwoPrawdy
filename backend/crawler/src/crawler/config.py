@@ -94,9 +94,18 @@ def load_config(path: str | Path, data_dir: str | None = None) -> Config:
         settings["data_dir"] = data_dir
     defaults = {**SOURCE_DEFAULTS, **(raw.get("defaults") or {})}
 
+    # Dodatkowe pliki źródeł: <katalog sources.yaml>/sources.d/*.yaml (kolejność alfabetyczna).
+    # Każdy plik ma własną listę `sources:` (kotwice YAML, np. profil gov.pl, działają tylko w obrębie pliku).
+    raw_sources = list(raw.get("sources") or [])
+    extra_dir = path.parent / "sources.d"
+    if extra_dir.is_dir():
+        for extra in sorted(extra_dir.glob("*.yaml")):
+            part = yaml.safe_load(extra.read_text(encoding="utf-8")) or {}
+            raw_sources.extend(part.get("sources") or [])
+
     sources: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for i, s in enumerate(raw.get("sources") or []):
+    for i, s in enumerate(raw_sources):
         if not isinstance(s, dict) or "name" not in s:
             raise ConfigError(f"Źródło #{i} nie ma pola 'name'")
         src = {**defaults, **s}
