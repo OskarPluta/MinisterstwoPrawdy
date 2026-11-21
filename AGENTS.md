@@ -9,6 +9,7 @@ Wskazówki dla agentów i nowych osób w zespole. Ogólny obraz: [`README.md`](R
 | `backend/crawler/` | Pakiet `crawler` (FaktBot): konfiguracja źródeł `sources.yaml`, pobieranie, ekstrakcja, zapis `data/crawl/`. Nie zna bazy ani RAG. |
 | `backend/rag/` | Pakiet `rag`: konwersja danych crawlera, ingest do PostgreSQL, wyszukiwanie, LLM, weryfikacja. Cały SQL jest w `src/rag/database/`. |
 | `backend/rag/tests/fixtures/` | Sztuczny korpus (domena `.test`) i przypadki ewaluacyjne. |
+| `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `sources`). Tylko adaptuje HTTP do `rag.verify.Verifier`, bez własnej logiki. |
 | `frontend/` | Interfejs WWW: Bun + React + TS. `server.ts` serwuje `src/index.html` i przekazuje `/api/*` do `API_URL`. Własne zależności (`bun install`), poza workspace uv. |
 | `scripts/` | `eval_retrieval.py` (bezpłatna), `eval_verify.py` (płatna, woła LLM). |
 | `data/snapshot/` | Zamrożony zrzut crawla w git. Nie nadpisuj go przypadkiem przebiegiem crawlera. |
@@ -22,6 +23,7 @@ uv sync                          # instaluje oba moduły (workspace uv)
 uv run pytest                    # wszystkie testy; DB z TEST_DATABASE_URL lub DATABASE_URL
 uv run rag --help                # ingest | reembed | stats | search | verify
 uv run crawler --help            # once | run | status
+uv run api                       # API na 127.0.0.1:8000 (to samo `.env` co rag)
 
 cd frontend && bun install       # zależności frontu
 bun run dev | typecheck | build  # w frontend/
@@ -42,6 +44,7 @@ bun run dev | typecheck | build  # w frontend/
 - **Brak dowodów oznacza `insufficient`, a nie `false`.**
 - **SQL tylko jako nazwane zapytania** w `database/queries/<grupa>.sql` (`-- name: <nazwa>`), wywoływane przez `query("<grupa>.<nazwa>")`. Wartości przekazuje się tylko jako `%(nazwa)s`. Nie składaj SQL f-stringiem.
 - **Zmiana schematu** (`database/schema.sql`) wymaga podbicia `SCHEMA_VERSION` i dodania kroku migracji w `db.connect`.
+- **Frontend nie renderuje tekstu modelu jako HTML ani Markdown** i nie tworzy linków z tekstu. Linki pochodzą tylko z `citation.url`. Ocena `insufficient` nigdy nie jest czerwona.
 - **Dane strukturalne (ostrzeżenia IMGW, pomiary synop i GIOŚ) nie są cytowane dosłownie.** Renderuje je stały szablon i są pokazywane jako „Dane ze źródła”.
 - **Tekst użytkownika jest maskowany w logu `checks`.** Treści źródeł nie są maskowane.
 - Czas w bazie jest w UTC (ISO 8601, porównywany w Pythonie), a użytkownikowi pokazywany w strefie Europe/Warsaw.
@@ -61,4 +64,5 @@ bun run dev | typecheck | build  # w frontend/
 | dodać polecenie CLI | `rag/cli.py` (Typer) albo `crawler/cli.py` (argparse) | |
 | dodać dostawcę LLM | `rag/llm.py`: podklasa `_StructuredLLM` z `_parse` oraz `make_llm` | |
 | dodać moduł backendu (API, kanał np. komunikator) | nowy `backend/<nazwa>/` z `pyproject.toml` i `src/<nazwa>/`, dopisany do `dependencies` i `[tool.uv.sources]` w głównym `pyproject.toml` | Wołaj `rag.verify.Verifier(Retriever(conn, get_embedder(...)), make_llm()).verify(text)`, tak jak `rag/cli.py:verify`. Nie duplikuj logiki weryfikacji. API wystawiaj pod prefiksem `/api` (tak proxuje frontend). |
-| zmienić interfejs WWW | `frontend/src/` | Backend wołaj przez `fetch("/api/...")`. Sprawdź przez `bun run typecheck`. |
+| zmienić interfejs WWW | `frontend/src/` (strony w `pages/`, wynik w `result.tsx`, typy API w `api.ts`) | Komponenty i tokeny systemu Ministerstwo Prawdy są w `src/design/`. `tokens.css` i `components.css` to kopie 1:1, więc poprawki wpisuj do `extra.css`. Backend wołaj przez `fetch("/api/...")`. Sprawdź przez `bun run typecheck`. |
+| zmienić odpowiedź API | `backend/api/src/api/app.py` (`public_result`) i `frontend/src/api.ts` | Typy w `api.ts` odwzorowują dataclassy z `rag/verify.py`. Zmieniaj je razem. Testy: `backend/api/tests/test_api.py`. |

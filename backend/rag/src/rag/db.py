@@ -108,6 +108,11 @@ def source_domains(conn: Connection) -> dict[str, str]:
     return {r["source_id"]: r["publishing_domain"] for r in conn.execute(query("sources.domains"))}
 
 
+def list_sources(conn: Connection) -> list[dict[str, Any]]:
+    """Source catalog with fetch status and the number of current records."""
+    return list(conn.execute(query("sources.list")))
+
+
 # Fields that define the content of an evidence record. Fetch time is excluded so
 # re-fetching identical content does not create a new version.
 _HASHED_FIELDS = (

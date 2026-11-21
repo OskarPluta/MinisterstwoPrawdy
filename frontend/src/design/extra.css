@@ -1,0 +1,67 @@
+/* Styles for design/extra.tsx and the utility-bar toggle. Only tokens from tokens.css; same rules as
+   components.css: flat, square, 1px hairlines, focus ring from .mp-focus, colour transitions only. */
+
+/* Utility bar: a toggle button that looks like the bar's links */
+.mp-utility-btn { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: var(--ink); cursor: pointer; text-decoration: none; }
+.mp-utility-btn:hover { text-decoration: underline; color: var(--primary); }
+.mp-utility-btn[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+.mp-utility-btn:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-halo); }
+
+/* Fix for components.css: .mp-status (info border) comes after .mp-tone-* with equal specificity,
+   so every StatusPanel got a blue border. Report upstream to the design system. */
+.mp-status.mp-tone-success { border-color: var(--success); }
+.mp-status.mp-tone-warning { border-color: var(--warning); }
+.mp-status.mp-tone-danger { border-color: var(--danger); }
+
+/* TextArea */
+.mp-textarea { height: auto; min-height: calc(28px * 6 + var(--space-3) * 2); padding: var(--space-3); line-height: 28px; resize: vertical; }
+.mp-counter { margin-top: 0; text-align: right; }
+.mp-counter-over { color: var(--danger); font-weight: 600; }
+
+/* CitationList */
+.mp-cites { margin-top: var(--space-5); }
+.mp-cites-title { margin: 0 0 var(--space-3); font-size: 18px; line-height: 26px; font-weight: 700; }
+.mp-cites-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+.mp-cite { border: 1px solid var(--border); border-radius: var(--radius-0); padding: var(--space-4); background: var(--surface); }
+.mp-cite-head { display: flex; align-items: flex-start; gap: var(--space-3); }
+.mp-cite-n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 14px; line-height: 28px; text-align: center; }
+.mp-cite-meta { flex: 1; min-width: 0; }
+.mp-cite-title { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; overflow-wrap: anywhere; }
+.mp-cite-ext { margin-left: var(--space-1); }
+.mp-cite-sub { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+.mp-cite-quote { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); background: var(--surface-muted); border: 1px solid var(--border); font-size: 16px; line-height: 24px; white-space: pre-line; overflow-wrap: anywhere; }
+.mp-cite-data-label { font-weight: 600; }
+
+.mp-role { flex: none; display: inline-flex; align-items: center; gap: var(--space-1); font-size: 14px; line-height: 20px; font-weight: 700; }
+.mp-role-supports { color: var(--success); }
+.mp-role-contradicts { color: var(--danger); }
+.mp-role-context { color: var(--info); }
+@media (max-width: 480px) { .mp-cite-head { flex-wrap: wrap; } .mp-cite-meta { flex-basis: calc(100% - 28px - var(--space-3)); } .mp-role { margin-left: calc(28px + var(--space-3)); } }
+
+/* SourcesTable */
+.mp-table-wrap { overflow-x: auto; border: 1px solid var(--border); }
+.mp-table-wrap:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.mp-table { width: 100%; border-collapse: collapse; font-size: 16px; line-height: 24px; }
+.mp-table th, .mp-table td { padding: var(--space-3) var(--space-4); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.mp-table thead th { background: var(--surface-muted); font-weight: 600; white-space: nowrap; }
+.mp-table tbody th { font-weight: 600; }
+.mp-table tbody tr:last-child > * { border-bottom: 0; }
+.mp-table .mp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mp-state { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; color: var(--ink-muted); font-weight: 600; }
+.mp-state-success { color: var(--success); }
+.mp-state-warning { color: var(--warning); }
+/* Phones: each source becomes a stacked card, labels taken from data-label */
+@media (max-width: 640px) {
+  .mp-table-wrap { overflow: visible; border: 0; }
+  .mp-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .mp-table, .mp-table tbody, .mp-table tr, .mp-table th, .mp-table td { display: block; }
+  .mp-table tr { border: 1px solid var(--border); margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); }
+  .mp-table tbody tr:last-child > * { border-bottom: 0; }
+  .mp-table th, .mp-table td { padding: var(--space-1) 0; border: 0; }
+  .mp-table tbody th { font-size: 18px; line-height: 26px; padding-bottom: var(--space-2); }
+  .mp-table td { display: grid; grid-template-columns: 9.5em 1fr; gap: var(--space-3); }
+  .mp-table td::before { content: attr(data-label); color: var(--ink-muted); font-size: 14px; }
+  .mp-table .mp-num { text-align: left; }
+  .mp-table td > * { min-width: 0; overflow-wrap: anywhere; }
+  .mp-state { white-space: normal; }
+}

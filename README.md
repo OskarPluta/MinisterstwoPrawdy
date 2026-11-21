@@ -19,7 +19,8 @@ twierdzenie ─► rag verify ─► LLM: ekstrakcja twierdzeń ─► wyszukiwa
 | --- | --- | --- |
 | [`backend/crawler/`](backend/crawler/) | **FaktBot**: „grzeczny” crawler źródeł z [`sources.yaml`](backend/crawler/sources.yaml), zapis do plików JSONL z historią wersji. Nie zna bazy. | [README](backend/crawler/README.md) |
 | [`backend/rag/`](backend/rag/) | Pakiet `rag`: import danych crawlera, PostgreSQL, wyszukiwanie hybrydowe, weryfikator LLM. | [README](backend/rag/README.md) |
-| [`frontend/`](frontend/) | Interfejs WWW (Bun + React + TypeScript), `/api/*` przekazywane do backendu. | [README](frontend/README.md) |
+| [`backend/api/`](backend/api/) | API HTTP (FastAPI) dla interfejsu WWW: `POST /api/verify`, `GET /api/sources`, `GET /api/health`. | [frontend README](frontend/README.md#backend) |
+| [`frontend/`](frontend/) | Interfejs WWW **Copernicus** w systemie Ministerstwo Prawdy (Bun + React + TypeScript), `/api/*` przekazywane do backendu. | [README](frontend/README.md) |
 | [`data/snapshot/`](data/snapshot/) | Zamrożony zrzut crawla w repo, domyślne wejście `rag ingest`. `data/crawl/` (świeże przebiegi) jest poza git. | |
 | [`scripts/`](scripts/) | Ewaluacja wyszukiwania i werdyktów. | [rag README](backend/rag/README.md#ewaluacja) |
 | [`docs/`](docs/) | [Architektura](docs/ARCHITEKTURA.md), [treść zadania](docs/task/), [notatki badawcze](docs/notes/). | |
@@ -55,11 +56,14 @@ uv run crawler status                      # statusy i alarmy źródeł
 uv run rag ingest data/crawl               # idempotentne: zmieniona treść staje się nową wersją
 ```
 
-Frontend ([Bun](https://bun.sh)):
+Interfejs WWW (API + [Bun](https://bun.sh)), w dwóch terminalach:
 
 ```bash
+uv run api                                  # http://127.0.0.1:8000/api/docs; ten sam embedder co ingest (PRAWDOWID_EMBEDDER)
 cd frontend && bun install && bun run dev   # http://localhost:3000
 ```
+
+Każde sprawdzenie w interfejsie to płatne wywołania LLM, tak jak `rag verify`. Na starym zrzucie dopisz do adresu `?now=<ISO 8601>`.
 
 Opcje poleceń: `uv run rag --help`, `uv run rag <polecenie> --help`, `uv run crawler --help`.
 

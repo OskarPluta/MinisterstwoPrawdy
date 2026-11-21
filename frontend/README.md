@@ -1,6 +1,6 @@
 # frontend
 
-Interfejs WWW Prawdowida: React + TypeScript, budowany i serwowany przez [Bun](https://bun.sh) (bez Vite i bez osobnego bundlera).
+Interfejs WWW **Copernicus**: React + TypeScript, budowany i serwowany przez [Bun](https://bun.sh) (bez Vite i bez osobnego bundlera). Wygląd pochodzi z systemu projektowego **Ministerstwo Prawdy** (fikcyjne ministerstwo, układ stron usług publicznych).
 
 ```bash
 cd frontend
@@ -11,12 +11,52 @@ bun run build      # statyczny zrzut do dist/
 bun run start      # serwer produkcyjny
 ```
 
+## Strony
+
+| Ścieżka | Plik | Co robi |
+| --- | --- | --- |
+| `/` | [`pages/CheckPage.tsx`](src/pages/CheckPage.tsx) | Formularz „Sprawdź informację” i wynik. Wynik zastępuje formularz, a fokus przechodzi na jego tytuł. |
+| `/zrodla` | [`pages/SourcesPage.tsx`](src/pages/SourcesPage.tsx) | Lista źródeł do audytu (`GET /api/sources`). |
+| `/jak-to-dziala` | [`pages/HowPage.tsx`](src/pages/HowPage.tsx) | Metoda, znaczenie ocen, granice systemu, prywatność, deklaracja dostępności. |
+
+`?now=<ISO 8601>` w adresie strony głównej przekazuje czas zapytania do API (demo na starym zrzucie).
+
 ## Jak to działa
 
-- [`server.ts`](server.ts) to `Bun.serve`: importuje [`src/index.html`](src/index.html), a Bun sam bundluje TSX i CSS, do których strona się odwołuje.
-- `/api/*` jest przekazywane do backendu Pythona pod `API_URL` (domyślnie `http://127.0.0.1:8000`), więc kod frontu woła po prostu `fetch("/api/...")`, bez CORS. Gdy backend nie działa, proxy zwraca 502.
+- [`server.ts`](server.ts) to `Bun.serve`: importuje [`src/index.html`](src/index.html), a Bun sam bundluje TSX i CSS, do których strona się odwołuje. Każda ścieżka poza `/api/*` dostaje `index.html`, a routing robi [`router.tsx`](src/router.tsx) (History API, bez zależności).
+- `/api/*` jest przekazywane do backendu Pythona pod `API_URL` (domyślnie `http://127.0.0.1:8000`), więc kod frontu woła po prostu `fetch("/api/...")`, bez CORS. Gdy backend nie działa, proxy zwraca 502, a strona pokazuje komunikat o niedostępności.
 - Zmienne: `API_URL`, `FRONTEND_PORT`. Bun czyta `.env` z `frontend/`, nie z katalogu głównego.
+
+## System projektowy ([`src/design/`](src/design/))
+
+| Plik | Pochodzenie |
+| --- | --- |
+| `tokens.css`, `components.css`, `fonts/` | Kopie 1:1 z paczki Ministerstwo Prawdy (`tokens.css`, `components/bundle.css`, Source Sans 3, licencja OFL). **Nie edytuj.** Poprawki wpisuj do `extra.css`. |
+| `components.tsx`, `icons.ts` | Port `components/bundle.js` (React 18 UMD, `window.MP`) do TSX. Ta sama struktura HTML i klasy `mp-*`, a propsy jak w `components/index.d.ts`. |
+| `extra.tsx`, `extra.css` | Elementy, których system nie ma: `TextArea`, `CitationList`, `SourcesTable`, przełącznik kontrastu, poprawka obramowania `StatusPanel`. |
+
+Zasady z systemu, których pilnuje kod:
+
+- jeden niebieski kolor (`primary`) dla wszystkiego, co klikalne; czerwony `accent` tylko jako pasek identyfikacyjny,
+- status zawsze jako ikona i słowo, nigdy sam kolor; `insufficient` („brak wystarczających dowodów”) jest informacją, nie błędem,
+- brak animacji, cieni (poza nagłówkiem), zaokrąglonych kart i kolorowych lewych obramowań,
+- „Wersja kontrastowa” w górnym pasku ustawia `data-theme="contrast"` na `<html>` (żółte na czarnym, kontrast ≥ 7:1),
+- stopka zawsze z dopiskiem „projekt fikcyjny”.
+
+Mapowanie odpowiedzi API na widok (ton, tytuł, komunikaty) jest w [`result.tsx`](src/result.tsx). Tekst modelu jest wyświetlany jako zwykły tekst. Linki pochodzą tylko z `citation.url` (z bazy).
 
 ## Backend
 
-API jeszcze nie istnieje. Powinno powstać jako nowy pakiet `backend/api/` (zob. [AGENTS.md](../AGENTS.md#gdzie-zmienić-x)), który woła `rag.verify.Verifier` i wystawia trasy pod prefiksem `/api`.
+[`backend/api/`](../backend/api/) (FastAPI) woła `rag.verify.Verifier`. Uruchom z katalogu głównego: `uv run api`. Typy odpowiedzi są w [`src/api.ts`](src/api.ts) i odwzorowują dataclassy z `rag/verify.py`.
+
+| Trasa | Odpowiedź |
+| --- | --- |
+| `GET /api/health` | `{status, corpus_version}` |
+| `POST /api/verify` `{text, now?}` | `CheckResult` bez pól wewnętrznych (`error`, `shortlist_ids`, `invented_ids`). 503, gdy nie ma klucza LLM. |
+| `GET /api/sources` | `{totals, sources}`: katalog źródeł ze stanem pobrania i liczbą rekordów |
+
+## Znane braki
+
+- Link wklejony w formularzu jest traktowany jak tekst: backend nie pobiera jeszcze stron spod adresu URL. Podpowiedź pod polem mówi to wprost.
+- Bun wkleja fonty do CSS jako base64 (CSS ma ok. 250 KB). Działa, ale fonty mogłyby być osobnymi plikami.
+- Nie ma eskalacji do moderatora ani drugiego kanału.

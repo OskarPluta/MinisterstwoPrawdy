@@ -20,3 +20,13 @@ ON CONFLICT (source_id) DO UPDATE SET
 
 -- name: domains
 SELECT source_id, publishing_domain FROM sources;
+
+-- name: list
+-- Source catalog for the public audit page: fetch status plus the number of current records.
+SELECT s.source_id, s.publisher, s.publishing_domain, s.source_type, s.citation_url,
+       s.terms_url, s.last_success_at, s.last_error,
+       COUNT(e.evidence_id) AS current_records
+FROM sources s
+LEFT JOIN evidence e ON e.source_id = s.source_id AND e.is_current
+GROUP BY s.source_id
+ORDER BY s.publisher, s.source_id;
