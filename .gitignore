@@ -9,6 +9,10 @@ __pycache__/
 build/
 dist/
 
+# Frontend (bun)
+node_modules/
+frontend/dist/
+
 # Tooling caches
 .pytest_cache/
 .ruff_cache/
@@ -26,3 +30,10 @@ dist/
 
 # Per-user editor / agent settings
 .claude/settings.local.json
+
+# Data: only the frozen crawl in data/snapshot/ is committed.
+# data/crawl/ = live crawler runs.
+/data/*
+!/data/snapshot/
+# Legacy crawler output location (may hold unmasked personal data)
+/crawler/data/

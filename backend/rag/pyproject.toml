@@ -1,0 +1,28 @@
+[project]
+name = "rag"
+version = "0.1.0"
+description = "Prawdowid: evidence-backed claim verification (RAG prototype)"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=1.0",
+    "numpy>=1.26",
+    "openai>=3.57.0",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.6",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "sentence-transformers>=3.0",
+    "torch>=2.2",
+    "typer>=0.12",
+]
+
+[project.scripts]
+rag = "rag.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Ships the SQL files in src/rag/database/ too (hatch includes non-Python files in the package).
+[tool.hatch.build.targets.wheel]
+packages = ["src/rag"]

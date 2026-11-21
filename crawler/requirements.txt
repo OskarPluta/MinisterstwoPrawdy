@@ -1,9 +1,0 @@
-playwright>=1.45
-httpx>=0.27
-trafilatura>=1.12
-beautifulsoup4>=4.12
-lxml>=5.0
-PyYAML>=6.0
-spacy>=3.7,<4
-# model do maskowania danych osobowych (alternatywnie: python -m spacy download pl_core_news_md)
-pl_core_news_md @ https://github.com/explosion/spacy-models/releases/download/pl_core_news_md-3.8.0/pl_core_news_md-3.8.0-py3-none-any.whl

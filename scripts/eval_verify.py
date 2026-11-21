@@ -1,10 +1,10 @@
-"""Live end-to-end run of the verifier on fixtures/verify_cases.yaml.
+"""Live end-to-end run of the verifier on backend/rag/tests/fixtures/verify_cases.yaml.
 
 Calls the LLM (2 calls per case, ~15 cases), so it costs money and needs OPENAI_API_KEY
 (default provider) or ANTHROPIC_API_KEY with --provider anthropic. Prints per-case outcome,
 accuracy, citation checks, latency and cost.
 
-    uv run python scripts/eval_verify.py --embedder e5
+    uv run python scripts/eval_verify.py                 # default embedder: e5
     uv run python scripts/eval_verify.py --only v01,v07
 """
 
@@ -16,14 +16,14 @@ import statistics
 from datetime import datetime
 from pathlib import Path
 
-from backend.config import load_env
-from backend.db import Connection, scratch_db
-from backend.embed import get_embedder
-from backend.evaluation import load_cases
-from backend.ingest import ingest_corpus, load_corpus_file
-from backend.llm import make_llm
-from backend.search import Retriever, passage_meta
-from backend.verify import Verifier, render_markdown
+from rag.config import load_env
+from rag.db import Connection, scratch_db
+from rag.embed import DEFAULT_EMBEDDER, get_embedder
+from rag.evaluation import load_cases
+from rag.ingest import ingest_corpus, load_corpus
+from rag.llm import make_llm
+from rag.search import Retriever, passage_meta
+from rag.verify import Verifier, render_markdown
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,7 +36,7 @@ def expected_verdicts(case: dict) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--embedder", default="e5")
+    ap.add_argument("--embedder", default=DEFAULT_EMBEDDER)
     ap.add_argument("--only", help="comma-separated case ids")
     ap.add_argument("--provider", default=None, help="openai (default) | anthropic")
     ap.add_argument("--model", default=None)
@@ -50,8 +50,8 @@ def main() -> None:
 
 def run(conn: Connection, args: argparse.Namespace) -> None:
     emb = get_embedder(args.embedder)
-    ingest_corpus(conn, load_corpus_file(ROOT / "fixtures/fake_corpus.json"), emb)
-    spec = load_cases(ROOT / "fixtures/verify_cases.yaml")
+    ingest_corpus(conn, load_corpus(ROOT / "backend/rag/tests/fixtures/fake_corpus.json"), emb)
+    spec = load_cases(ROOT / "backend/rag/tests/fixtures/verify_cases.yaml")
     now = datetime.fromisoformat(spec["now"])
     cases = spec["cases"]
     if args.only:

@@ -1,92 +1,96 @@
 # Prawdowid
 
-System weryfikacji twierdzeń (dezinformacji) na podstawie **oficjalnych źródeł państwowych**, zadanie konkursowe MSZ.
-Użytkownik podaje twierdzenie, a system wyszukuje komunikaty, ostrzeżenia i raporty instytucji publicznych.
-Na ich podstawie zwraca po polsku krótki werdykt z klikalnymi cytatami.
+Prototyp do weryfikacji twierdzeń (dezinformacji) na podstawie **oficjalnych źródeł państwowych**, przygotowany na konkurs MSZ ([`docs/task/`](docs/task/)).
+Crawler zbiera komunikaty i ostrzeżenia instytucji publicznych, a RAG indeksuje je w PostgreSQL.
+Dla podanego twierdzenia system zwraca po polsku werdykt z cytatami, których poprawność sprawdza kod, a nie model.
 
-```
- oficjalne źródła ──► crawler/ (FaktBot) ──► crawler/data/*.jsonl
-                                                 │  prawdowid convert-crawler
-                                                 ▼
-                                            corpus.json ──► prawdowid ingest ──► PostgreSQL
-                                                                                     │
-           twierdzenie ──► prawdowid verify ──► wyszukiwanie hybrydowe (BM25 + e5 + RRF)
-                                    │
-                                    ▼
-                    LLM: ekstrakcja twierdzeń → werdykt → kontrola cytatów → odpowiedź PL
+```text
+oficjalne źródła ─► crawler ─► data/crawl/*.jsonl ─► rag ingest ─► PostgreSQL
+                                (albo data/snapshot/)                 │
+                                                                      ▼
+twierdzenie ─► rag verify ─► LLM: ekstrakcja twierdzeń ─► wyszukiwanie (FTS + e5 + RRF)
+                                                                      │
+                     odpowiedź PL z cytatami ◄─ kontrola cytatów ◄─ LLM: werdykt
 ```
 
-## Składniki
+## Moduły
 
-| Katalog | Co to jest | Dokumentacja |
-|---|---|---|
-| [`crawler/`](crawler/) | **FaktBot**: „grzeczny” crawler ~25 źródeł (gov.pl, Policja, RCB, IMGW API, PSP, GIS, MON, urzędy morskie…). Adaptery `rss`, `html_list`, `sitemap`, `json_api`, `static_page`. Zapis do `crawler/data/` z pełną historią wersji. | [`crawler/README.md`](crawler/README.md), [`crawler/docs/`](crawler/docs/) |
-| [`backend/`](backend/) | **RAG** (pakiet `prawdowid`, CLI `uv run prawdowid`): import danych z crawlera, PostgreSQL z wyszukiwaniem pełnotekstowym, embeddingi multilingual-e5, fuzja RRF, weryfikator LLM (OpenAI/Anthropic) z kontrolą cytatów po stronie kodu. | [`backend/README.md`](backend/README.md) (EN) |
-| [`data/`](data/) | Zamrożony zrzut danych z crawlera (98 dokumentów, 2026-11-21) i wygenerowany z niego `corpus.json`. Domyślne wejście `convert-crawler`. | |
-| [`fixtures/`](fixtures/), [`tests/`](tests/), [`scripts/`](scripts/) | Sztuczny korpus testowy (domena `.test`), testy pytest, ewaluacja wyszukiwania i werdyktów. | |
-| [`docs/`](docs/) | Treść zadania, plan, architektura, instrukcja uruchomienia. | patrz niżej |
+| Katalog | Rola | Dokumentacja |
+| --- | --- | --- |
+| [`backend/crawler/`](backend/crawler/) | **FaktBot**: „grzeczny” crawler źródeł z [`sources.yaml`](backend/crawler/sources.yaml), zapis do plików JSONL z historią wersji. Nie zna bazy. | [README](backend/crawler/README.md) |
+| [`backend/rag/`](backend/rag/) | Pakiet `rag`: import danych crawlera, PostgreSQL, wyszukiwanie hybrydowe, weryfikator LLM. | [README](backend/rag/README.md) |
+| [`frontend/`](frontend/) | Interfejs WWW (Bun + React + TypeScript), `/api/*` przekazywane do backendu. | [README](frontend/README.md) |
+| [`data/snapshot/`](data/snapshot/) | Zamrożony zrzut crawla w repo, domyślne wejście `rag ingest`. `data/crawl/` (świeże przebiegi) jest poza git. | |
+| [`scripts/`](scripts/) | Ewaluacja wyszukiwania i werdyktów. | [rag README](backend/rag/README.md#ewaluacja) |
+| [`docs/`](docs/) | [Architektura](docs/ARCHITEKTURA.md), [treść zadania](docs/task/), [notatki badawcze](docs/notes/). | |
+
+Backend (`backend/*`) to workspace uv: jedno `.venv` w katalogu głównym, polecenia Pythona uruchamiasz **z katalogu głównego**.
+Frontend ma własne zależności (Bun) i jego polecenia uruchamiasz w `frontend/`.
 
 ## Szybki start
 
-Pełna instrukcja krok po kroku, z rozwiązywaniem problemów: **[`docs/URUCHOMIENIE.md`](docs/URUCHOMIENIE.md)**.
+Wymagania: [uv](https://docs.astral.sh/uv/), Docker z Compose v2 (albo własny PostgreSQL ≥ 14), Linux/macOS/WSL.
 
 ```bash
-# 1. Baza danych i zależności RAG (z katalogu głównego repo)
-cp .env.example .env                 # ustaw POSTGRES_PASSWORD, DATABASE_URL, OPENAI_API_KEY lub ANTHROPIC_API_KEY
-docker compose up -d db
-uv sync                              # + `uv sync --extra e5` dla modelu multilingual-e5-small
+cp .env.example .env                 # domyślne wartości działają z docker compose; dopisz klucz LLM
+docker compose up -d db              # PostgreSQL 16 na 127.0.0.1:${POSTGRES_PORT}
+uv sync                              # oba moduły + torch CPU dla multilingual-e5
+uv run playwright install chromium   # potrzebne tylko crawlerowi
 
-# 2. Korpus: zrzut z repo (data/) albo świeże dane z crawlera (krok 4)
-uv run prawdowid convert-crawler     # data/documents.jsonl → data/corpus.json
-uv run prawdowid ingest data/corpus.json --embedder e5
-uv run prawdowid stats
-
-# 3. Wyszukiwanie i weryfikacja
-uv run prawdowid search "ostrzeżenie hydrologiczne susza" --embedder e5
-uv run prawdowid verify "Czy IMGW wydał ostrzeżenie przed suszą hydrologiczną?" --embedder e5
-
-# 4. (opcjonalnie) świeże dane z crawlera
-cd crawler && python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt && playwright install chromium
-export CRAWLER_CONTACT=zespol@example.pl   # obowiązkowy mail kontaktowy w User-Agencie
-python crawler.py once --max-items 5 && python crawler.py status
-cd .. && uv run prawdowid convert-crawler \
-    --documents crawler/data/documents.jsonl --crawl-log crawler/data/crawl_log.jsonl \
-    --out data/corpus.json
-uv run prawdowid ingest data/corpus.json --embedder e5   # idempotentne: zmienione treści stają się nowymi wersjami
+uv run rag ingest                    # ładuje data/snapshot/; pierwsze uruchomienie pobiera model e5
+uv run rag stats
+uv run rag search "ostrzeżenie hydrologiczne"
+uv run rag verify "Czy IMGW wydał ostrzeżenie przed suszą hydrologiczną?"   # płatne wywołania LLM
 ```
 
-Do `ingest`, `search` i `verify` używaj tego samego `--embedder`. Model zmienisz poleceniem `prawdowid reembed`.
+`verify` potrzebuje `OPENAI_API_KEY` albo `ANTHROPIC_API_KEY` z `--provider anthropic`. Wszystkie zmienne są opisane w [`.env.example`](.env.example).
+Ostrzeżenia mają okna ważności, więc przy pytaniach o „dziś” na starym zrzucie podaj `--now <ISO 8601>`.
+
+Świeże dane z crawlera (odpytuje prawdziwe serwisy, trwa kilka minut):
+
+```bash
+export CRAWLER_CONTACT=zespol@example.pl   # mail w User-Agencie; crawler nie czyta .env
+uv run crawler once --max-items 5          # ostrożny przebieg: maks. 5 nowych pozycji na źródło
+uv run crawler status                      # statusy i alarmy źródeł
+uv run rag ingest data/crawl               # idempotentne: zmieniona treść staje się nową wersją
+```
+
+Frontend ([Bun](https://bun.sh)):
+
+```bash
+cd frontend && bun install && bun run dev   # http://localhost:3000
+```
+
+Opcje poleceń: `uv run rag --help`, `uv run rag <polecenie> --help`, `uv run crawler --help`.
 
 ## Testy
 
 ```bash
-uv run pytest                                   # RAG; potrzebuje Postgresa (TEST_DATABASE_URL lub DATABASE_URL), bez bazy testy DB są pomijane
-cd crawler && python tests/run_local_test.py    # crawler; test end-to-end offline na lokalnym serwerze
+uv run pytest                  # RAG + crawler, bez sieci i bez kluczy API
+uv run pytest backend/crawler  # tylko crawler (test end-to-end na lokalnych serwerach)
+cd frontend && bun run typecheck
 ```
 
-Stan po scaleniu gałęzi `crawler` i `rag-initial` do `main` (2026-11-21): 52/52 testów pytest przechodzi, test offline crawlera przechodzi.
-Ścieżka crawler → `convert-crawler` → `ingest` → `search` działa. Zrzut z `data/` daje 98 rekordów i 132 fragmenty, a świeży przebieg crawlera z tego dnia 221 rekordów i 330 fragmentów. Ponowny import daje 0 duplikatów.
+Testy bazodanowe używają `TEST_DATABASE_URL` (albo `DATABASE_URL`). Każdy test działa w tymczasowym schemacie, więc nie rusza danych.
+Bez bazy albo bez Chromium część testów jest pomijana (`uv run pytest -rs` pokaże powód).
 
-## Dokumentacja
+## Problemy
 
-| Dokument | Zawartość |
-|---|---|
-| [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) | Architektura całego systemu, przepływ danych, kontrakt crawler ↔ RAG, schemat bazy, potok wyszukiwania i weryfikacji, ograniczenia |
-| [`docs/URUCHOMIENIE.md`](docs/URUCHOMIENIE.md) | Instalacja od zera, cykl pracy, testy, ewaluacja, zmienne środowiskowe, rozwiązywanie problemów |
-| [`crawler/docs/SPEC.md`](crawler/docs/SPEC.md) | Specyfikacja zachowania crawlera (zasady, adaptery, statusy, CLI) |
-| [`crawler/docs/CONFIG.md`](crawler/docs/CONFIG.md) | Wszystkie klucze `sources.yaml`, dodawanie źródła |
-| [`crawler/docs/DATA_FORMAT.md`](crawler/docs/DATA_FORMAT.md) | Format plików w `crawler/data/`, JSON Schema |
-| [`crawler/RAPORT.md`](crawler/RAPORT.md) | Raport z przebiegu na prawdziwych stronach (statusy źródeł, blokady) |
-| [`backend/README.md`](backend/README.md) | RAG: moduły, konwencje SQL, format korpusu (EN) |
-| [`docs/plan.md`](docs/plan.md) | Plan implementacji (EN) |
-| [`docs/PLAN_OBSLUGI_ZRODEL.md`](docs/PLAN_OBSLUGI_ZRODEL.md) | Plan obsługi źródeł: RAG vs zapytania na żywo, scenariusze testowe |
-| [`docs/DODATKOWE_ZRODLA_I_API.md`](docs/DODATKOWE_ZRODLA_I_API.md) | Dodatkowe źródła i API |
-| [`docs/task/`](docs/task/) | Pełna treść i regulamin zadania konkursowego |
-| [`docs/example-analysis-strajk-wlochy.md`](docs/example-analysis-strajk-wlochy.md) | Przykładowa analiza twierdzenia |
+- **`cannot connect to PostgreSQL`**: sprawdź `docker compose ps` (stan `healthy`) i czy `DATABASE_URL` zgadza się z `POSTGRES_PORT`/`POSTGRES_PASSWORD`.
+  Hasło ustawia się tylko przy tworzeniu wolumenu: po zmianie `POSTGRES_PASSWORD` wróć do starego albo zrób `docker compose down -v`.
+- **Port 5432 zajęty**: ustaw inny `POSTGRES_PORT` w `.env` i popraw port w `DATABASE_URL`.
+- **`passages embedded with [...], query embedder is ...`**: `search`/`verify` używa innego `--embedder` niż `ingest`.
+  Użyj tego samego albo przelicz wektory: `uv run rag reembed [--embedder ...]`. Ponowny `ingest` innym embedderem nie przelicza niezmienionych rekordów. `--mode bm25` działa zawsze.
+- **Model e5 nie chce się pobrać**: pierwsze użycie pobiera go do `~/.cache/huggingface`. Potem można pracować offline z `HF_HUB_OFFLINE=1`.
+  Bez sieci i modelu użyj `--embedder hash` (tylko testy, bez semantyki).
+- **Playwright: `Executable doesn't exist`**: `uv run playwright install chromium` (na świeżym Linuksie z `--with-deps`).
+- **Crawler: `Brak maila kontaktowego`** (kod 2): wyeksportuj `CRAWLER_CONTACT` w powłoce. Kod 3 oznacza, że inny proces crawlera pracuje na tym katalogu danych.
+- **Wyszukiwanie nie widzi nowego crawla**: `rag ingest` bez argumentu ładuje `data/snapshot/`, a nie `data/crawl/`.
 
 ## Bezpieczeństwo i dane
 
-* Sekrety trzymaj tylko w `.env`: plik jest w `.gitignore`, a szablon to `.env.example`. Kluczy API nie commitujemy.
-* Crawler nie obchodzi zabezpieczeń. Przestrzega robots.txt i limitu 1 zapytania na 3 s na host, a CAPTCHA i wyzwania antybotowe kończą się statusem `blocked`.
-* **Maskowanie danych osobowych w crawlerze jest tymczasowo wyłączone** (`mask_pii: false`), szczegóły w [`crawler/README.md`](crawler/README.md).
+- Sekrety trzymaj tylko w `.env` (jest w `.gitignore`). Szablon to `.env.example`.
+- Crawler nigdy nie obchodzi zabezpieczeń: przestrzega robots.txt i limitu zapytań, a CAPTCHA lub wyzwanie antybotowe kończy się statusem `blocked`.
+- Treści ze źródeł są zapisywane tak, jak je opublikowano, **bez maskowania** (komunikaty policji mogą zawierać nazwiska).
+  Tekst od użytkownika jest maskowany w logu sprawdzeń (`mask` w [`verify.py`](backend/rag/src/rag/verify.py)).
+- Ograniczenia i ryzyka: [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md#ograniczenia-i-ryzyka).

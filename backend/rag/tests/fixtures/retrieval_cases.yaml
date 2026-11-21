@@ -1,0 +1,38 @@
+# Retrieval test set over backend/rag/tests/fixtures/fake_corpus.json (FAKE TEST DATA).
+# gold: evidence keys "source_id:upstream_id"; a case is a hit if ANY gold key is in the shortlist.
+# tags: keyword | paraphrase | inflection | geo | date
+cases:
+  - {id: r01, tags: [keyword], query: "ostrzeżenie IMGW silny wiatr", gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR, rcb:RCB-2026-11-21-ALERT-WIATR]}
+  - {id: r02, tags: [inflection, geo], query: "wiatr na Mazowszu", gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR, rcb:RCB-2026-11-21-ALERT-WIATR]}
+  - {id: r03, tags: [geo], query: "ostrzeżenie powiat legionowski", gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR]}
+  - {id: r04, tags: [paraphrase, geo], query: "czy mocno wieje pod Warszawą", gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR, rcb:RCB-2026-11-21-ALERT-WIATR]}
+  - {id: r05, tags: [inflection, geo], query: "oblodzenie na Podlasiu", gold: [imgw_meteo:OST-2026-1118-POD-OBLODZENIE]}
+  - {id: r06, tags: [paraphrase, geo], query: "śliskie drogi koło Białegostoku", gold: [imgw_meteo:OST-2026-1118-POD-OBLODZENIE]}
+  - {id: r07, tags: [keyword, geo], query: "mgła województwo łódzkie", gold: [imgw_meteo:OST-2026-1121-LDZ-MGLA]}
+  - {id: r08, tags: [keyword], query: "stan wody Wisła Sandomierz", gold: [imgw_hydro:HYD-2026-1119-WISLA-SAND]}
+  - {id: r12, tags: [keyword], query: "A2 Konin Koło remont", gold: [mi_gov:MI-2026-11-17-REMONT-A2]}
+  - {id: r13, tags: [paraphrase], query: "utrudnienia na autostradzie w stronę Poznania", gold: [mi_gov:MI-2026-11-17-REMONT-A2]}
+  - {id: r15, tags: [keyword, date], query: "rozkład jazdy 13 grudnia", gold: [mi_gov:MI-2026-11-12-ROZKLAD-JAZDY, portal:PORTAL-2026-11-12-ROZKLAD]}
+  - {id: r16, tags: [keyword], query: "SMS dopłata kurier", gold: [cert:CERT-2026-0412]}
+  - {id: r17, tags: [paraphrase], query: "oszustwo na paczkę w wiadomości tekstowej", gold: [cert:CERT-2026-0412]}
+  - {id: r18, tags: [keyword], query: "Black Friday fałszywe sklepy", gold: [cert:CERT-2026-0398]}
+  - {id: r19, tags: [keyword], query: "strajk generalny Włochy", gold: [msz:MSZ-WLOCHY-2026-11-18]}
+  - {id: r20, tags: [paraphrase, inflection], query: "protesty we Włoszech w listopadzie", gold: [msz:MSZ-WLOCHY-2026-11-18]}
+  - {id: r21, tags: [keyword], query: "odszkodowanie odwołany lot 250 euro", gold: [ulc:ULC-PRAWA-PASAZERA-ODSZKODOWANIE]}
+  - {id: r22, tags: [paraphrase], query: "ile pieniędzy dostanę za spóźniony samolot", gold: [ulc:ULC-PRAWA-PASAZERA-OPOZNIENIE, ulc:ULC-PRAWA-PASAZERA-ODSZKODOWANIE]}
+  - {id: r23, tags: [keyword], query: "opóźnienie pociągu odszkodowanie 25%", gold: [utk:UTK-ODSZKODOWANIE-OPOZNIENIE-POCIAGU]}
+  - {id: r24, tags: [keyword, inflection], query: "śluza na Brdzie zamknięta", gold: [wody:WP-KOMUNIKAT-NAW-2026-31]}
+  - {id: r25, tags: [keyword], query: "promieniowanie PAA kwartał", gold: [paa:PAA-KOMUNIKAT-Q3-2026]}
+  - {id: r26, tags: [paraphrase], query: "radioaktywność w Polsce", gold: [paa:PAA-KOMUNIKAT-Q3-2026]}
+  - {id: r27, tags: [keyword], query: "PAP usunęła depeszę", gold: [demagog:DEM-PAP-DEPESZA-2026]}
+  - {id: r28, tags: [keyword], query: "Wrocław komunikacja 700 mln zł", gold: [demagog:DEM-WROCLAW-KOMUNIKACJA-700MLN]}
+  - {id: r29, tags: [keyword], query: "65-latkowie darmowa komunikacja", gold: [demagog:DEM-65-LATKOWIE-WROCLAW, portal:PORTAL-2026-11-20-SENIORZY-WROCLAW]}
+  - {id: r30, tags: [paraphrase], query: "stary film udostępniany jako nowy protest", gold: [demagog:DEM-FILM-PROTEST-2021]}
+  - {id: r31, tags: [keyword], query: "podatek od psów", gold: [demagog:DEM-PODATEK-OD-PSOW-2027]}
+  - {id: r32, tags: [keyword], query: "zwrot podatku e-Urząd Skarbowy wiadomość", gold: [cert:CERT-2026-0420]}
+  - id: r33
+    tags: [date]
+    query: "ostrzeżenie meteorologiczne"
+    filters: {since: "2026-11-21T00:00:00+01:00", until: "2026-11-21T23:59:00+01:00", kinds: [warning_meteo]}
+    gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR, imgw_meteo:OST-2026-1121-LDZ-MGLA]
+    must_exclude: [imgw_meteo:OST-2026-1118-POD-OBLODZENIE]

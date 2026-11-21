@@ -1,24 +1,21 @@
+# Workspace root (virtual: no package of its own). `uv sync` installs the backend/* packages.
 [project]
 name = "prawdowid"
 version = "0.1.0"
-description = "Prawdowid: evidence-backed claim verification (RAG prototype)"
+description = "Prawdowid: evidence-backed claim verification (workspace root)"
 requires-python = ">=3.10"
-dependencies = [
-    "anthropic>=1.0",
-    "numpy>=1.26",
-    "openai>=3.57.0",
-    "psycopg[binary]>=3.2",
-    "pydantic>=2.6",
-    "python-dotenv>=1.0",
-    "pyyaml>=6.0",
-    "typer>=0.12",
-]
+dependencies = ["crawler", "rag"]
 
-[project.optional-dependencies]
-e5 = ["sentence-transformers>=3.0", "torch>=2.2"]
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
-# CPU-only torch wheels (avoids ~3 GB of CUDA libraries for a 118M-parameter model).
+[tool.uv.workspace]
+members = ["backend/*"]
+
 [tool.uv.sources]
+crawler = { workspace = true }
+rag = { workspace = true }
+# CPU-only torch wheels (avoids ~3 GB of CUDA libraries for a 118M-parameter model).
 torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
@@ -26,21 +23,9 @@ name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
-[project.scripts]
-prawdowid = "backend.cli:app"
-
-[dependency-groups]
-dev = ["pytest>=8.0"]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["backend"]
-
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# backend/crawler/tests is a package (__init__.py), so its conftest does not clash with backend/rag/tests/conftest.py
+testpaths = ["backend/rag/tests", "backend/crawler/tests"]
 
 [tool.ty.environment]
-extra-paths = ["tests", "scripts"]  # tests import conftest and scripts/eval_verify.py
+extra-paths = ["backend/rag/tests", "scripts"]  # tests import conftest and scripts/eval_verify.py
