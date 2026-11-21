@@ -1,1 +1,28 @@
+# Source documents (large, not redistributed)
 *.pdf
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment / secrets (keep the template)
+.env
+.env.*
+!.env.example
+
+# Local databases (legacy SQLite files from before the Postgres switch)
+*.db
+*.db-wal
+*.db-shm
+
+# Per-user editor / agent settings
+.claude/settings.local.json

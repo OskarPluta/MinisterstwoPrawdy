@@ -1,0 +1,492 @@
+{
+ "https://policja.pl/pol/aktualnosci/284115,Operacja-TOR-Rok-wspolnej-sluzby-na-rzecz-bezpieczenstwa-kolei.html": {
+  "version": 1,
+  "content_hash": "7ae466845cd4de4161670ac292775938a1fe5ab3ea14d1ccbfd8b8d73d621b1e",
+  "id": "654784d6af5ff3aa-v1"
+ },
+ "https://policja.pl/pol/aktualnosci/181717,Pamietamy.html": {
+  "version": 1,
+  "content_hash": "bd2d68a57a5778c5929946b7b18662d98def8f8bad3fed936bb9f43920c0a7fb",
+  "id": "14c5b9e3e3e71e48-v1"
+ },
+ "https://policja.pl/pol/aktualnosci/284150,PODLASKI-POLICJANT-TO-NAJLEPSZY-DYZURNY-W-POLSCE.html": {
+  "version": 1,
+  "content_hash": "00770f733ea062247acfd004963f1d65508d76f001d39e9932802e371cac40d5",
+  "id": "6dfe1375e33250b4-v1"
+ },
+ "https://policja.pl/pol/aktualnosci/284149,Wyjatkowy-final-programu-PaT-na-Warmii-i-Mazurach.html": {
+  "version": 1,
+  "content_hash": "adf982980c23c7fb721f13492d90d1a4a9eb4d6c8d12d4ccfaebd3f6b343c9a6",
+  "id": "1f4d3454baefd615-v1"
+ },
+ "https://policja.pl/pol/aktualnosci/284145,Zakonczenie-VI-Ogolnopolskiego-Turnieju-Sluzby-Dyzurnej-Jednostek-Organizacyjnyc.html": {
+  "version": 1,
+  "content_hash": "b3679a606eea639e6169fc1e43d9d6f7c69584884bc372f8723867f958f5712d",
+  "id": "02a72d47c6c1a866-v1"
+ },
+ "https://mazowiecka.policja.gov.pl/ra/aktualnosci/aktualnosci/141522,Z-sadowym-zakazem-uciekal-przed-policjantami-zostal-zatrzymany-po-poscigu-przez-.html": {
+  "version": 1,
+  "content_hash": "e1be02698eec7f2aeb6c79eecb99b69f2bf2454a7eb333e75ae75545bdb3dd4b",
+  "id": "c1312f877ef73915-v1"
+ },
+ "https://mazowiecka.policja.gov.pl/ra/aktualnosci/aktualnosci/141534,Policjant-z-Mlawy-na-podium-w-kraju-Podkom-Krzysztof-Gredzinski-drugim-najlepszy.html": {
+  "version": 1,
+  "content_hash": "914b9145713a62559fe5ec7979cb73fe739d4bb075da3db65daf9fbfbf209e53",
+  "id": "10c802ed82adc92b-v1"
+ },
+ "https://mazowiecka.policja.gov.pl/ra/aktualnosci/aktualnosci/141508,Kradziez-drewna-w-gminie-Zatory-50-latek-wpadl-po-sladach-w-lesie.html": {
+  "version": 1,
+  "content_hash": "5b200364644940651cd72d9308b6f21f6be3155d1d979d347b70a94aced15f5f",
+  "id": "d7d609fe781dde66-v1"
+ },
+ "https://mazowiecka.policja.gov.pl/ra/aktualnosci/aktualnosci/141507,Kierowca-z-3-promilami-w-drodze-po-alkohol-spowodowal-kolizje.html": {
+  "version": 1,
+  "content_hash": "588a166051d4243b626760791a570324b6896231bf1896288a49ca732cc098a4",
+  "id": "366f1ce3b948443a-v1"
+ },
+ "https://mazowiecka.policja.gov.pl/ra/aktualnosci/aktualnosci/141505,Nietrzezwy-kierowca-potracil-psa-na-przejsciu-dla-pieszych-w-Zyrardowie.html": {
+  "version": 1,
+  "content_hash": "34dd2ac0be6e467674a5f7a14c7d5a50ba9cf4e6c6c40198262829d564f5c013",
+  "id": "10446613bf4c6a0e-v1"
+ },
+ "https://kgsok.pl/uroczysty-apel-z-okazji-108-rocznicy-powolania-strazy-ochrony-kolei/": {
+  "version": 1,
+  "content_hash": "3ef2f2ef3bb823c2434e26ac7d1f91fb683c97a569cef3ed8757c4729346937f",
+  "id": "79a45623224cff67-v1"
+ },
+ "https://kgsok.pl/108-lat-w-sluzbie-niepodleglej/": {
+  "version": 1,
+  "content_hash": "561e0dde193caedfbe452959898403db86b190ec4efc847acfdc302c6e8dd53d",
+  "id": "11699a697f53eeb6-v1"
+ },
+ "https://kgsok.pl/zyczenia-komendanta-glownego-strazy-ochrony-kolei-z-okazji-z-okazji-108-rocznicy-powolania-formacji/": {
+  "version": 1,
+  "content_hash": "8c6b5b837b011631f25f88ee55b6367812fc1ea4b5f45d6dfc000df82db7b64a",
+  "id": "c96e0671427639c5-v1"
+ },
+ "https://kgsok.pl/xiv-turniej-sluzb-mundurowych-w-strzelaniu-o-puchar-wojewody-lodzkiego-z-okazji-swieta-niepodleglosci/": {
+  "version": 1,
+  "content_hash": "d70e3269ceba9bba9249d577356bd24fe054fae359973b3d91e29ac264636a84",
+  "id": "b9aa99e98e658179-v1"
+ },
+ "https://kgsok.pl/15-listopada-swiatowy-dzien-pamieci-o-ofiarach-wypadkow-drogowych/": {
+  "version": 1,
+  "content_hash": "678428cf4b65287212201ee87461121092be6e113b6eaec1fd9b8554a606a49a",
+  "id": "dd547983bef09df4-v1"
+ },
+ "https://www.umgdy.gov.pl/aktualnosc/150-milionow-zlotych-na-ochrone-wybrzeza-urzad-morski-w-gdyni-podpisal-umowe-na-realizacje-strategicznych-inwestycji-przeciwpowodziowych/": {
+  "version": 1,
+  "content_hash": "680a559dcbdd500e238270e23dfc77e82022ba02a3eee996db2eb7b80b706678",
+  "id": "20963c0eeee841fd-v1"
+ },
+ "https://www.umgdy.gov.pl/aktualnosc/ruszaja-badania-geologiczne-klifu-orlowskiego-co-kryje-sie-w-jego-wnetrzu/": {
+  "version": 1,
+  "content_hash": "55049bddb2988b50f3e65c892745d2f73a2acb5f66ba3cc133f5a55051ddb95d",
+  "id": "043db3d2d170c583-v1"
+ },
+ "https://www.umgdy.gov.pl/aktualnosc/pamietamy-o-tych-ktorzy-odeszli-na-wieczna-wachte-2/": {
+  "version": 1,
+  "content_hash": "165ec275713aab94862ff2d9e26f585c4d2133d5a191e4c84332702bc594504c",
+  "id": "2849229038f5d549-v1"
+ },
+ "https://www.umgdy.gov.pl/aktualnosc/konsultacje-spoleczne-projektu-planu-ochrony-obszaru-natura-2000-zatoka-pucka-uwagi-do-13-listopada-2026-r/": {
+  "version": 1,
+  "content_hash": "c68c014b51ade01917733419ab1f88c388ff8e86f9596b7be5eb1a3ee338b655",
+  "id": "ebc64f1be04e9086-v1"
+ },
+ "https://www.umgdy.gov.pl/aktualnosc/budowa-falochronu-w-pucku-postepuje-zakonczono-wazny-etap-prac-konstrukcyjnych/": {
+  "version": 1,
+  "content_hash": "6504818e9aaa2a5a275c06a042cb760a25a1c6ca459c7d8d6a10c4e47e0c2f09",
+  "id": "0b103f2f5fe5565b-v1"
+ },
+ "https://www.gov.pl/web/kgpsp/wicemistrzam-swiata": {
+  "version": 1,
+  "content_hash": "f8ef1e551d5e64e149ce0e2e52e21599fa659454fe8b2426e97be28a149cdbbe",
+  "id": "3a60e77ae579c1ed-v1"
+ },
+ "https://www.gov.pl/web/kgpsp/uroczysta-zbiorka-z-okazji-narodowego-swieta-niepodleglosci-w-kw-psp-w-poznaniu2": {
+  "version": 1,
+  "content_hash": "35416a2d5a80b73b29ca8144b2a7f72cb2bc3e8b09bca07f02741d2038783f9f",
+  "id": "32cfa60ba75aca7c-v1"
+ },
+ "https://www.gov.pl/web/kgpsp/komendant-glowny-psp-oglasza-nabor-do-korpusu-sluzby-cywilnej2": {
+  "version": 1,
+  "content_hash": "5655e50b8a364d3aa68edcd383e118b7f3cfec110041a2c99ff2b1332eeb3396",
+  "id": "03e2666f54aba706-v1"
+ },
+ "https://www.gov.pl/web/kgpsp/nabor-w-ramach-przeniesienia-sluzbowego-do-biura-logistyki": {
+  "version": 1,
+  "content_hash": "c7773fe85d2a1978965c713200f38fc1903f41b1a0276e98fce16dcb1a755334",
+  "id": "d7978fc30397d927-v1"
+ },
+ "https://www.gov.pl/web/kgpsp/narada-realizacja-zadan-olioc": {
+  "version": 1,
+  "content_hash": "ebdb48bb6e967843bbd68960509304b2fd60837c2c66acf85c5fb261ac43beb2",
+  "id": "31a13482e2fa1ef3-v1"
+ },
+ "https://www.gov.pl/web/obrona-narodowa/koalicja-262-szef-mon-obserwowal-pierwsze-cwiczenie-sil-koalicji-chetnych": {
+  "version": 1,
+  "content_hash": "bfac17cb7950c8dfe01e8d841e149b4856b1d71a23c51688f701753fb0e8a706",
+  "id": "460fdd839ba193ce-v1"
+ },
+ "https://www.gov.pl/web/obrona-narodowa/wicepremier-w-kosiniak-kamysz-o-naruszeniu-polskiej-przestrzeni-powietrznej": {
+  "version": 1,
+  "content_hash": "c8b6103e9fc9d21f2e2a5fefc592b61c16ce50cb7acb4acf316b5c91ac2e0c03",
+  "id": "b2add52f5e8ecbd4-v1"
+ },
+ "https://www.gov.pl/web/obrona-narodowa/polska-wlacza-sie-w-proces-tworzenia-miedzynarodowego-centrum-sztucznej-inteligencji-na-rzecz-obronnosci": {
+  "version": 1,
+  "content_hash": "1910d6d956f8729e72dd1fe39532c68d9c29fc64dc06f02213a6532716d97db8",
+  "id": "6cbb8feaa25a9250-v1"
+ },
+ "https://www.gov.pl/web/obrona-narodowa/rozmowy-ministrow-obrony-polski-i-niemiec2": {
+  "version": 1,
+  "content_hash": "01809fde0abfc18dca110b8995df69812c7cb8f30ffac9ed397985f591ba9ec6",
+  "id": "7e29d73d1b942870-v1"
+ },
+ "https://www.gov.pl/web/obrona-narodowa/polska-i-grecja-zaciesniaja-wspolprace-w-obszarze-satelitarnej-obserwacji-ziemi": {
+  "version": 1,
+  "content_hash": "baff8166fe3b1b66c29c6bc7ab6895587f4500c48a8c596aeedc98ac8a6fd8d7",
+  "id": "5794bb44e7d5bd27-v1"
+ },
+ "https://www.gov.pl/web/infrastruktura/rozwoj-prognozowania-pogody-i-monitorowania-atmosfery--rozmowy-wiceministra-koperskiego-z-szefem-ecmwf": {
+  "version": 1,
+  "content_hash": "a4319ad45983b69ae6d3ccc2ff4b919b184e03bfe2e6fa5f19b3f78c4e4a5df3",
+  "id": "00208d130e1e2277-v1"
+ },
+ "https://www.gov.pl/web/infrastruktura/eksperci-o-przyszlosci-ochrony-przeciwpowodziowej-zulaw": {
+  "version": 1,
+  "content_hash": "60c9129d6901210dc7cc4593f0df48b409f907c498d24a7e6a47b0203970a673",
+  "id": "95dcf262b46de32d-v1"
+ },
+ "https://www.gov.pl/web/infrastruktura/swiatowy-dzien-pamieci-ofiar-wypadkow-drogowych---dzialamy-na-rzecz-poprawy-bezpieczenstwa-na-drogach": {
+  "version": 1,
+  "content_hash": "ca76ebf6660c29ca2f6fd0d43bc6d63dc5b5b075ddb0153e1414dc90ca4e2968",
+  "id": "1cfea89906363048-v1"
+ },
+ "https://www.gov.pl/web/infrastruktura/obwodnica-morawicy-i-woli-morawickiej-oddana-do-ruchu": {
+  "version": 1,
+  "content_hash": "cf69822cc5d4acbc27027fb2630b6ca0481917f1d8721a299f1b7cf5c6b01266",
+  "id": "dfdcc0b843c0a0bf-v1"
+ },
+ "https://www.gov.pl/web/infrastruktura/nowy-sekretarz-krajowej-rady-bezpieczenstwa-ruchu-drogowego": {
+  "version": 1,
+  "content_hash": "bf5b2b5e800407e14dc228de916f5e16d2353765cdd7820322f4c10b435a0298",
+  "id": "76fa871e7e6aec03-v1"
+ },
+ "https://www.gov.pl/web/gis/ostrzezenie-publiczne-dotyczace-zywnosci-stwierdzenie-przekroczenia-najwyzszego-dopuszczalnego-poziomu-ochratoksyny-a-w-mielonej-kawie": {
+  "version": 1,
+  "content_hash": "91ece66a50b739ac76a52cfbb52576cd72cc0372280feb2c9fc3063ea8d6e548",
+  "id": "b21d3be8be7ca5bf-v1"
+ },
+ "https://www.gov.pl/web/gis/ostrzezenie-publiczne-dotyczace-wyrobu-do-kontaktu-z-zywnoscia-migracja-formaldehydu-z-kubka-z-melaminy": {
+  "version": 1,
+  "content_hash": "8512a57285da8fb04f16d6b153140ac5265e46f00015becf84a2837349d5c78b",
+  "id": "ba5634c911843998-v1"
+ },
+ "https://www.gov.pl/web/gis/ostrzezenie-publiczne-dotyczace-zywnosci-stwierdzenie-obecnosci-plesni-w-wodzie-mineralnej": {
+  "version": 1,
+  "content_hash": "960a875c76d34e5b550b2fac60f908665abd4018867c6e953550c6e7ce95bc3c",
+  "id": "93efdb339dc01da3-v1"
+ },
+ "https://www.gov.pl/web/gis/ostrzezenie-publiczne-dotyczace-zywnosci-mozliwa-obecnosc-fragmentow-szkla-w-jednej-partii-puddingu-proteinowego": {
+  "version": 1,
+  "content_hash": "5f7808182ab68f32ed9157785224edf9a23e2123756616a810d76e57cb2576b8",
+  "id": "3ac237a6de331cc8-v1"
+ },
+ "https://www.gov.pl/web/gis/aktualizacja-ostrzezenia-publicznego-dotyczacego-zywnosci-z-dnia-28102026-stwierdzenie-substancji-psychoaktywnej-w-suplemencie-diety": {
+  "version": 1,
+  "content_hash": "fa66cde3765631012871b96dff96fa7c8633dd29b0c8ffb3dc7bf50088b549b8",
+  "id": "6d372329df31885b-v1"
+ },
+ "https://www.gov.pl/web/rcb/alert-rcb---trening-systemow-alarmowania-2111": {
+  "version": 1,
+  "content_hash": "5e618b91d3e8ade105acd53d74faad330467e337eee7d5b5823d005dca00646f",
+  "id": "93cc93e0f0ef1323-v1"
+ },
+ "https://www.gov.pl/web/rcb/alert-rcb---trening-systemow-alarmowania-2011": {
+  "version": 1,
+  "content_hash": "588425ba385d0cf86be0b7e60011225b1516287ab4fc0e5586a109b25783f24e",
+  "id": "1fc79674f902ca12-v1"
+ },
+ "https://www.gov.pl/web/rcb/alert-rcb---atak-z-powietrza-2011": {
+  "version": 1,
+  "content_hash": "a55bb96863a17c6cc49417f57e65e2d8e62d88705f866af684d7d4b083d992b7",
+  "id": "c95d7970db027f75-v1"
+ },
+ "https://www.gov.pl/web/rcb/alert-rcb---woda-niezdatna-do-spozycia-pow-zabkowicki-1911": {
+  "version": 1,
+  "content_hash": "e6a064ace4a75de0f793ef71643f014b99ce8d7296cba01f035c48fdc83393bc",
+  "id": "ea294ff00ce5e587-v1"
+ },
+ "https://www.gov.pl/web/mswia/polska-przystapi-do-systemu-etias-odprawa-ze-sluzbami-po-zamachu-w-krakowie-i-bezpieczny-przebieg-marszu-niepodleglosci-podsumowanie-drugiego-tygodnia-listopada-w-mswia": {
+  "version": 1,
+  "content_hash": "8f0d260b01fe19ce14be4329ef3459102187d87c187760dd602bbe4e8558ea15",
+  "id": "aff98a32326d8d0b-v1"
+ },
+ "https://www.gov.pl/web/mswia/czasowe-i-terytorialne-zawieszenie-prawa-do-azylu-przy-granicy-polsko-bialoruskiej-przedluzone-o-nastepne-60-dni4": {
+  "version": 1,
+  "content_hash": "3517641b009ac052ab232d1816f4bb4b95065c57cb9b35d71558745c4a698b95",
+  "id": "62d80dd07acb50bf-v1"
+ },
+ "https://www.gov.pl/web/mswia/projekt-ustawy-o-udziale-rzeczypospolitej-polskiej-w-europejskim-systemie-informacji-o-podrozy-oraz-zezwolen-na-podroz-etias2": {
+  "version": 1,
+  "content_hash": "1a08b9ded8c89786a780a09b6c56b9d85cdc44ebbe9447ddded0533a82c25ea1",
+  "id": "eaaeaf6e0f32e83d-v1"
+ },
+ "https://www.gov.pl/web/mswia/mswia-odprawa-ze-sluzbami-po-tragicznym-zamachu-w-krakowie": {
+  "version": 1,
+  "content_hash": "b512aff1e0b300924710ec5b1463594d8d41ccbd7ad7c049c6bbcb132c39445b",
+  "id": "1e597f973e620938-v1"
+ },
+ "https://www.gov.pl/web/premier/rosyjskie-obiekty-naruszyly-polska-przestrzen-powietrzna-kolejna-odslona-rosyjskiej-eskalacji": {
+  "version": 1,
+  "content_hash": "e6c753ef411a39995b76bf128851fd0bf4eb878737ab06dace18bc37d9100384",
+  "id": "3a6d4cc3c5ce407a-v1"
+ },
+ "https://www.gov.pl/web/premier/sprawiedliwy-pokoj-dla-ukrainy-fundamentem-bezpieczenstwa-europy": {
+  "version": 1,
+  "content_hash": "ce721e692624e6b2fdf1ded12b7a23242eec47da3b68049b5d8211997a348ef4",
+  "id": "640715b506ded4e4-v1"
+ },
+ "https://www.gov.pl/web/premier/premier-zaprasza-na-warszawski-szczyt-wysokiego-szczebla-w-sprawie-ai": {
+  "version": 1,
+  "content_hash": "01899fdef54c7a83acd5f73621c06e63ca681f54f0c6173a026718dff2743249",
+  "id": "240bde28cf34e2aa-v1"
+ },
+ "https://www.gov.pl/web/premier/budujemy-bezpieczenstwo-energetyczne-razem-z-sojusznikami-inwestycje-dywersyfikacja-i-wspolpraca-transatlantycka": {
+  "version": 1,
+  "content_hash": "07828dce8eac86d84d686a57749978c5160d244d0895579c9c1efd4c7c8523f9",
+  "id": "464fbfc07fa1e688-v1"
+ },
+ "https://www.gov.pl/web/premier/premier-o-wotum-nieufnosci-to-polityczna-hucpa": {
+  "version": 1,
+  "content_hash": "ad3b18724d9d447db82257ccb5fe0f12e21cc6ac0d1d9a95e3c283d2f8241e28",
+  "id": "9ff13b7c8e9f4566-v1"
+ },
+ "https://www.gov.pl/web/paa/rozwoj-transatlantyckiej-wspolpracy-dozorowej-w-obszarze-bezpieczenstwa-jadrowego": {
+  "version": 1,
+  "content_hash": "f98efe7b77a30e83e75bb5fa017dae0ee92837811e0854e8639417daad4c1a90",
+  "id": "4488a5c7035da0d8-v1"
+ },
+ "https://www.gov.pl/web/paa/opublikowano-sprawozdanie-z-realizacji-strategii-bjior": {
+  "version": 1,
+  "content_hash": "64647b39dd44309d84ec1ed0cb93c271ed0e1db871cf980727a1b6aad02b292a",
+  "id": "e72ffb560dc20084-v1"
+ },
+ "https://www.gov.pl/web/paa/prezes-paa-zastepca-szefa-miedzynarodowej-misji-maea-w-jordanii": {
+  "version": 1,
+  "content_hash": "36b277cb4402ac0fac1e64a9109bb726bda31e2605d7132d2dba15b749901194",
+  "id": "0c0f70164b4c9cf8-v1"
+ },
+ "https://www.gov.pl/web/paa/wiceprezes-paa-na-posiedzeniu-stowarzyszenia-szefow-europejskich-urzedow-ochrony-radiologicznej": {
+  "version": 1,
+  "content_hash": "c4f712d535d7384e0a30ffc839c5914190e30cc30c0cfc6161ecc7fb44984a52",
+  "id": "49d37eb20b075488-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningsmeteo#Sk20261121110027236": {
+  "version": 1,
+  "content_hash": "8b13ce225c22f46f723c94442a1dfe60f408d42ca3445de3e9fc0de4a47276f6",
+  "id": "b20e524177790c7f-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#21-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "59ffc4caae9d257215c5b9cb45275fd6d71a559af5d522fb6bb51b2883d8dc07",
+  "id": "54b560108cf9b15d-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#27-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "0f67823bf20a28cb27de35b3a036c28a9e2eacc4ef8df39db1a170ace480b1a6",
+  "id": "a226f29190a6fb70-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#72-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-warszawie": {
+  "version": 1,
+  "content_hash": "3be9f8f882b6f950c7e7769fc7dce583871d6f3fa492269e6f1003d86d439a9e",
+  "id": "10a90cfdf479b7a0-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#29-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "a9bdbdb99e224ed28591f8194041abd8170a9813479f555686d3a0cee3ea5006",
+  "id": "680ab9345c561547-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#30-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "d55fba33351ad57873ecc30f6d96649833a58b979f0a8aeaffa4443fd789d422",
+  "id": "ea9f85e2ad045106-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#28-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "646d2d0022ef63d3d59ee39310d3ffd9f31ad1d6289467b209fec003dd67a674",
+  "id": "69ec49a6a6239659-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#70-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "5e0d329829bd5d9864b03006954f066933a246763c19ebda000127ebe6351583",
+  "id": "c3124ebcc57ef615-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#32-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "a0bfbcf155b08033b8dd5b822683abb368a9167f27644cd1c4ad8dd02e35c90c",
+  "id": "be0912aed40635d6-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#33-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "94cfd2edaf1a837cbb057ffb65ffaff8dbe34f97bbc8788c05313f34943b2fea",
+  "id": "7990f6a7e2e55aa9-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#34-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "22f8de86a37665860b2770a12292a7e00ab9e336d2af1219cca5a159a67a41f3",
+  "id": "6668467cac3b2b31-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#90-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-warszawie": {
+  "version": 1,
+  "content_hash": "cbfce5598ec52f553dfbcbf64a89fb801822662dcf574f31fb6bd8fe60fc08c4",
+  "id": "c6563c48037d51d7-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#72-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "fcc2334a6f5c8571264db90a9d9eae039dc727b8045a2d4490e47cafc29a298b",
+  "id": "4cc9789ad701e792-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#41-2026-biuro-prognoz-hydrologicznych-w-gdyni-wydzial-prognoz-i-opracowan-hydrologicznych-w-gdyni": {
+  "version": 1,
+  "content_hash": "5f89ea0c3eef5fc4c2d0486c527713689b58c0f7971f0dab0a2fb70d26f0fa8e",
+  "id": "31992ac2d406371e-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#91-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "709be7d472434930b3c782cf4d2171a09148d8888d3185393cc68162ff6529e3",
+  "id": "5fd0175014adcdcd-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#124-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-warszawie": {
+  "version": 1,
+  "content_hash": "766f79b3940169127c4fdab8f2fd8fafced4df0db8d275cb711b94283904d1a2",
+  "id": "b84249e8700a8855-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#125-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-warszawie": {
+  "version": 1,
+  "content_hash": "b67575d62a445722c38315378dddfb75238c03e1dab6ae1fce5f6463f1f56a69",
+  "id": "b399789a61e60fb9-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#64-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "57cb41a75c93d762aad73701da1f82264a9c0a785cdda84d40a55aace970a601",
+  "id": "a5475f550c7264b8-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#67-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-we-wroclawiu": {
+  "version": 1,
+  "content_hash": "dea62ddfb4a2d4acdf22a12f36cc018b50a6ebb510d5970b3cdfd99edaeddbc6",
+  "id": "8c7f7576b6430ffc-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#61-2026-biuro-prognoz-hydrologicznych-w-gdyni-wydzial-prognoz-i-opracowan-hydrologicznych-w-gdyni": {
+  "version": 1,
+  "content_hash": "411afa7f53cf72bf9f1ceb8b79905b062039d7fe60d20b9127a877f8e3b094e7",
+  "id": "078d6d9f01aa07e7-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#61-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-we-wroclawiu": {
+  "version": 1,
+  "content_hash": "8a5e09a6db0cfb68305be688b6976b29b17bda5fb03b4c03b9c838e2da01d16c",
+  "id": "7610c79d37b66b39-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#156-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "f97e567f954af28df8c322fb7d3c54c67906d96a730d2e3c06433a7b033859c5",
+  "id": "6dbdc8c794580e55-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#71-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-we-wroclawiu": {
+  "version": 1,
+  "content_hash": "a6a464bf0d7778e449287ef2b41071408e3ae209ec1fe2de85adee2ab51db9f4",
+  "id": "775fad46598eb21e-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#66-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-we-wroclawiu": {
+  "version": 1,
+  "content_hash": "f1db0c8d82bb57fe478b7c6d4dd1ddb5b0451955835931156e8fc76758055801",
+  "id": "d2aa8bcac0609248-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#112-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "a2e65d2d7b495f04b778bb1881c4e37a71d4ec7c2d428dbc62ebbb5cc7e925cd",
+  "id": "54cbfe00805e4ab5-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#97-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-w-poznaniu": {
+  "version": 1,
+  "content_hash": "07f3e4ecfa157936c8f43300a3c82db7cad264b3276329c19b2c7e5a4865b6b6",
+  "id": "5306d582033d6e98-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#234-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "f189000148ce65f1fccf60bc238b6dd66262e0846a70f47065ac675388224d33",
+  "id": "9181856fd131fdee-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#62-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-we-wroclawiu": {
+  "version": 1,
+  "content_hash": "4551c2a6edc30329b6c408cf0ff1a58f2e757b2284a38693889b9ef04690ae35",
+  "id": "52aaf593fddffea6-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#210-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "4534769cb3c89525cc81b5be1228310dfc25c851bd4a9518f8d47a32bd0923f1",
+  "id": "d42bf4cb795bdabf-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#218-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "5a1f76da560425040706e68326a1816b6de6e64818d08db8a62296e55c2210ae",
+  "id": "cfc8e0f52833d1e5-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#216-2026-biuro-prognoz-hydrologicznych-w-krakowie-wydzial-prognoz-i-opracowan-hydrologicznych-w-krakowie": {
+  "version": 1,
+  "content_hash": "612941c0892d0b98497c33ab837dc037b2be19561d0d7c4f80ae2f4ba80eb830",
+  "id": "0d7a31bab0abd70f-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#93-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-we-wroclawiu": {
+  "version": 1,
+  "content_hash": "ccf04d8951cf24a1c1757600e062ebe2ce0f90caa573ab828aa8679e367d9fa8",
+  "id": "90d2a3d7408f24be-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#135-2026-biuro-prognoz-hydrologicznych-w-gdyni-wydzial-prognoz-i-opracowan-hydrologicznych-w-gdyni": {
+  "version": 1,
+  "content_hash": "830be1eedc0452a796a1522cbb8e33f872fc032e2367b8c6bb19e557677738b6",
+  "id": "b5306bcc5682f660-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#74-2026-biuro-prognoz-hydrologicznych-we-wroclawiu-wydzial-prognoz-i-opracowan-hydrologicznych-we-wroclawiu": {
+  "version": 1,
+  "content_hash": "c8acebfd698f7149d0197929ab174482fc496494c2f3a8b2e25479a4dd75d852",
+  "id": "d2a6459d638c7406-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#137-2026-biuro-prognoz-hydrologicznych-w-gdyni-wydzial-prognoz-i-opracowan-hydrologicznych-w-gdyni": {
+  "version": 1,
+  "content_hash": "edc8f6cc321d5a6742f7ff232184b72ef8ce379da0e097365bb386f59e31e2d4",
+  "id": "97a5ffe915e5fbb1-v1"
+ },
+ "https://danepubliczne.imgw.pl/api/data/warningshydro#138-2026-biuro-prognoz-hydrologicznych-w-gdyni-wydzial-prognoz-i-opracowan-hydrologicznych-w-gdyni": {
+  "version": 1,
+  "content_hash": "efa59f6f6820ac4a1876d563475df3e24fb7cda75284ac483ca9e706a52cd1af",
+  "id": "413ac0d132a576f4-v1"
+ },
+ "https://www.ums.gov.pl/bezpieczenstwo-morskie/warunki-zeglugi": {
+  "version": 1,
+  "content_hash": "d9826ed0b8a0a51dee3c47c8c56ad2261077339fd39f43f4b453d2ba0c7db4aa",
+  "id": "df650d51d9cfd6c1-v1"
+ },
+ "https://www.gov.pl/web/rcb/raport-dobowy3": {
+  "version": 1,
+  "content_hash": "42ae1e7502d1f48b487c6c40e701dbea3184cef658e1b9755b539a8626582eb7",
+  "id": "dbe710a5f68a738f-v1"
+ },
+ "https://www.gov.pl/web/dyplomacja/informacje-dla-podrozujacych": {
+  "version": 1,
+  "content_hash": "2a10f4fb0942122aa043f2aacc832b3400be4d4ce8a69a4bab83bcd608618978",
+  "id": "755782471cfbc795-v1"
+ },
+ "https://www.gov.pl/web/infrastruktura/prawa-pasazerow": {
+  "version": 1,
+  "content_hash": "3fd419ed900d978fa846d5cd3f54b52578b1cee7227257ccc3aa6c3b722b2722",
+  "id": "26f61756b140a082-v1"
+ },
+ "https://www.gov.pl/web/infrastruktura/infolinia-dla-obywatela": {
+  "version": 1,
+  "content_hash": "585362b00655ad98ed6f27e11df870afc06a1875d732ef88a953dcdd376eb14d",
+  "id": "7f345e1c3121d9c0-v1"
+ }
+}
