@@ -88,13 +88,36 @@ def render_structured(record: dict[str, Any]) -> str:
             f"Wydano: {fmt_local(record.get('published_at'))}."
             + (f" Opis: {f['description']}" if f.get("description") else "")
         )
+    if kind == "weather_reading":
+        values = [("temperatura powietrza", f.get("temperature"), "°C"), ("prędkość wiatru", f.get("wind_speed"), " m/s"),
+                  ("kierunek wiatru", f.get("wind_direction"), "°"), ("wilgotność względna", f.get("humidity"), "%"),
+                  ("suma opadu", f.get("precipitation"), " mm"), ("ciśnienie", f.get("pressure"), " hPa")]
+        return (
+            f"Pomiar synoptyczny {f.get('issuer', 'IMGW-PIB')}. Stacja: {f['station']}. "
+            f"Czas pomiaru: {fmt_local(record.get('observed_at'))}. "
+            + "; ".join(f"{name}: {_num(v)}{unit}" for name, v, unit in values if v is not None) + "."
+        )
+    if kind == "air_quality":
+        per = ", ".join(f"{p}: {cat}" for p, cat in (f.get("pollutants") or {}).items())
+        return (
+            f"Indeks jakości powietrza {f.get('issuer', 'GIOŚ')}. Stacja: {f['station']} ({areas}). "
+            f"Obliczono: {fmt_local(record.get('observed_at'))}. Indeks ogólny: {f['index']}."
+            + (f" Poszczególne zanieczyszczenia: {per}." if per else "")
+        )
     raise ValueError(f"no template for structured kind {kind!r}")
+
+
+def _num(v: float | int) -> str:
+    """1.4 -> "1,4" (Polish decimal comma), 3.0 -> "3"."""
+    return f"{v:g}".replace(".", ",")
 
 
 # Typed fields each structured kind must carry (the templates above read them directly).
 REQUIRED_FIELDS = {
     "warning_meteo": ("phenomenon", "level"),
     "warning_hydro": ("phenomenon", "level"),
+    "weather_reading": ("station",),
+    "air_quality": ("station", "index"),
 }
 STRUCTURED_KINDS = set(REQUIRED_FIELDS)
 

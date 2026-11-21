@@ -35,12 +35,12 @@ uv run crawler status                      # tabela statusów i alarmów (bez si
 
 ## Typy adapterów
 
-Wybieraj w tej kolejności, od najlepszego:
+Wybieraj w tej kolejności, od najlepszego. **Jeśli źródło ma API** (udokumentowane albo endpoint JSON, z którego korzysta sama strona), używaj `json_api` zamiast scrapowania HTML:
 
 | Typ | Kiedy | Uwagi |
 | --- | --- | --- |
 | `rss` | Źródło ma kanał RSS/Atom | Domyślnie pobiera pełny artykuł (`fetch_full`). Odrzuca wpisy spoza domeny kanału. |
-| `json_api` | Publiczne API (np. IMGW) | Każdy rekord to dokument `endpoint#id` z treścią w liniach `klucz: wartość`. Co przebieg przetwarza wszystkie rekordy, a o zapisie decyduje hasz. |
+| `json_api` | Publiczne API (IMGW, RSO, GIOŚ) | Każdy rekord to dokument `endpoint#id` z treścią w liniach `klucz: wartość`. Co przebieg przetwarza wszystkie rekordy, a o zapisie decyduje hasz. Obsługuje stronicowanie i dociąganie szczegółów rekordu (niżej). |
 | `sitemap` | Brak kanału, jest sitemap.xml | Ponownie sprawdza adres, gdy wzrośnie jego `lastmod`. |
 | `html_list` | Lista aktualności z datami | Heurystyka bierze linki, przy których stoi data, w kafelku z jednym linkiem, i pomija `nav`/`header`/`footer`. Gdy nie wystarcza, ustaw `link_selector`. |
 | `static_page` | Pojedyncza strona, której zmiany śledzimy | Pobierana co przebieg. Data tylko z metadanych strony. |
@@ -66,6 +66,20 @@ Wybieraj w tej kolejności, od najlepszego:
 5. Ustaw `enabled: true`. Jeśli wprowadzasz nowy `doc_type`, zmapuj go w `rag/crawler_import.py`.
 
 Klucze, które zwykle mają znaczenie: `name`, `type`, `institution`, `url`/`urls`, `doc_type`, `region`, `interval_minutes`, `enabled`, selektory ekstrakcji, a dla `json_api` `records_path`, `id_field`/`id_template`, `title_template`, `date_fields`, `sort_lists` i `attribution`.
+Dodatkowe klucze `json_api` (przykłady: źródła `rso-*` i `gios-indeks-powietrza`):
+
+| Klucz | Do czego |
+| --- | --- |
+| `accept` | Nagłówek `Accept` (domyślnie `application/json`; GIOŚ odpowiada na niego 406, stąd `"*/*"`) |
+| `page_template`, `page_start`, `max_pages` | Stronicowanie: `endpoint` to strona `page_start`, kolejne to `page_template` z `{page}`. Koniec, gdy strona jest krótsza od pierwszej, nie wnosi nowych rekordów albo po `max_pages` (domyślnie 10) |
+| `record_filter` | `{pole: [wartości]}` po spłaszczeniu, bez wielkości liter, np. tylko stacje z wybranych miast |
+| `detail_url`, `detail_path`, `detail_as` | Szablon adresu szczegółów pobieranych dla każdego rekordu (np. indeks stacji GIOŚ). Wynik trafia pod klucz `detail_as`, a URL dokumentu to `detail_url#id` |
+| `drop_fields` | Wzorce (`fnmatch`) pól usuwanych z treści, np. `"provinces.*.id"` |
+| `require_fields` | Rekord bez któregoś z tych pól jest pomijany (`skipped`) |
+
+Przy `page_template` lub `detail_url` zapytania są bezwarunkowe, bo 304 dla pierwszej strony nic nie mówi o reszcie.
+Endpointy aplikacji JS najłatwiej znaleźć w narzędziach deweloperskich przeglądarki (zakładka Sieć, filtr Fetch/XHR).
+
 Lista kluczy jest w nagłówku `sources.yaml`, a wartości domyślne w `config.py`. Profil `x-govpl` to kotwica YAML; klucze wpisane w źródle nadpisują profil (łączenie płytkie).
 Uwaga: nieznane klucze (literówki) są po cichu ignorowane. Bez `id_field`/`id_template` każda zmiana rekordu `json_api` daje nowy dokument zamiast wersji.
 

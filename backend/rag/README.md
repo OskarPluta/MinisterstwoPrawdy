@@ -39,7 +39,8 @@ Wzorcowy przykład wszystkich rodzajów rekordów: [`tests/fixtures/fake_corpus.
 
 - Rekord `evidence` wymaga `source_id`, `upstream_id`, `kind`, `title` i `citation_url` (https, w domenie `publishing_domain` źródła). Zły rekord jest pomijany z ostrzeżeniem, a reszta ładuje się dalej.
 - Artykuły (`article`, `report`, `factcheck`…) mają `sections: [{heading, text, page?}]` i są cytowane dosłownie.
-- Rodzaje strukturalne (`warning_meteo`, `warning_hydro`) mają typowane `fields` (wymagane pola w `chunking.REQUIRED_FIELDS`) i nie są cytowane dosłownie.
+- Rodzaje strukturalne (`warning_meteo`, `warning_hydro`, `weather_reading`, `air_quality`) mają typowane `fields` (wymagane pola w `chunking.REQUIRED_FIELDS`) i nie są cytowane dosłownie.
+- `alert` (komunikaty RSO) to tekst cytowany dosłownie jak artykuł, ale z `valid_from`/`valid_to`, więc wygasły komunikat daje notatkę (`verify.TIMED_KINDS`).
 - Import jest idempotentny. Wynik podaje akcje: `inserted`, `new_version`, `unchanged`, `known_version`, `invalid`. Dokumenty nieobecne w nowym pliku zostają w bazie.
 
 ## Konwencje SQL

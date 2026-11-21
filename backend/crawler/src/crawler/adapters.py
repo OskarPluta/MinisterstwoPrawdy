@@ -1,6 +1,7 @@
 """Adaptery źródeł: rss, html_list, sitemap, json_api, static_page."""
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 import re
@@ -465,32 +466,100 @@ def _dig(obj: Any, path: str | None) -> Any:
     return obj
 
 
-def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
-    """API JSON: każdy rekord to dokument o adresie endpoint#id (treść = spłaszczone pola)."""
-    endpoint = src["urls"][0]
-    resp = ctx.fetcher.http_get(endpoint, accept="application/json")
-    if resp.not_modified:
-        stats.hint = "not_modified"
-        return
-    data = json.loads(resp.text)
-    records = _dig(data, src.get("records_path"))
+def _records_of(data: Any, path: str | None) -> list:
+    records = _dig(data, path)
     if isinstance(records, dict):
         lists = [v for v in records.values() if isinstance(v, list)]
         records = lists[0] if lists else [records]
     if not isinstance(records, list):
         raise ValueError(f"Odpowiedź API nie zawiera listy rekordów (typ {type(records).__name__})")
+    return records
+
+
+def _matches_filter(flat: dict[str, str], record_filter: dict[str, Any] | None) -> bool:
+    """record_filter: {pole_po_spłaszczeniu: wartość | [wartości]} – porównanie bez wielkości liter."""
+    for key, allowed in (record_filter or {}).items():
+        allowed = allowed if isinstance(allowed, list) else [allowed]
+        if flat.get(key, "").casefold() not in {str(a).casefold() for a in allowed}:
+            return False
+    return True
+
+
+def _fetch_json_pages(ctx: Ctx, src: dict, stats: Stats) -> tuple[list, list] | None:
+    """Pobiera rekordy (ze stronicowaniem). Zwraca (rekordy, odpowiedzi do commit_validators)
+    albo None, gdy pojedyncza strona odpowiedziała 304."""
+    endpoint = src["urls"][0]
+    accept = src.get("accept") or "application/json"
+    page_tpl = src.get("page_template")
+    # Przy stronicowaniu i dociąganiu szczegółów 304 na liście nic nie mówi o całości – pobieramy zawsze.
+    conditional = not page_tpl and not src.get("detail_url")
+    resp = ctx.fetcher.http_get(endpoint, conditional=conditional, accept=accept)
+    if resp.not_modified:
+        return None
+    records = _records_of(json.loads(resp.text), src.get("records_path"))
+    responses = [resp]
+    if page_tpl:
+        first_len = len(records)
+        page = int(src.get("page_start", 0)) + 1
+        last = page + int(src.get("max_pages", 10)) - 1
+        n = first_len
+        seen = {json.dumps(r, sort_keys=True) for r in records}
+        while n and n >= first_len and page < last:
+            r = ctx.fetcher.http_get(page_tpl.replace("{page}", str(page)), conditional=False, accept=accept)
+            more = [x for x in _records_of(json.loads(r.text), src.get("records_path"))
+                    if json.dumps(x, sort_keys=True) not in seen]
+            if not more:  # strona bez nowych rekordów (np. API zwraca ostatnią stronę dla dalszych numerów)
+                break
+            seen.update(json.dumps(x, sort_keys=True) for x in more)
+            records += more
+            n = len(more)
+            page += 1
+        if n and n >= first_len and page >= last:
+            stats.msg(f"osiągnięto max_pages={src.get('max_pages', 10)} – mogą istnieć dalsze strony")
+    return records, responses
+
+
+def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
+    """API JSON: każdy rekord to dokument o adresie endpoint#id (treść = spłaszczone pola).
+
+    Opcjonalnie: stronicowanie (page_template), filtr rekordów (record_filter), dociąganie szczegółów
+    każdego rekordu (detail_url + detail_path, wynik pod kluczem detail_as), usuwanie pól (drop_fields),
+    pomijanie rekordów bez wymaganych pól (require_fields)."""
+    endpoint = src["urls"][0]
+    got = _fetch_json_pages(ctx, src, stats)
+    if got is None:
+        stats.hint = "not_modified"
+        return
+    records, responses = got
+    sort_lists = bool(src.get("sort_lists"))
+    records = [r for r in records if _matches_filter(dict(_flatten(r, sort_lists=sort_lists)),
+                                                      src.get("record_filter"))]
     stats.found = len(records)
     id_field = src.get("id_field")
     id_template = src.get("id_template")  # np. "{numer}-{opublikowano:.4}-{biuro}" gdy API nie ma pola id
     template = src.get("title_template")
     date_fields = src.get("date_fields") or []
     attribution = src.get("attribution")
+    detail_url = src.get("detail_url")
+    detail_as = src.get("detail_as") or "szczegoly"
+    drop = src.get("drop_fields") or []
     if not id_field and not id_template:
         stats.msg("brak id_field – identyfikator = hash rekordu (zmiana treści da nowy dokument zamiast wersji)")
     seen_ids = []
     for rec in records:
+        url_d = None
         try:
-            flat = _flatten(rec, sort_lists=bool(src.get("sort_lists")))
+            if detail_url:
+                url_d = render_template(detail_url, dict(_flatten(rec)))
+                dr = ctx.fetcher.http_get(url_d, conditional=False,
+                                          accept=src.get("accept") or "application/json")
+                rec = {**rec, detail_as: _dig(json.loads(dr.text), src.get("detail_path"))}
+            flat = [(k, v) for k, v in _flatten(rec, sort_lists=sort_lists)
+                    if not any(fnmatch.fnmatchcase(k, pat) for pat in drop)]
+            missing = [k for k in src.get("require_fields") or [] if not dict(flat).get(k)]
+            if missing:  # np. stacja GIOŚ bez policzonego indeksu – nie ma czego zapisać
+                stats.count("skipped")
+                continue
             if id_template:
                 rid = _slug(render_template(id_template, dict(flat)))
                 if not rid:
@@ -507,7 +576,7 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
                 stats.msg(f"powtórzony identyfikator {rid!r} w odpowiedzi – zapisany jako {rid}~{n}")
                 rid = f"{rid}~{n}"
             seen_ids.append(rid)
-            url = f"{endpoint}#{rid}"
+            url = f"{url_d or endpoint}#{rid}"  # przy detail_url cytujemy adres szczegółów rekordu
             content = "\n".join(f"{k}: {v}" for k, v in flat)
             if attribution:
                 content += f"\n\n{attribution}"
@@ -521,12 +590,15 @@ def run_json_api(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
                     published = to_iso(dt)
                     break
             stats.count(save_doc(ctx, src, url, title, content, published, "http"))
+        except (SourceBlocked, Throttled, Blocked, RobotsUnavailable):
+            raise  # problem z całym hostem – nie ma sensu pytać o kolejne rekordy
         except Exception as e:
             stats.errors += 1
             stats.msg(f"{type(e).__name__}: {str(e)[:200]}")
             log.error("[%s] błąd rekordu: %s", src["name"], e)
     st["active_ids"] = seen_ids  # aktualnie obowiązujące rekordy (np. ostrzeżenia)
-    ctx.fetcher.commit_validators(resp)
+    for r in responses:
+        ctx.fetcher.commit_validators(r)
 
 
 def run_static_page(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:

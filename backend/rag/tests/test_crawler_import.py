@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from rag.chunking import chunk_record
 from rag.crawler_import import convert
 
 DATA = Path(__file__).resolve().parents[3] / "data" / "snapshot"
@@ -72,3 +73,51 @@ def test_committed_snapshot_converts():
     corpus = convert(DATA / "documents.jsonl", DATA / "crawl_log.jsonl")
     assert len(corpus["evidence"]) == 98
     assert {e["kind"] for e in corpus["evidence"]} >= {"article", "warning_hydro", "warning_meteo"}
+
+
+# --- API sources (RSO, IMGW SYNOP, GIOŚ): content as written by the crawler's json_api adapter --------------
+
+def test_rso_alert_keeps_multiline_text_and_validity(tmp_path):
+    content = ("id: 7\ntitle: Sztorm/2\ncontent: Nazwa biura: Gdynia\nPrzebieg: wiatr do 8 B\nrso_alarm: 0\n"
+               "valid_from: 2026-11-21 18:00:00\nvalid_to: 2026-11-22 07:00:00\ncreated_at: 2026-11-21 17:57:29\n"
+               "provinces.11.name: Pomorskie")
+    doc = _doc(url="https://www.gov.pl/api/x/1#7", source="rso-meteorologiczne", doc_type="ostrzezenie_rso",
+               title="Sztorm/2", content=content)
+    (ev,) = convert(_write(tmp_path / "d.jsonl", [doc]))["evidence"]
+    assert ev["kind"] == "alert"
+    assert ev["sections"][0]["text"] == "Nazwa biura: Gdynia\n\nPrzebieg: wiatr do 8 B"
+    assert (ev["valid_from"], ev["valid_to"]) == ("2026-11-21T17:00:00Z", "2026-11-22T06:00:00Z")
+    assert ev["published_at"] == "2026-11-21T16:57:29Z"
+    assert ev["areas"] == ["województwo pomorskie"]
+
+
+def test_synop_becomes_structured_weather_reading(tmp_path):
+    content = ("id_stacji: 12295\nstacja: Białystok\ndata_pomiaru: 2026-11-21\ngodzina_pomiaru: 20\n"
+               "temperatura: 1.1\npredkosc_wiatru: 3\nwilgotnosc_wzgledna: 83.9\n\nŹródłem pochodzenia danych jest IMGW-PIB.")
+    doc = _doc(url="https://danepubliczne.imgw.pl/api/data/synop#12295-2026-11-21-20", source="imgw-synop",
+               doc_type="pomiar_synop", content=content)
+    corpus = convert(_write(tmp_path / "d.jsonl", [doc]))
+    (ev,) = corpus["evidence"]
+    assert ev["kind"] == "weather_reading"
+    assert ev["observed_at"] == ev["published_at"] == "2026-11-21T20:00:00Z"
+    assert ev["fields"]["temperature"] == 1.1 and ev["fields"]["pressure"] is None
+    assert corpus["sources"][0]["source_type"] == "structured"
+    (p,) = chunk_record(ev)
+    assert p.excerpt is None  # structured: rendered by a template, never quoted
+    assert "Stacja: Białystok. Czas pomiaru: 21.11.2026 21:00" in p.text  # UTC 20:00 -> Warsaw 21:00
+    assert "temperatura powietrza: 1,1°C; prędkość wiatru: 3 m/s; wilgotność względna: 83,9%." in p.text
+
+
+def test_gios_becomes_structured_air_quality(tmp_path):
+    content = ("Identyfikator stacji: 114\nNazwa stacji: Wrocław, ul. Bartnicza\nNazwa miasta: Wrocław\n"
+               "Województwo: DOLNOŚLĄSKIE\nindeks.Data wykonania obliczeń indeksu: 2026-11-21 21:20:20\n"
+               "indeks.Nazwa kategorii indeksu: Bardzo dobry\n"
+               "indeks.Nazwa kategorii indeksu dla wskażnika PM10: Dobry\n\nŹródło danych: GIOŚ.")
+    doc = _doc(url="https://api.gios.gov.pl/pjp-api/v1/rest/aqindex/getIndex/114#114-2026-11-21-21",
+               source="gios-indeks-powietrza", doc_type="pomiar_powietrza", content=content)
+    (ev,) = convert(_write(tmp_path / "d.jsonl", [doc]))["evidence"]
+    assert ev["kind"] == "air_quality" and ev["observed_at"] == "2026-11-21T20:20:20Z"
+    assert ev["areas"] == ["Wrocław", "województwo dolnośląskie"]
+    assert ev["fields"]["index"] == "bardzo dobry" and ev["fields"]["pollutants"] == {"PM10": "dobry"}
+    (p,) = chunk_record(ev)
+    assert "Indeks ogólny: bardzo dobry. Poszczególne zanieczyszczenia: PM10: dobry." in p.text

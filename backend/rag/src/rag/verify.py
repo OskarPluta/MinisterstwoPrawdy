@@ -31,7 +31,7 @@ VERDICT_PL = {
 # Roles a verdict needs among the kept citations; anything else is downgraded to insufficient.
 REQUIRED_ROLES = {"true": {"supports"}, "false": {"contradicts"}, "misleading": {"supports", "contradicts"}}
 STALE_AFTER = timedelta(hours=48)
-TIMED_KINDS = {"warning_meteo", "warning_hydro"}
+TIMED_KINDS = {"warning_meteo", "warning_hydro", "alert"}  # alert: komunikaty RSO
 
 MAX_INPUT_CHARS = 10_000
 MAX_CLAIMS = 5

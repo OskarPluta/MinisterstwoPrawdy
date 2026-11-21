@@ -331,6 +331,49 @@ def test_json_api_duplicate_ids_and_current_json_mode(tmp_path):
     assert mode == 0o644, f"current.json zapisany z uprawnieniami 0644 (jest {oct(mode)})"
 
 
+def test_json_api_pages_filter_details(tmp_path):
+    """Jak RSO / GIOŚ: stronicowanie, record_filter, detail_url, drop_fields, require_fields."""
+    pages = {
+        "https://api.invalid/l/1": {"items": [{"id": 1, "miasto": "Toruń", "f": "x"}, {"id": 2, "miasto": "Gdynia"}]},
+        "https://api.invalid/l/2": {"items": [{"id": 3, "miasto": "toruń"}, {"id": 4, "miasto": "Toruń"}]},
+        "https://api.invalid/l/3": {"items": [{"id": 5, "miasto": "Toruń"}, {"id": 6, "miasto": "Gdynia"}]},
+        # jak RSO: numer strony spoza zakresu zwraca znów ostatnią stronę
+        "https://api.invalid/l/4": {"items": [{"id": 5, "miasto": "Toruń"}, {"id": 6, "miasto": "Gdynia"}]},
+    }
+    asked: list[tuple[str, bool]] = []
+
+    class PagedFetcher:
+        def http_get(self, url, conditional=True, accept=None):
+            asked.append((url, conditional))
+            if "/d/" in url:
+                n = int(url.rsplit("/", 1)[1])
+                body = {"Indeks": {"wartosc": n * 10 if n != 4 else None, "smiec": "z"}}  # 4: brak indeksu
+            else:
+                body = pages[url]
+            return Resp(url=url, final_url=url, status=200, text=json.dumps(body), headers={})
+
+        def commit_validators(self, resp):
+            pass
+
+    store = Store(tmp_path / "u4")
+    src = {"name": "p", "institution": "X", "urls": ["https://api.invalid/l/1"],
+           "page_template": "https://api.invalid/l/{page}", "page_start": 1, "records_path": "items",
+           "record_filter": {"miasto": ["Toruń"]}, "detail_url": "https://api.invalid/d/{id}",
+           "detail_path": "Indeks", "detail_as": "ix", "drop_fields": ["ix.smiec", "f"],
+           "require_fields": ["ix.wartosc"], "id_template": "{id}", "title_template": "Stacja {id}: {ix.wartosc}"}
+    stats = Stats()
+    run_json_api(Ctx(store=store, fetcher=PagedFetcher()), src, store.source_state("p"), stats)
+    by_url = {d["url"]: d for d in docs(tmp_path / "u4")}
+    assert sorted(by_url) == [f"https://api.invalid/d/{i}#{i}" for i in (1, 3, 5)], \
+        f"json_api: 3 strony, filtr bez wielkości liter, require_fields, adres = detail_url#id ({sorted(by_url)})"
+    assert stats.skipped == 1, "json_api: rekord bez wymaganego pola pominięty"
+    d1 = by_url["https://api.invalid/d/1#1"]
+    assert d1["title"] == "Stacja 1: 10" and "ix.wartosc: 10" in d1["content"], "json_api: szczegóły pod detail_as"
+    assert "smiec" not in d1["content"] and "f: x" not in d1["content"], "json_api: drop_fields usuwa pola"
+    assert all(not c for _, c in asked), "json_api: stronicowanie i szczegóły bez zapytań warunkowych"
+    assert "https://api.invalid/l/5" not in [u for u, _ in asked], "json_api: strona bez nowych rekordów kończy"
+
+
 def test_readonly_store_writes_nothing(tmp_path):
     ro_dir = tmp_path / "u3"
     ro_dir.mkdir()

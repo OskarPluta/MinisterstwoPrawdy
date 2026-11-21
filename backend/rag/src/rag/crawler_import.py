@@ -3,7 +3,9 @@
 Crawler records are flat: {url, source, institution, doc_type, region, title, content,
 published_at, fetched_at, ...}. Articles become one-section `article`/`report` records.
 IMGW warnings arrive as "key: value" dumps and are mapped to typed `warning_meteo` /
-`warning_hydro` fields so the fixed templates in chunking.py can render them.
+`warning_hydro` fields so the fixed templates in chunking.py can render them. Likewise IMGW SYNOP readings
+become `weather_reading` and GIOŚ air-quality indices `air_quality`. RSO notices keep their own text as `alert`
+(quoted verbatim, with a validity window).
 """
 
 from __future__ import annotations
@@ -19,7 +21,8 @@ from urllib.parse import urlparse
 from .timeutil import WARSAW, parse_ts
 
 ARTICLE_KINDS = {"komunikat": "article", "ostrzezenie": "article", "informacja": "article", "raport": "report"}
-STRUCTURED_SOURCE_TYPES = {"ostrzezenie_meteo", "ostrzezenie_hydro"}
+STRUCTURED_SOURCE_TYPES = {"ostrzezenie_meteo", "ostrzezenie_hydro", "ostrzezenie_rso", "pomiar_synop",
+                           "pomiar_powietrza"}
 # Crawl-run statuses that mean the source was reached successfully (statuses: backend/crawler/README.md);
 # `not_modified` is a healthy run that found nothing new.
 SUCCESS_STATUSES = {"ok", "not_modified"}
@@ -121,6 +124,94 @@ def _hydro(doc: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# RSO keys as flattened by the crawler's json_api adapter; any other line continues the previous value
+# (`content` spans several lines and its lines look like "Zjawisko: …").
+_RSO_KEY = re.compile(
+    r"id|title|shortcut|content|rso_alarm|rso_icon|valid_from|valid_to|created_at|updated_at|repetition|"
+    r"longitude|latitude|water_level_\w+|river_name|location_name|provinces\.\d+\.(?:name|city)"
+)
+
+
+def _kv_multiline(content: str, is_key) -> dict[str, str]:
+    """Like `_kv`, but a line whose key fails `is_key` is appended to the previous value."""
+    out: dict[str, str] = {}
+    last = None
+    for line in content.splitlines():
+        key, sep, val = line.partition(": ")
+        if sep and is_key(key):
+            last = key
+            out.setdefault(key, val.strip())
+        elif last and line.strip():
+            out[last] += "\n" + line.strip()
+    return out
+
+
+def _float(v: str | None) -> float | None:
+    try:
+        return float(v) if v not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def _rso(doc: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    kv = _kv_multiline(doc["content"], lambda k: bool(_RSO_KEY.fullmatch(k)))
+    title = kv.get("title") or base["title"]
+    provinces = [v.lower() for k, v in kv.items() if k.endswith(".name") and v]
+    cities = [v for k, v in kv.items() if k.endswith(".city") and v]
+    return {
+        **base,
+        "kind": "alert",
+        "title": title,
+        "published_at": _utc(kv.get("created_at")) or base["published_at"],
+        "valid_from": _utc(kv.get("valid_from")),
+        "valid_to": _utc(kv.get("valid_to")),
+        "areas": [f"województwo {p}" for p in provinces] + cities,
+        "sections": [{"heading": None, "text": _paragraphs(kv.get("content") or title, title)}],
+    }
+
+
+def _synop(doc: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    kv = _kv(doc["content"])
+    day, hour = kv.get("data_pomiaru"), _int(kv.get("godzina_pomiaru"))
+    observed = _utc(f"{day}T{hour:02d}:00:00", naive_tz=timezone.utc) if day and hour is not None else None
+    return {
+        **base,
+        "kind": "weather_reading",
+        "published_at": observed or base["published_at"],
+        "observed_at": observed,
+        "areas": [kv["stacja"]] if kv.get("stacja") else [],
+        "fields": {
+            "issuer": "IMGW-PIB", "station": kv.get("stacja"), "station_id": kv.get("id_stacji"),
+            "temperature": _float(kv.get("temperatura")), "wind_speed": _float(kv.get("predkosc_wiatru")),
+            "wind_direction": _int(kv.get("kierunek_wiatru")), "humidity": _float(kv.get("wilgotnosc_wzgledna")),
+            "precipitation": _float(kv.get("suma_opadu")), "pressure": _float(kv.get("cisnienie")),
+            "attribution": doc.get("attribution"),
+        },
+    }
+
+
+def _gios(doc: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+    kv = _kv_multiline(doc["content"], lambda k: True)  # keys contain spaces ("Nazwa miasta")
+    city, woj = kv.get("Nazwa miasta"), (kv.get("Województwo") or "").lower() or None
+    # "indeks.Nazwa kategorii indeksu dla wskażnika PM10" (GIOŚ spells it both wskaźnika and wskażnika)
+    pollutants = {m.group(1): v.lower() for k, v in kv.items()
+                  if v and (m := re.fullmatch(r"indeks\.Nazwa kategorii indeksu dla wska[zż]nika (.+)", k))}
+    index = kv.get("indeks.Nazwa kategorii indeksu")
+    observed = _utc(kv.get("indeks.Data wykonania obliczeń indeksu"))
+    return {
+        **base,
+        "kind": "air_quality",
+        "published_at": observed or base["published_at"],
+        "observed_at": observed,
+        "areas": [a for a in (city, f"województwo {woj}" if woj else None) if a],
+        "fields": {
+            "issuer": "GIOŚ", "station": kv.get("Nazwa stacji"), "station_id": kv.get("Identyfikator stacji"),
+            "index": index.lower() if index else None, "pollutants": pollutants,
+            "attribution": doc.get("attribution"),
+        },
+    }
+
+
 def convert_document(doc: dict[str, Any]) -> dict[str, Any]:
     base: dict[str, Any] = {
         "source_id": doc["source"],
@@ -136,6 +227,12 @@ def convert_document(doc: dict[str, Any]) -> dict[str, Any]:
         return _meteo(doc, base)
     if dtype == "ostrzezenie_hydro":
         return _hydro(doc, base)
+    if dtype == "ostrzezenie_rso":
+        return _rso(doc, base)
+    if dtype == "pomiar_synop":
+        return _synop(doc, base)
+    if dtype == "pomiar_powietrza":
+        return _gios(doc, base)
     rec = {**base, "kind": ARTICLE_KINDS.get(dtype, "article"),
            "sections": [{"heading": None, "text": _paragraphs(doc["content"], doc.get("title") or "")}]}
     if doc.get("attribution"):

@@ -43,7 +43,9 @@ Rodzaje rekordów:
 
 - **Artykuł** (`komunikat`, `ostrzezenie`, `informacja`, każdy nieznany typ → `article`; `raport` → `report`). Każda niepusta linia staje się akapitem, a pierwsza linia powtarzająca tytuł jest usuwana. Fragmenty są dosłowne i cytowalne.
 - **Ostrzeżenie strukturalne** (`ostrzezenie_meteo` → `warning_meteo`, `ostrzezenie_hydro` → `warning_hydro`). Crawler zapisuje rekord API jako linie `klucz: wartość`, a konwerter parsuje je z powrotem do `fields` (`phenomenon`, `level`, `valid_from/to`, `areas`…). Data `9999-…` oznacza „do odwołania”. Bez `phenomenon` i `level` rekord jest odrzucany.
-- **Źródło** powstaje z pierwszego dokumentu: `publishing_domain` = host bez `www.`, `source_type` = `structured` dla ostrzeżeń, w innych przypadkach `official`. Z `crawl_log`: `ok`/`not_modified` to sukces, inny status ustawia `last_error`. `last_success_at` to ostatni udany przebieg, więc późniejsza awaria go nie kasuje.
+- **Pomiar strukturalny** (`pomiar_synop` → `weather_reading`, `pomiar_powietrza` → `air_quality`). Tak samo jak ostrzeżenia: pola API trafiają do `fields` (temperatura, wiatr, opad, ciśnienie; indeks ogólny i indeksy zanieczyszczeń), czas pomiaru do `observed_at`, a fragment renderuje szablon. Bez `station` (i `index` dla `air_quality`) rekord jest odrzucany.
+- **Komunikat RSO** (`ostrzezenie_rso` → `alert`). Tekst komunikatu (pole `content`, wieloliniowe) jest dosłowny i cytowalny jak artykuł, a do tego rekord ma `valid_from/to` i obszar z województw. `alert` jest w `TIMED_KINDS`, więc wygasły komunikat daje notatkę.
+- **Źródło** powstaje z pierwszego dokumentu: `publishing_domain` = host bez `www.`, `source_type` = `structured` dla danych z API (ostrzeżenia, RSO, pomiary), w innych przypadkach `official`. Z `crawl_log`: `ok`/`not_modified` to sukces, inny status ustawia `last_error`. `last_success_at` to ostatni udany przebieg, więc późniejsza awaria go nie kasuje.
 - Źródła z przebiegami, ale bez żadnego dokumentu, nie trafiają do bazy. `ingest` je tylko wypisuje.
 
 ## Model danych (PostgreSQL)
@@ -101,7 +103,8 @@ Rodzaje rekordów:
 - **Prompt injection**: tekst użytkownika i fragmenty są escapowane, a podejrzane fragmenty oznaczane. To heurystyka, a nie gwarancja.
 - **Dostępność i aktualność**: zależy od ostatniego crawla i `ingest`. Notatka o nieaktualności dotyczy tylko źródeł `structured`. Awaria LLM daje `error`.
 - **Znane luki w kodzie**:
-  - ostrzeżenia wycofane z API IMGW zostają bieżące, bo konwerter nie czyta `state.json → active_ids`,
+  - ostrzeżenia wycofane z API IMGW i RSO zostają bieżące, bo konwerter nie czyta `state.json → active_ids`,
+  - pomiary (`imgw-synop`, `gios-indeks-powietrza`) to osobny dokument na stację i godzinę, czyli ok. 3200 dokumentów na dobę przy pracy ciągłej; odmiana nazw („w Łebie”) słabo trafia w prefiksy pełnego tekstu, pomaga e5,
   - szablon `warning_hydro` pokazuje „Rzeka: brak danych”, bo konwerter nie wypełnia `river`,
   - powrót treści A→B→A zostawia bieżącą wersję B (`known_version`),
   - `publishing_domain` dla `www.gov.pl` to `gov.pl`, więc walidacja przepuszcza dowolną subdomenę `*.gov.pl`,

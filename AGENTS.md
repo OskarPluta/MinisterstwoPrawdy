@@ -42,7 +42,7 @@ bun run dev | typecheck | build  # w frontend/
 - **Brak dowodów oznacza `insufficient`, a nie `false`.**
 - **SQL tylko jako nazwane zapytania** w `database/queries/<grupa>.sql` (`-- name: <nazwa>`), wywoływane przez `query("<grupa>.<nazwa>")`. Wartości przekazuje się tylko jako `%(nazwa)s`. Nie składaj SQL f-stringiem.
 - **Zmiana schematu** (`database/schema.sql`) wymaga podbicia `SCHEMA_VERSION` i dodania kroku migracji w `db.connect`.
-- **Dane strukturalne (ostrzeżenia IMGW) nie są cytowane dosłownie.** Renderuje je stały szablon i są pokazywane jako „Dane ze źródła”.
+- **Dane strukturalne (ostrzeżenia IMGW, pomiary synop i GIOŚ) nie są cytowane dosłownie.** Renderuje je stały szablon i są pokazywane jako „Dane ze źródła”.
 - **Tekst użytkownika jest maskowany w logu `checks`.** Treści źródeł nie są maskowane.
 - Czas w bazie jest w UTC (ISO 8601, porównywany w Pythonie), a użytkownikowi pokazywany w strefie Europe/Warsaw.
 - Testy nie korzystają z sieci ani z prawdziwego LLM. Korpus testowy używa domeny `.test`.
@@ -51,7 +51,7 @@ bun run dev | typecheck | build  # w frontend/
 
 | Chcę… | Zmień | Uwagi |
 | --- | --- | --- |
-| dodać źródło | `backend/crawler/sources.yaml` | Bez zmian w kodzie. Instrukcja: [crawler README](backend/crawler/README.md#dodanie-źródła). Nowy `doc_type` zmapuj w `ARTICLE_KINDS` w `rag/crawler_import.py`. |
+| dodać źródło | `backend/crawler/sources.yaml` | Bez zmian w kodzie. Jeśli źródło ma API, użyj `json_api` (stronicowanie, szczegóły rekordu: crawler README). Instrukcja: [crawler README](backend/crawler/README.md#dodanie-źródła). Nowy `doc_type` zmapuj w `ARTICLE_KINDS` w `rag/crawler_import.py`. |
 | dodać rodzaj rekordu lub szablon strukturalny | `rag/crawler_import.py` (konwerter pól, jak `_meteo`/`_hydro`), `rag/chunking.py` (`render_structured`, `REQUIRED_FIELDS`), `rag/verify.py` (`TIMED_KINDS`, jeśli rekord ma okres ważności) | Dodaj przykład do `fake_corpus.json` i test. |
 | zmienić prompty | `rag/llm.py` (`EXTRACT_SYSTEM`, `VERIFY_SYSTEM`, schematy Pydantic) | Wspólne dla OpenAI i Anthropic. Sprawdź przez `eval_verify.py --only ...`. |
 | zmienić reguły werdyktu, notatki, render | `rag/verify.py` (`REQUIRED_ROLES`, `_enforce`, `_notes`, `render_markdown`, `VERDICT_PL`) | Testy: `test_verify.py`. |

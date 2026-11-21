@@ -30,6 +30,9 @@ cases:
   - {id: r30, tags: [paraphrase], query: "stary film udostępniany jako nowy protest", gold: [demagog:DEM-FILM-PROTEST-2021]}
   - {id: r31, tags: [keyword], query: "podatek od psów", gold: [demagog:DEM-PODATEK-OD-PSOW-2027]}
   - {id: r32, tags: [keyword], query: "zwrot podatku e-Urząd Skarbowy wiadomość", gold: [cert:CERT-2026-0420]}
+  - {id: r36, tags: [keyword], query: "kolejka ciężarówek na granicy", gold: [rso:https://www.gov.test/api/data/proxy/rso/ogolne/1#90001]}
+  - {id: r37, tags: [keyword, geo], query: "temperatura w Łebie", gold: [imgw_synop:https://danepubliczne.imgw.test/api/data/synop#12120-2026-11-21-09]}
+  - {id: r38, tags: [paraphrase, geo], query: "smog w Kielcach", gold: [gios:https://api.gios.test/pjp-api/v1/rest/aqindex/getIndex/731#731-2026-11-21-11]}
   - id: r33
     tags: [date]
     query: "ostrzeżenie meteorologiczne"

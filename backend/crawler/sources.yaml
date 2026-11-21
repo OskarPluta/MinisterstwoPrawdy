@@ -9,7 +9,10 @@
 # attribution: dopisek o źródle danych (każdy typ; pole w dokumencie, przy json_api także w treści)
 # ekstrakcja (rss/html_list/sitemap/static_page): content_selector (wszystkie dopasowania), title_selector,
 #   strip_title_suffix (regex), drop_selectors
-# json_api: endpoint, records_path, id_field | id_template, title_template, date_fields, attribution, sort_lists
+# json_api: endpoint, records_path, id_field | id_template, title_template, date_fields, attribution, sort_lists,
+#   accept, page_template + page_start + max_pages (stronicowanie), record_filter{pole: [wartości]},
+#   detail_url + detail_path + detail_as (szczegóły każdego rekordu), drop_fields (wzorce), require_fields
+# Zasada: jeśli źródło ma API (udokumentowane albo endpoint JSON, z którego korzysta sama strona), używamy json_api.
 
 settings:
   contact: testtest@gmail.com   # TYMCZASOWY – zmień na właściwy (albo export CRAWLER_CONTACT=...)
@@ -191,6 +194,82 @@ sources:
     date_fields: [opublikowano, data_od]
     sort_lists: true
     attribution: "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy."
+    silence_alert_hours: null
+
+  # RSO (Regionalny System Ostrzegania): endpoint JSON, z którego korzysta https://www.gov.pl/web/gov/ostrzezenia.
+  # robots.txt gov.pl: "Allow: /". Ostatni segment ścieżki to numer strony (20 rekordów). Strony są numerowane od 1:
+  # strona 0 to kopia strony 1, a numer spoza zakresu zwraca ostatnią stronę (adapter wtedy kończy).
+  # Pola "0".."3" to tylko formaty dat ("Y-m-d H:i:s"). Kategoria informacje-drogowe to utrudnienia GDDKiA.
+  # Kategoria stany-wod (~300 wodowskazów, często odświeżane) celowo pominięta, żeby nie zalać korpusu pomiarami.
+  - &rso
+    name: rso-ogolne
+    type: json_api
+    institution: Regionalny System Ostrzegania (KPRM / RCB)
+    doc_type: ostrzezenie_rso
+    endpoint: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/ogolne/1?_format=json
+    page_template: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/ogolne/{page}?_format=json
+    page_start: 1
+    records_path: newses
+    id_field: id
+    title_template: "{title}"
+    date_fields: [created_at, valid_from]
+    drop_fields: ["0", "1", "2", "3", "shortcut", "provinces.*.id", "provinces.*.slug_name"]
+    interval_minutes: 10
+    silence_alert_hours: null
+
+  - <<: *rso
+    name: rso-meteorologiczne
+    endpoint: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/meteorologiczne/1?_format=json
+    page_template: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/meteorologiczne/{page}?_format=json
+
+  - <<: *rso
+    name: rso-hydrologiczne
+    endpoint: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/hydrologiczne/1?_format=json
+    page_template: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/hydrologiczne/{page}?_format=json
+
+  - <<: *rso
+    name: rso-drogowe
+    endpoint: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/informacje-drogowe/1?_format=json
+    page_template: https://www.gov.pl/api/data/proxy/rso/komunikatyxml/wszystkie/informacje-drogowe/{page}?_format=json
+
+  # IMGW SYNOP: 62 stacje, jeden pomiar na godzinę (godzina_pomiaru w UTC). Dokument = stacja + data + godzina,
+  # żeby dało się sprawdzać twierdzenia o przeszłości (ok. 1500 dokumentów na dobę przy pracy ciągłej).
+  - name: imgw-synop
+    type: json_api
+    institution: Instytut Meteorologii i Gospodarki Wodnej – PIB
+    doc_type: pomiar_synop
+    endpoint: https://danepubliczne.imgw.pl/api/data/synop
+    interval_minutes: 60
+    id_template: "{id_stacji}-{data_pomiaru}-{godzina_pomiaru}"
+    title_template: "Pomiar synoptyczny IMGW: {stacja}, {data_pomiaru} godz. {godzina_pomiaru}:00 UTC"
+    date_fields: [data_pomiaru]
+    attribution: "Źródłem pochodzenia danych jest Instytut Meteorologii i Gospodarki Wodnej – Państwowy Instytut Badawczy."
+    silence_alert_hours: null
+
+  # GIOŚ, indeks jakości powietrza (pjp-api v1): lista stacji, potem osobne zapytanie o indeks każdej stacji
+  # z miast wojewódzkich (73 stacje, ok. 4 min przy 3 s na zapytanie). Na Accept: application/json API odpowiada 406.
+  # Dokument = stacja + godzina obliczenia indeksu. Stacje bez policzonego indeksu są pomijane (require_fields).
+  - name: gios-indeks-powietrza
+    type: json_api
+    institution: Główny Inspektorat Ochrony Środowiska
+    doc_type: pomiar_powietrza
+    endpoint: https://api.gios.gov.pl/pjp-api/v1/rest/station/findAll?page=0&size=500
+    accept: "*/*"
+    records_path: Lista stacji pomiarowych
+    record_filter:
+      Nazwa miasta: [Warszawa, Kraków, Łódź, Wrocław, Poznań, Gdańsk, Szczecin, Bydgoszcz, Toruń, Lublin,
+                     Białystok, Katowice, Kielce, Olsztyn, Opole, Rzeszów, Zielona Góra, Gorzów Wielkopolski]
+    detail_url: "https://api.gios.gov.pl/pjp-api/v1/rest/aqindex/getIndex/{Identyfikator stacji}"
+    detail_path: AqIndex
+    detail_as: indeks
+    drop_fields: ["indeks.Identyfikator stacji pomiarowej", "indeks.Data wykonania obliczeń indeksu dla wskaźnika *",
+                  "WGS84*", "Identyfikator miasta"]
+    require_fields: ["indeks.Data wykonania obliczeń indeksu", "indeks.Nazwa kategorii indeksu"]
+    id_template: "{Identyfikator stacji}-{indeks.Data wykonania obliczeń indeksu:.13}"
+    title_template: "Indeks jakości powietrza GIOŚ: {Nazwa stacji} ({Nazwa miasta}) – {indeks.Nazwa kategorii indeksu}, {indeks.Data wykonania obliczeń indeksu:.16}"
+    date_fields: ["indeks.Data wykonania obliczeń indeksu"]
+    attribution: "Źródło danych: Główny Inspektorat Ochrony Środowiska, Państwowy Monitoring Środowiska."
+    interval_minutes: 60
     silence_alert_hours: null
 
   # ======================= strony statyczne =======================
