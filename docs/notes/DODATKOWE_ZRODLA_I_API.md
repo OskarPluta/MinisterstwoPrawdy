@@ -93,17 +93,19 @@ Materiały spoza oficjalnych dokumentów zadania w repozytorium: linki udostępn
 - **Formularz o token dostępowy MCP:** https://euvsdisinfo.eu/about/#aaad5def9c9014028bbdba28e341feb7
 - **Kontakt w razie problemu z tokenem:** PW na Discordzie do **`ps_msz`** (Piotr Sosnowski).
 
-### Szczegóły techniczne (wg PDF)
-- **Adres serwera MCP:** `https://euvsdisinfo-mcp-server.vercel.app/mcp`
-- **Transport:** **Streamable HTTP** (nie SSE!), żądania `POST` w formacie JSON-RPC 2.0 (`Accept: application/json, text/event-stream`).
-- **Przepływ zapytań:**
-  1. `initialize` (`POST` z nagłówkiem `Authorization: Bearer <token>`) → serwer zwraca nagłówek HTTP `mcp-session-id`.
-  2. `tools/list` (opcjonalnie) → lista dostępnych narzędzi.
-  3. `tools/call` z nagłówkami `Authorization: Bearer <token>` oraz `mcp-session-id: <session_id>`.
-- **Dostępne narzędzia (oba wyłącznie z paginacją `offset >= 0`, `limit` od `1` do `100`):**
-  1. **`articles`** (~6 691 artykułów analitycznych):
-     - pola: `id`, `title`, `content`, `dateGmt`, `keywords`, `categories`, `articleLanguage`, `thumbnailURL`, `url`.
-  2. **`cases`** (~19 248 spraw/incydentów dezinformacji):
-     - pola: `id`, `title`, `claim` (fałszywe twierdzenie), `fact` (sprostowanie), `date` (Unix timestamp), `keywords`, `countries`, `url` (raport na `euvsdisinfo.eu`),
-     - `linksToDisinformation[]`: `url`, `archiveUrl`, `snapShotURL`, `headLine`, `language`, `type`.
-- **Uwaga architektoniczna:** serwer **nie udostępnia wyszukiwania (`search`)** — służy do pobierania danych partiami (do 100 rekordów) w celu zasilenia własnego lokalnego indeksu incydentów (FIMI).
+### Szczegóły techniczne (dokumentacja Fibery „EUvsDisinfo MCP. API.”, wersja z 4.05.2026; sprawdzone 2026-11-21)
+- **Adres serwera MCP:** `https://mcp.euvsd.info/mcp`. **Stary adres z PDF (`euvsdisinfo-mcp-server.vercel.app`) nie przyjmuje nowych kluczy** (401 „Invalid API key”).
+- **Health check (bez klucza):** `GET https://mcp.euvsd.info/health`.
+- **Klucz:** `?key=KLUCZ`, nagłówek `Authorization: Bearer KLUCZ` albo `X-API-Key: KLUCZ`. Trzymamy go tylko w `.env` (`EUVSDISINFO_API_KEY`).
+- **Transport:** Streamable HTTP, JSON-RPC 2.0, wymagany `Accept: application/json, text/event-stream`. Odpowiedzi przychodzą jako zdarzenia SSE (`data: {...}`).
+- **Tryby:**
+  1. stanowy: `initialize` → nagłówek `mcp-session-id` → `tools/list` / `tools/call` z tym nagłówkiem → opcjonalnie `DELETE`;
+  2. bezstanowy: od razu `tools/call` z dowolnym, wygenerowanym przez klienta `mcp-session-id` (tak działa Claude.ai).
+- **Narzędzia:**
+  1. **`cases`** (`limit` 1–100, `offset` ≥ 0): ~19 000 spraw dezinformacji, od najnowszych. Pola: `id`, `title`, `claim`, `fact`, `date`, `keywords`, `countries`, `linksToDisinformation[]`, `url`;
+  2. **`articles`** (`limit` 1–100, `offset` ≥ 0): ~6 800 artykułów analitycznych. Pola: `id`, `title`, `content`, `dateGmt`, `keywords[]`, `categories[]`, `articleLanguage[]`, `thumbnailURL`, `url`;
+  3. **`search`** (`query` ≥ 3 znaki, opcjonalnie `date_from` / `date_to` w formacie `YYYY-MM-DD`): wyszukiwanie pełnotekstowe w sprawach i artykułach, 10 najlepszych wyników (`type`, `title`, `content`, `link`);
+  4. **`narratives`** (opcjonalnie `date_from` / `date_to`): narracje dezinformacyjne w okresie (`narrative`, `date`).
+- **Uwaga:** `tools/call` zwraca **tekst w Markdown** (np. `**Case 1: …**`, `**Claim:**`, `**Fact Check:**`), a nie JSON, więc importer musi go parsować.
+- **Kody błędów:** 401/-32001 brak lub zły klucz, 406 zły `Accept`, 400 zła sesja, 500 błąd po stronie serwera.
+- **Uwaga architektoniczna:** od wersji z 2026 r. serwer **ma narzędzie `search`**, więc można go odpytywać na żywo w trakcie weryfikacji. `cases` / `articles` nadal pozwalają zasilić lokalny indeks partiami po 100 rekordów.
