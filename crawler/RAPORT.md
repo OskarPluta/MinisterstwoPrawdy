@@ -71,6 +71,9 @@ Do wniosku o udostępnienie danych (wymagałyby obejścia zabezpieczeń lub zła
 
 ## Wymaga Twojej decyzji
 
+> **Aktualizacja:** maskowanie danych osobowych jest tymczasowo wyłączone na polecenie właściciela projektu
+> (`mask_pii: false`, opis w README). Punkty 7–8 poniżej wracają, gdy maskowanie zostanie włączone ponownie.
+
 1. **Mail kontaktowy**: teraz `testtest@gmail.com` (tymczasowy). Zmień w `sources.yaml` → `settings.contact`.
 2. **CERT**: włączyć `cert-polska-komunikaty`? (lista `/komunikaty/` jest dozwolona w robots.txt, kanał nie)
 3. **RSO**: włączyć `rso-ogolne` i dodać pozostałe kategorie? (endpoint niżej)

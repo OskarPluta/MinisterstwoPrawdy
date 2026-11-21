@@ -88,6 +88,40 @@ def clean_text(text: str) -> str:
     return _NL.sub("\n\n", "\n".join(lines)).strip()
 
 
+_COOKIE_ATTR = re.compile(r"cookie|consent|gdpr|rodo-|cmplz|onetrust|cookiebar", re.I)
+_COOKIE_TEXT = re.compile(r"(plik(i|ów)? cookie|cookies|ciasteczk)", re.I)
+_ATTACH_EXT = re.compile(r"\.(pdf|docx?|odt|rtf|xlsx?|ods)(\?|$)", re.I)
+
+
+def _drop_cookie_banners(soup: BeautifulSoup) -> None:
+    """Usuwa banery cookies/RODO (po id/klasie albo krótkie bloki o cookies), zanim cokolwiek wyciągniemy."""
+    for el in soup.find_all(True):
+        if el.decomposed if hasattr(el, "decomposed") else False:
+            continue
+        attrs = " ".join([el.get("id") or ""] + list(el.get("class") or []))
+        if attrs and _COOKIE_ATTR.search(attrs) and el.name not in ("html", "body", "main", "article"):
+            if len(el.get_text(" ", strip=True)) < 2000:
+                el.decompose()
+    for el in soup.find_all(["div", "section", "aside", "p"]):
+        t = el.get_text(" ", strip=True)
+        if 0 < len(t) < 700 and _COOKIE_TEXT.search(t) and not el.find(["article", "main"]) \
+                and re.search(r"(zgod|akceptuj|ustawie(nia|ń) przeglądarki|wyrażasz|zgadzasz)", t, re.I):
+            el.decompose()
+
+
+def find_attachments(html: str | bytes, base_url: str) -> list[tuple[str, str]]:
+    """Linki do załączników (PDF/DOC…) w treści strony: [(nazwa, url)]."""
+    soup = BeautifulSoup(html, "lxml")
+    scope = soup.select_one("article") or soup.select_one("main") or soup
+    out, seen = [], set()
+    for a in scope.find_all("a", href=True):
+        url = urljoin(base_url, a["href"])
+        if (_ATTACH_EXT.search(urlsplit(url).path) or "/download/" in url or "/attachment/" in url) and url not in seen:
+            seen.add(url)
+            out.append((a.get_text(" ", strip=True) or url.rsplit("/", 1)[-1], url))
+    return out
+
+
 @dataclass
 class Extracted:
     title: str | None
@@ -133,6 +167,7 @@ def extract_article(html: str | bytes, url: str, content_selector: str | None = 
     import trafilatura
 
     soup = BeautifulSoup(html, "lxml")
+    _drop_cookie_banners(soup)
     if drop_selectors:
         for sel in drop_selectors:
             for t in soup.select(sel):

@@ -29,6 +29,10 @@ x-govpl: &govpl
   drop_selectors: [".metrics", ".metric-history", ".gallery", ".main-photo"]
   strip_title_suffix: " - [^-]+ - Portal Gov\\.pl"
 
+# MASKOWANIE DANYCH OSOBOWYCH: decyzją właściciela projektu (2026-11-21) na etapie prototypu jest WYŁĄCZONE
+# (mask_pii: false przy źródłach policji). Kod maskowania zostaje i włącza się go z powrotem przez mask_pii: true.
+# Trzeba to zrobić przed jakąkolwiek publikacją danych lub wystawieniem RAG na zewnątrz.
+
 sources:
   # ======================= RSS =======================
   - name: policja-kgp
@@ -39,7 +43,7 @@ sources:
       - https://policja.pl/dokumenty/rss/1-rss-1.rss      # Aktualności
       - https://policja.pl/dokumenty/rss/1-rss-o-4.rss    # Ważne informacje
     interval_minutes: 10
-    mask_pii: true
+    mask_pii: false   # TYMCZASOWO wyłączone na polecenie właściciela projektu (patrz README)
     silence_alert_hours: 48
 
   - name: policja-mazowiecka
@@ -50,7 +54,7 @@ sources:
       - https://mazowiecka.policja.gov.pl/dokumenty/rss/271-rss-o-1487.rss
       - https://mazowiecka.policja.gov.pl/dokumenty/rss/271-rss-o-1488.rss
     interval_minutes: 10
-    mask_pii: true
+    mask_pii: false   # TYMCZASOWO wyłączone na polecenie właściciela projektu (patrz README)
     silence_alert_hours: 48
 
   - name: cert-polska
@@ -90,6 +94,9 @@ sources:
     type: rss
     institution: Komenda Główna Straży Ochrony Kolei
     url: https://kgsok.pl/feed/          # nie comments/feed
+    # WordPress: lead + treść, bez metryczki (autor/data/Drukuj/Pobierz), przycisków i „Powiązanych wpisów”
+    content_selector: ".single-new-lead, .single-new-content"
+    drop_selectors: [".single-new-share-buttons", ".single-new-related-news", ".single-new-data"]
 
   # umgdy.gov.pl to Urząd MORSKI w Gdyni (nie Urząd Miasta). /rss → /feed/ jest pusty (WordPress, wpisy są
   # typu „aktualnosc”), dlatego używamy kanału archiwum aktualności.

@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
-from .extract import (SKIP_EXT, ListItem, extract_article, find_dated_links, parse_any_date, parse_feed,
-                      parse_sitemap, to_iso)
+from .extract import (SKIP_EXT, ListItem, extract_article, find_attachments, find_dated_links, parse_any_date,
+                      parse_feed, parse_sitemap, to_iso)
 from .fetcher import Blocked, Fetcher, RobotsBlocked, RobotsUnavailable, Throttled, host_of
 from .storage import Store, iso, now_utc, parse_iso, sha256
 
@@ -102,10 +102,15 @@ def fetch_article(ctx: Ctx, src: dict, item: ListItem, prefer_list_title: bool,
         if ext.date_guessed and not allow_guessed_date:
             date = None
         log.debug("%s: ekstrakcja %s, %d znaków", url, ext.method, len(text))
+    # krótka treść + załączniki: komunikat jest właściwie w pliku (np. list w PDF) – zapisz, że istnieje i gdzie
+    attachments = find_attachments(resp.text, resp.final_url) if resp.is_html and len(text) < 400 else []
+    if len(text) < MIN_CONTENT_CHARS and item.summary and len(item.summary) >= 40:
+        text, method = item.summary, "http"  # RSS: zostaje opis z kanału
+    if attachments:
+        lines = [f"- {name}: {url}" for name, url in attachments[:10]]
+        text = ((text + "\n\n") if text else "") + "Komunikat opublikowany w załączniku:\n" + "\n".join(lines)
     if len(text) < MIN_CONTENT_CHARS:
-        if item.summary and len(item.summary) >= 40:  # RSS: zostaje opis z kanału
-            text, method = item.summary, "http"
-        elif not resp.is_html:
+        if not resp.is_html:
             raise SkipItem(f"nie-HTML ({resp.content_type}): {url}")
         else:
             raise ValueError(f"nie udało się wyciągnąć treści ({len(text)} znaków): {url}")

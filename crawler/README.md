@@ -55,6 +55,11 @@ Stan przetrwa restart. Dwa procesy na tym samym katalogu `data/` się nie urucho
 * `mask_pii: true` zamienia osoby na `[OSOBA]` (spaCy `persName`) i PESEL na `[PESEL]` **przed zapisem**.
   Bez modelu spaCy crawler nie wystartuje.
 
+> **⚠️ Maskowanie jest obecnie wyłączone.** Na polecenie właściciela projektu (2026-11-21), na czas prototypu,
+> źródła policji mają `mask_pii: false`, więc w `data/` zapisywane są pełne imiona i nazwiska z komunikatów.
+> Dane nie trafiają do repozytorium (`data/` jest w `.gitignore`). **Przed publikacją danych, udostępnieniem
+> zbioru albo wystawieniem RAG na zewnątrz trzeba przywrócić `mask_pii: true`** (albo maskować w kroku eksportu).
+
 ## Test lokalny (bez internetu)
 
 ```bash
