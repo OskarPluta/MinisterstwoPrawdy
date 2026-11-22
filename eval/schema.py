@@ -110,8 +110,8 @@ class DeterministicInvariants(BaseModel):
     )
     abstention_expected: bool = Field(
         default=False,
-        description="True if system must abstain (BRAK_WYSTARCZAJACYCH_DOWODOW or NIE_PODLEGA_WERYFIKACJI). "
-        "Must equal primary_verdict in ABSTAIN_VERDICTS whenever primary_verdict is set",
+        description="True iff system must abstain (all acceptable_verdicts, or primary_verdict when acceptable_verdicts is empty, "
+        "belong to ABSTAIN_VERDICTS: BRAK_WYSTARCZAJACYCH_DOWODOW / NIE_PODLEGA_WERYFIKACJI)",
     )
     verdict_subject_claim: Optional[str] = Field(
         default=None,
@@ -171,15 +171,34 @@ class DeterministicInvariants(BaseModel):
 
     @model_validator(mode="after")
     def _check_consistency(self) -> "DeterministicInvariants":
+        if self.expected_system_status == SystemStatusEnum.VERDICT_RENDERED:
+            if self.primary_verdict is None:
+                raise ValueError("primary_verdict must not be null when expected_system_status is VERDICT_RENDERED")
+        else:
+            if self.acceptable_verdicts:
+                raise ValueError("acceptable_verdicts must be empty unless expected_system_status is VERDICT_RENDERED")
+            if self.abstention_expected:
+                raise ValueError("abstention_expected must be False unless expected_system_status is VERDICT_RENDERED")
         if self.primary_verdict is not None:
             if self.acceptable_verdicts and self.primary_verdict not in self.acceptable_verdicts:
                 raise ValueError("primary_verdict must be included in acceptable_verdicts")
-            if self.abstention_expected != (self.primary_verdict.value in ABSTAIN_VERDICTS):
-                raise ValueError("abstention_expected must be True iff primary_verdict is an abstention verdict")
+            verdicts_to_check = self.acceptable_verdicts or [self.primary_verdict]
+            must_abstain = all(v.value in ABSTAIN_VERDICTS for v in verdicts_to_check)
+            if self.abstention_expected != must_abstain:
+                raise ValueError(
+                    "abstention_expected must be True iff all acceptable_verdicts (or primary_verdict) are abstention verdicts"
+                )
         if self.required_urls_any_of:
-            for domain in [*self.required_domains_any_of, *self.required_domains_all_of]:
+            domains = [*self.required_domains_any_of, *self.required_domains_all_of]
+            for domain in domains:
                 if not any(_host_matches(u, domain) for u in self.required_urls_any_of):
                     raise ValueError(f"domain {domain!r} has no matching URL in required_urls_any_of")
+            if domains:
+                for u in self.required_urls_any_of:
+                    if not any(_host_matches(u, d) for d in domains):
+                        raise ValueError(
+                            f"url {u!r} does not match any domain in required_domains_any_of/required_domains_all_of"
+                        )
         if len(self.required_domains_all_of) > self.min_citations_count:
             raise ValueError("min_citations_count must be >= len(required_domains_all_of)")
         for c in self.expected_claims:

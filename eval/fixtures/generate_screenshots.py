@@ -316,8 +316,8 @@ def create_f05_screenshot():
         draw.text((60, y), line, fill=(40, 40, 40), font=font_body)
         y += 36
     draw.text((60, 360), "Urząd Miasta i Gminy", fill=(40, 40, 40), font=font_body)
-    # Simulate a bad phone photo: heavy downscale, blur and JPEG-like softness so numbers and issuer are unreadable
-    small = img.resize((width // 4, height // 4), Image.BILINEAR).filter(ImageFilter.GaussianBlur(0.7))
+    # Simulate a bad phone photo: heavy downscale, blur and rotation so numbers and issuer are unreadable
+    small = img.resize((width // 7, height // 7), Image.BILINEAR).filter(ImageFilter.GaussianBlur(1.5))
     img = small.resize((width, height), Image.BILINEAR).rotate(4, fillcolor=(90, 90, 90))
     out_file = OUTPUT_DIR / "tc_f05_blurred_notice.png"
     img.save(out_file)

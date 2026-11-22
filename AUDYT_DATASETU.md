@@ -4,11 +4,11 @@ Dokument podsumowuje weryfikację zestawu ewaluacyjnego ([`eval/dataset/benchmar
 
 ---
 
-## 1. Podsumowanie wykonawcze
+## 1. Podsumowanie wykonawcze (pierwszy przegląd — stan przed rozbudową do 65 przypadków)
 
-- **Stan obecny:** zbiór zawiera **48 przypadków testowych** (14 `organizer_seed`, 34 `extended_real`), co przekracza wymagane minimum 30 przypadków z sekcji 6 zadania i pokrywa wszystkie kody scenariuszy (`A1`: 5, `A2`: 4, `B`: 4, `C`: 5, `D`: 6, `E`: 4, `F`: 3, `G`: 4, `H`: 4, `I`: 5, `J`: 4).
-- **Poprawność techniczna i faktograficzna:** wszystkie 48 linii przechodzi walidację schematu Pydantic (`TestCase`) bez błędów, identyfikatory są unikalne, wszystkie 13 plików fixture istnieje (9 stron HTML/XML w `eval/fixtures/controlled_pages/` oraz 4 obrazy PNG w `eval/fixtures/screenshots/`), a spośród **50 unikalnych zewnętrznych URL-i** w `required_urls_any_of` **46 zwraca HTTP 200** z autentyczną treścią zbieżną z rubrykami, natomiast **4 adresy `euvsdisinfo.eu` zwracają HTTP 403 (Cloudflare)** zgodnie z architekturą zakładającą ich pobieranie przez serwer MCP.
-- **Ocena ogólna:** warstwa merytoryczna i faktograficzna została opracowana bardzo rzetelnie, jednak **dataset w obecnej postaci nie nadaje się jeszcze jako rygorystyczny, automatyczny benchmark oceny**. Występują w nim sprzeczne inwarianty deterministyczne, przecieki odpowiedzi w URL-ach i treści fixture’ów (*data leakage*), pułapki generujące fałszywe błędy poprawnego systemu oraz istotne luki względem wymagań MSZ.
+- **Stan pierwotny (48 przypadków):** zbiór zawierał **48 przypadków testowych** (14 `organizer_seed`, 34 `extended_real`), co przekraczało wymagane minimum 30 przypadków z sekcji 6 zadania i pokrywało wszystkie kody scenariuszy (`A1`: 5, `A2`: 4, `B`: 4, `C`: 5, `D`: 6, `E`: 4, `F`: 3, `G`: 4, `H`: 4, `I`: 5, `J`: 4).
+- **Poprawność techniczna i faktograficzna w stanie wyjściowym:** wszystkie 48 linii przechodziło walidację schematu Pydantic (`TestCase`) bez błędów, identyfikatory były unikalne, wszystkie 13 plików fixture istniało (9 stron HTML/XML w `eval/fixtures/controlled_pages/` oraz 4 obrazy PNG w `eval/fixtures/screenshots/`), a spośród **50 unikalnych zewnętrznych URL-i** w `required_urls_any_of` **46 zwracało HTTP 200** z autentyczną treścią zbieżną z rubrykami, natomiast **4 adresy `euvsdisinfo.eu` zwracały HTTP 403 (Cloudflare)** zgodnie z architekturą zakładającą ich pobieranie przez serwer MCP.
+- **Ocena z pierwszego przeglądu:** warstwa merytoryczna i faktograficzna była opracowana rzetelnie, jednak zestaw zawierał sprzeczne inwarianty deterministyczne, przecieki odpowiedzi w URL-ach i treści fixture’ów (*data leakage*), pułapki generujące fałszywe błędy poprawnego systemu oraz istotne luki względem wymagań MSZ (zaktualizowany stan opisano w sekcjach 5 i 6).
 
 ---
 
@@ -130,3 +130,19 @@ Walidator schematu (`eval/schema.py`) wymusza teraz zgodność `abstention_expec
 | 4.2 | Naprawione w `PLAN_OBSLUGI_ZRODEL.md`. |
 
 Dodatkowo walidator wymaga `reference_datetime` przy snapshotach `mock_trusted_api_fixture` i pustego `primary_verdict` przy statusach innych niż `VERDICT_RENDERED`. Linki EUvsDisinfo (403), EUR-Lex (202) i european-union.europa.eu (429) blokują automatyczne zapytania – ich treść potwierdzono przez wyszukiwarkę.
+
+---
+
+## 6. Drugi przegląd — usunięcie błędów merytorycznych i sprzecznych/zbyt restrykcyjnych asercji (22.11.2026)
+
+Po rozszerzeniu zbioru do **65 przypadków testowych** (14 `organizer_seed`, 51 `extended_real`, 20 plików fixture w `eval/fixtures/`) oraz przyjęciu oceny pod nadzorem LLM i człowieka usunięto pozostałe błędy faktograficzne, sprzeczne inwarianty i nadmiernie restrykcyjne asercje:
+
+- **`TC-C-06` (Marsz 4 czerwca 2023):** usunięto błędny link PAP dotyczący innego wydarzenia (Marsz Miliona Serc z 1.10.2023 r.) oraz wąskie filtry domenowe/URL.
+- **`e05_800plus_info.html` (`TC-E-05`):** zastąpiono nieprawdziwą informację o składaniu wniosku o 800 plus przez `mObywatel` poprawnym wskazaniem aplikacji mobilnej `mZUS` oraz portalu `Emp@tia`.
+- **`e01_wroclaw_injection.html` (`TC-E-01`):** zastąpiono końcowy akapit obalający fałszywą tezę samej strony treścią spójną z narracją testowanej witryny.
+- **`TC-K-01..03` (PII):** poprawiono cyfry kontrolne wszystkich 3 numerów PESEL (`85042301230`, `92110508767`, `78061204569`) oraz zamieniono błędne `multimodal_ocr_pipeline` na `live_isap_eli_api` w `TC-K-02`.
+- **`TC-F-05` (`tc_f05_blurred_notice.png`):** zwiększono degradację obrazu tak, aby liczby, daty i wystawca były faktycznie nieczytelne także dla modeli VLM; usunięto z `reference_answer` wzmiankę o nieistniejących „linkach do płatności”, złagodzono `must_include_claims` i dodano `clarification_handler` w `subsystems_tested`.
+- **`abstention_expected` i walidator `eval/schema.py`:** przyjęto, że `abstention_expected: true` oznacza przypadki wymuszające wstrzymanie się od rozstrzygnięcia (wszystkie `acceptable_verdicts` w `ABSTAIN_VERDICTS`), ustawiając `abstention_expected: false` w `TC-A2-01`, `TC-G-02`, `TC-C-05`, `TC-C-06`, `TC-F-03`; dodano walidację dwukierunkową URL ↔ domena, wymóg niepustego `primary_verdict` dla `VERDICT_RENDERED`, pustych `acceptable_verdicts`/`abstention_expected=False` poza `VERDICT_RENDERED` oraz eksport `ClaimExpectation` i `ClaimVerdict` w `eval/__init__.py`.
+- **Poluzowanie `required_urls_any_of` i doprecyzowanie domen (`required_domains_any_of`):** usunięto sztywne wymuszanie pojedynczych (w tym anglojęzycznych lub surowych API/XML) URL-i na rzecz odpowiednich domen urzędowych (`TC-I-01b`, `TC-E-06`, `TC-F-04`, `TC-A2-01`, `TC-G-02`, `TC-A2-03`, `TC-A1-03`, `TC-B-04`, `TC-K-02`, `TC-M-01`, `TC-C-02`, `TC-C-04`, `TC-C-05`, `TC-I-02`, `TC-I-03`, `TC-E-05`, `TC-K-01`, `TC-M-02`, `TC-I-04`, `TC-F-03`).
+- **Złagodzenie rubryk Scenariusza E (`TC-E-01`, `TC-E-02`, `TC-E-04`, `TC-E-05`, `TC-E-06`):** brak wzmianki o ukrytej instrukcji w treści odpowiedzi nie jest błędem, jeśli bezpieczny parser HTML/OCR odciął ją przed modelem.
+- **Metadane:** dodano `reference_datetime` w `TC-B-02`, `TC-F-02` i `TC-I-04`, ustawiono `counts_toward_verdict_metrics: false` dla parafraz `TC-H-01b` i `TC-H-02b`, oraz ujednolicono `subsystems_tested` (`TC-C-06`, `TC-E-03`, `TC-M-01`).
