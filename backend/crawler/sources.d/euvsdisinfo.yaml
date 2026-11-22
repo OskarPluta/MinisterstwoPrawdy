@@ -11,6 +11,7 @@ sources:
     endpoint: https://mcp.euvsd.info/mcp
     headers: {Authorization: "Bearer ${EUVSDISINFO_API_KEY}"}
     tool: cases
+    allowed_hosts: [euvsdisinfo.eu]   # serwer zwraca czasem adresy euvsdisinfo-preprod.euvsd.info
     page_size: 100
     max_pages: 3
     backfill_pages_per_run: 20

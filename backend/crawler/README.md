@@ -98,7 +98,7 @@ Endpointy aplikacji JS najłatwiej znaleźć w narzędziach deweloperskich przeg
 Źródła `euvsdisinfo-cases` (~19 900 spraw dezinformacji) i `euvsdisinfo-articles` (~12 000 artykułów) są w [`sources.d/euvsdisinfo.yaml`](sources.d/euvsdisinfo.yaml). Wymagają `EUVSDISINFO_API_KEY` w środowisku (klucz z formularza na euvsdisinfo.eu). Klucz idzie nagłówkiem `Authorization`, więc nie trafia do danych.
 
 - Serwer zwraca Markdown (`**Case N: tytuł**`, pola `**Claim:**`, `**Fact Check:**`, `**Source URL:**`…). Adresem dokumentu jest `Source URL`, a treścią są pola w liniach `Etykieta: wartość`.
-- Klucze: `endpoint`, `tool`, `headers`, `page_size` (maks. 100), `max_pages` (zwykły przebieg czyta od najnowszych do strony bez zmian), `backfill_pages_per_run`.
+- Klucze: `endpoint`, `tool`, `headers`, `page_size` (maks. 100), `allowed_hosts` (rekordy z adresem spoza listy są pomijane, np. kopie z serwera preprod), `max_pages` (zwykły przebieg czyta od najnowszych do strony bez zmian), `backfill_pages_per_run`.
 - Archiwum jest dociągane kursorem `backfill_offset` w `state.json`, aż do `Has next page: No` (`backfill_done`). Przy 20 stronach na przebieg całe archiwum schodzi w ok. 10 przebiegach (`once --source euvsdisinfo-cases`).
 - Test `tests/test_mcp.py` używa zapisanych prawdziwych odpowiedzi serwera (`tests/fixtures/euvsdisinfo_*.sse`).
 

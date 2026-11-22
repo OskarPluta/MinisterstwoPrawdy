@@ -24,6 +24,7 @@ import json
 import logging
 import re
 import uuid
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 
 from .adapters import Ctx, Stats, _private_headers, save_doc
@@ -108,6 +109,7 @@ def run_mcp_tool(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
     session = str(uuid.uuid4())      # tryb bezstanowy: serwer przyjmuje dowolny identyfikator sesji
     tool = src["tool"]
     limit = int(src.get("page_size", 100))
+    allowed = set(src.get("allowed_hosts") or [])
     calls = 0
 
     def page(offset: int) -> tuple[list[dict], bool | None]:
@@ -127,6 +129,10 @@ def run_mcp_tool(ctx: Ctx, src: dict, st: dict, stats: Stats) -> None:
             if not url.startswith(("http://", "https://")):
                 stats.skipped += 1
                 stats.msg(f"rekord bez Source URL: {rec['title'][:80]!r}")
+                continue
+            if allowed and urlsplit(url).hostname not in allowed:  # np. kopie z serwera preprod EUvsDisinfo
+                stats.skipped += 1
+                stats.msg(f"pominięto adres spoza allowed_hosts: {urlsplit(url).hostname}")
                 continue
             outcome = save_doc(ctx, src, url, rec["title"], rec["body"], parse_date(rec["fields"].get("Date")), "mcp")
             stats.count(outcome)
