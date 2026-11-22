@@ -48,7 +48,8 @@ Wzorcowy przykład wszystkich rodzajów rekordów: [`tests/fixtures/fake_corpus.
 ## Opinie i znane narracje dezinformacyjne
 
 - Ekstrakcja nie odrzuca narracji propagandowych jako „opinii”. Twierdzenie jest zawsze po polsku, a zapytania obejmują też język oryginału i angielski (baza EUvsDisinfo jest po angielsku).
-- Twierdzenie `checkable=false` (opinia) jest szukane tylko w źródłach `factcheck`. Brak trafień daje `unverifiable` bez wywołania LLM. Jeśli model nie rozpozna udokumentowanej narracji, wynik to zwykłe `unverifiable` bez cytatów.
+- Twierdzenie `checkable=false` (opinia) jest szukane w całym korpusie, a do listy dochodzą najlepsze fragmenty ze źródeł `factcheck` (`OPINION_DISINFO_EXTRA`). Oficjalne źródła dają kontekst rdzenia faktycznego, np. przy „Polska lekceważy gwarancje bezpieczeństwa dla Ukrainy” obok trafia komunikat rządu o tych gwarancjach.
+- Brak trafień daje `unverifiable` bez wywołania LLM. Jeśli model nie rozpozna udokumentowanej narracji, wynik to `unverifiable`. Cytowane są wtedy tylko oficjalne źródła, które model wskazał jako kontekst. Fragmenty `factcheck` bez cytatu obalającego nie są pokazywane, bo cytat samej narracji wyglądałby jak poparcie.
 - `known_disinformation` (pole w `ClaimResult` i w API) oznacza, że twierdzenie powtarza narrację opisaną w bazie jako dezinformacja. Kod ustawia je tylko wtedy, gdy wśród zachowanych cytatów jest obalenie ze źródła `factcheck` z rolą `contradicts`. Wtedy etykiety `supports` na fragmentach tych źródeł zamieniają się w `context` (cytat narracji jej nie potwierdza), więc `true` spada do `insufficient`. Do wyniku trafia notatka „Znana narracja dezinformacyjna udokumentowana przez: …” z wydawcą z bazy.
 - Werdykt pozostaje ze zwykłego zbioru: `false`, gdy obalenie przeczy treści, `misleading` przy manipulacji, a `unverifiable` z flagą dla czystej oceny. `REQUIRED_ROLES` obowiązują jak zawsze.
 

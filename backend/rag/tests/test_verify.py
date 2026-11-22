@@ -24,6 +24,7 @@ from rag.verify import (
     CheckResult,
     Citation,
     ClaimResult,
+    pid,
     Verifier,
     _safe_url,
     build_evidence_xml,
@@ -152,14 +153,24 @@ def test_no_shortlist_abstains_without_llm_call(new_db, embedder):
     assert "nie oznacza" in cr.explanation
 
 
-def test_opinion_is_checked_only_against_factcheck_databases(retriever):
+def test_opinion_searches_whole_corpus_and_factcheck_databases(retriever):
     c = claim("Ten rząd jest najgorszy w historii", checkable=False)
     llm = FakeLLM([c], lambda cl, xml: verdict("unverifiable"))
     cr = Verifier(retriever, llm, record=False).verify("Ten rząd jest najgorszy", NOW).claims[0]
     assert cr.verdict == "unverifiable" and cr.verdict_pl == "nie podlega weryfikacji"
-    assert cr.citations == [] and not cr.known_disinformation
-    types = re.findall(r'source_type="(\w+)"', llm.seen_xml[0])
-    assert types and set(types) == {"factcheck"}  # no official or structured records for an opinion
+    assert cr.citations == [] and not cr.known_disinformation  # nothing labelled: nothing listed
+    types = set(re.findall(r'source_type="(\w+)"', llm.seen_xml[0]))
+    assert "factcheck" in types and types - {"factcheck"}  # fact-check cases plus official context
+
+
+def test_opinion_keeps_official_context(retriever):
+    """"Polska lekceważy gwarancje…" is an opinion, but the government's statement is useful context."""
+    c = claim("Ten rząd jest najgorszy w historii", checkable=False)
+    v = Verifier(retriever, FakeLLM(), record=False)
+    official = next(pid(h) for h in v.retrieve(c) if h.meta["source_type"] == "official")
+    v.llm = FakeLLM([c], lambda cl, xml: verdict("unverifiable", ((official, "context"),)))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "unverifiable" and [x.role for x in cr.citations] == ["context"]
 
 
 def test_opinion_without_any_factcheck_hit_skips_the_llm(new_db, embedder):

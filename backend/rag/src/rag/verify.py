@@ -34,6 +34,7 @@ REQUIRED_ROLES = {"true": {"supports"}, "false": {"contradicts"}, "misleading": 
 # Fact-check / disinformation databases (EUvsDisinfo cases, fact-check verdicts). Opinion-shaped
 # claims are searched only here, and only a debunk from here can mark a known narrative.
 DISINFO_SOURCE_TYPES = {"factcheck"}
+OPINION_DISINFO_EXTRA = 4  # fact-check passages added to an opinion's whole-corpus shortlist
 STALE_AFTER = timedelta(hours=48)
 TIMED_KINDS = {"warning_meteo", "warning_hydro", "alert"}  # alert: komunikaty RSO
 
@@ -283,12 +284,18 @@ class Verifier:
         self.live = live_mod.live_enabled() if live is None else live  # None: PRAWDOWID_LIVE (default on)
 
     def retrieve(self, claim: Claim) -> list[Hit]:
-        """Checkable claims search the whole corpus. Opinion-shaped claims (checkable=false)
-        search only fact-check databases: an opinion cannot be confirmed by official facts,
-        but it may repeat a narrative documented there as disinformation."""
+        """Every claim searches the whole corpus. Opinion-shaped claims (checkable=false) also get
+        the best fact-check passages added: an opinion may repeat a narrative documented there as
+        disinformation, and official sources give its factual core context (e.g. "Polska lekceważy
+        gwarancje…" next to the government's own statement on the guarantees)."""
         queries = list(dict.fromkeys([claim.text, *claim.search_queries]))
-        filters = None if claim.checkable else Filters(source_types=DISINFO_SOURCE_TYPES)
-        return self.retriever.hybrid(queries, filters=filters, shortlist=self.shortlist)
+        hits = self.retriever.hybrid(queries, shortlist=self.shortlist)
+        if claim.checkable:
+            return hits
+        disinfo = self.retriever.hybrid(queries, filters=Filters(source_types=DISINFO_SOURCE_TYPES),
+                                        shortlist=self.shortlist)
+        seen = {pid(h) for h in hits}
+        return hits + [h for h in disinfo[:OPINION_DISINFO_EXTRA] if pid(h) not in seen]
 
     def check_claim(self, claim: Claim, now: datetime, hits: list[Hit] | None = None) -> ClaimResult:
         hits = self.retrieve(claim) if hits is None else hits
@@ -304,8 +311,12 @@ class Verifier:
         raw = self.llm.verify_claim(claim, build_evidence_xml(hits), now)
         verdict, kept, invented, downgraded, known = _enforce(raw, by_id)
         if not claim.checkable and not known and verdict in ("insufficient", "unverifiable"):
-            # An opinion with no documented narrative behind it: the fact-check passages it was
-            # shown are unrelated, so they are not listed.
+            # Without a cited debunk a fact-check passage next to an opinion is the narrative's own
+            # quote or an unrelated case – listing it would read as support. Official context stays.
+            kept = [lab for lab in kept if not is_disinfo_db(by_id[lab.passage_id])]
+        if not claim.checkable and not known and verdict in ("insufficient", "unverifiable") and not kept:
+            # An opinion with no documented narrative and no source the model found relevant:
+            # the passages it was shown are unrelated, so they are not listed.
             return ClaimResult(
                 claim.text, "unverifiable", VERDICT_PL["unverifiable"], MSG_OPINION,
                 shortlist_ids=list(by_id), invented_ids=invented,
