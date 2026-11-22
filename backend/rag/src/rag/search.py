@@ -12,8 +12,9 @@ from typing import Any
 
 import numpy as np
 
+from database import query as named_sql
+
 from .areas import area_matches, area_score
-from .database import query as named_sql
 from .db import Connection, corpus_version
 from .embed import Embedder, _fold
 from .reprints import ARTICLE_KINDS

@@ -1,5 +1,5 @@
 // Admin panel dev/prod server: Bun bundles src/index.html on the fly; /admin/api/* is proxied to the
-// admin API (backend/admin, a separate process from the public API). Listens on 127.0.0.1 only unless
+// admin API (admin-backend, a separate process from the public API). Listens on 127.0.0.1 only unless
 // ADMIN_FRONTEND_HOST says otherwise; put it behind HTTPS (ADMIN_COOKIE_SECURE=1) if exposed.
 import index from "./src/index.html";
 

@@ -32,7 +32,8 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from .database import query
+from database import query
+
 from .db import Connection, _bump_corpus_version
 from .embed import _fold
 from .timeutil import parse_ts

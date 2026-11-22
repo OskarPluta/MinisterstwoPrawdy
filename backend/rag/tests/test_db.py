@@ -132,7 +132,7 @@ def test_reconnect_keeps_data(new_db, database_url, embedder):
 
 
 def test_sql_files_load_and_are_parameterized():
-    from rag.database import query, schema
+    from database import query, schema
 
     assert "CREATE TABLE IF NOT EXISTS evidence" in schema()
     assert "%(content_hash)s" in query("evidence.find_by_hash")

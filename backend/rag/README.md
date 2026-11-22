@@ -11,14 +11,14 @@ Polecenia: `uv run rag ingest | reembed | stats | search | verify` (opcje: `--he
 | ingest | `ingest.py` | Walidacja rekordów, pominięcie niezmienionych, chunking, embeddingi w partiach, zapis. `reembed` przelicza wektory. |
 | fragmenty | `chunking.py` | Artykuły: podział po akapitach z limitem słów. Rekordy strukturalne: jeden fragment ze stałego polskiego szablonu. |
 | embeddingi | `embed.py` | `E5Embedder` (domyślny) i `HashEmbedder` (testy) |
-| baza | `db.py`, `database/` | Połączenie, schemat, wersjonowany upsert, log sprawdzeń, `scratch_db()` dla testów |
+| baza | `db.py` | Połączenie, schemat i migracje, wersjonowany upsert, log sprawdzeń, `scratch_db()` dla testów. SQL jest w pakiecie [`database`](../../database/README.md). |
 | wyszukiwanie | `search.py`, `areas.py` | `Retriever`: FTS w Postgresie, gęste w NumPy, fuzja RRF, miękkie listy obszaru i okresu twierdzenia (`Prefer`), nowszy rekord przed starszym (`supersessions`), różnorodność, filtry; `areas.py`: dopasowanie obszarów (województwa, kraj, odmiana) |
 | LLM | `llm.py` | Prompty, schematy Pydantic, klienci PCSS/OpenAI/Anthropic ze strukturalnym wyjściem, tokeny i koszt |
 | weryfikacja | `verify.py` | `Verifier`: ekstrakcja → wyszukiwanie → werdykt → kontrola cytatów i notatki → log → `render_markdown` |
 | na żywo | `live.py` | Gdy korpus nie rozstrzyga (`insufficient`): Google Fact Check, EUvsDisinfo (MCP `search`) i gov.pl na żywo przez `crawler.fetcher.Fetcher`, zapis przez `ingest_corpus`, ponowna weryfikacja. Domeny weryfikatorów czyta z tabeli `trusted_domains` (domyślna lista: `trusted.py`). |
 | wynik sprawdzenia | `outcomes.py` | `classify()`: jedna kategoria sprawdzenia (`verdict`, `no_evidence`, `llm_timeout`, `partial_error`…) i grupa (sukces / bez werdyktu / częściowy błąd / błąd), liczone kodem z logu. `usage_columns()`: tokeny i koszt w walucie cennika. |
 | alerty | `alerts.py` | `raise_alert()` z deduplikacją po odcisku (jeden otwarty alert, licznik powtórzeń), alert dla nieudanego sprawdzenia. Treść alertu nigdy nie zawiera tekstu użytkownika. |
-| panel admina | `admin_db.py` | Operacje panelu (`backend/admin`): stronicowana historia, kategorie, nadpisania i wyłączanie źródeł, wycofywanie i przywracanie dokumentów, domeny weryfikatorów, dziennik zmian. |
+| panel admina | `admin_db.py` | Operacje panelu (`admin-backend`): stronicowana historia, kategorie, nadpisania i wyłączanie źródeł, wycofywanie i przywracanie dokumentów, domeny weryfikatorów, dziennik zmian. |
 | pomocnicze | `cli.py`, `config.py` (`.env`), `timeutil.py` (UTC ↔ Europe/Warsaw), `evaluation.py` (recall@k, MRR) | |
 
 Użycie z kodu (np. przyszłe API):
@@ -69,8 +69,8 @@ Wzorcowy przykład wszystkich rodzajów rekordów: [`tests/fixtures/fake_corpus.
 
 ## Konwencje SQL
 
-- Cały SQL jest w `database/`: `schema.sql` (DDL, idempotentny, wykonywany przy każdym połączeniu) i `queries/<grupa>.sql`.
-- Nowe zapytanie: blok `-- name: <nazwa>` w `queries/<grupa>.sql`, wywołanie `conn.execute(query("<grupa>.<nazwa>"), params)`.
+- Cały SQL jest w osobnym pakiecie [`database`](../../database/) (katalog główny repo): `src/database/schema.sql` (DDL, idempotentny, wykonywany przy każdym połączeniu) i `src/database/queries/<grupa>.sql`.
+- Nowe zapytanie: blok `-- name: <nazwa>` w `queries/<grupa>.sql`, wywołanie `conn.execute(query("<grupa>.<nazwa>"), params)` z `from database import query`.
 - Wartości tylko jako placeholdery `%(nazwa)s`, nigdy przez f-string. Jedyny składany identyfikator (schemat testowy) przechodzi przez `psycopg.sql.Identifier`.
 - Zmiana schematu wymaga podbicia `SCHEMA_VERSION` w `db.py` i kroku migracji w `connect`. Baza z nowszym schematem niż kod jest odrzucana.
 - Czasy są zapisane jako tekst ISO 8601 w UTC i porównywane w Pythonie, nie w SQL. Jedyny wyjątek to filtry zakresu logu w panelu administracyjnym (`checks.page`, `checks.in_range`): `created_at` zapisuje zawsze `utcnow_iso()` w jednym formacie (sekundy, `Z`), więc porównanie tekstu daje poprawną kolejność, a stronicowanie musi działać w bazie.

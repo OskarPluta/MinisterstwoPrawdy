@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from database import query
+
 from . import reprints
 from .chunking import chunk_record, embedding_text
 from .crawler_import import convert, source_catalog
-from .database import query
 from .db import (
     Connection,
     PassageIn,

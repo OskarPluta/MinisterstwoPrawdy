@@ -1,5 +1,5 @@
 """Alerts for the admin panel: processing problems written by any process (API, Discord bot,
-CLI), shown and sent on by backend/admin (notifier).
+CLI), shown and sent on by admin-backend (notifier).
 
 One open alert per fingerprint: a repeat raises `count` instead of adding a row. Messages
 are built by code from the outcome and the exception class name; they never contain the
@@ -12,7 +12,8 @@ import json
 import logging
 from typing import Any
 
-from .database import query
+from database import query
+
 from .db import Connection
 from .outcomes import ALERT_OUTCOMES, OUTCOME_PL, severity
 from .timeutil import utcnow_iso

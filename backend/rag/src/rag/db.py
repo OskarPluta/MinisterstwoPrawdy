@@ -1,6 +1,6 @@
 """PostgreSQL storage: sources, versioned evidence, passages (+full-text, vectors), checks.
 
-All SQL lives in rag/database/ (schema.sql, queries/*.sql) and is executed with
+All SQL lives in the `database` package (database/: schema.sql, queries/*.sql) and is executed with
 bound parameters only.
 """
 
@@ -23,12 +23,13 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from database import query, schema
+
 from .config import database_url
-from .database import query, schema
 from .embed import _fold
 from .timeutil import parse_ts, utcnow_iso
 
-SCHEMA_VERSION = 5  # v4: reprint_signatures (rag/reprints.py); v5: admin panel (backend/admin)
+SCHEMA_VERSION = 5  # v4: reprint_signatures (rag/reprints.py); v5: admin panel (admin-backend)
 
 Connection = psycopg.Connection[dict[str, Any]]
 

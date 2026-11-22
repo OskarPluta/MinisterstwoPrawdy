@@ -30,7 +30,7 @@ from rag.llm import Claim, ClaimExtraction, ClaimVerdict, PassageLabel, Usage
 from rag.search import Retriever
 from rag.verify import Verifier, record_failure
 
-FIXTURES = Path(__file__).resolve().parents[2] / "rag" / "tests" / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[2] / "backend" / "rag" / "tests" / "fixtures"
 load_env()
 os.environ["PRAWDOWID_LIVE"] = "0"
 PASSWORD = "correct horse battery"
