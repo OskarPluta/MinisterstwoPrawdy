@@ -1,9 +1,9 @@
 // Components the product needs that the design system does not ship. Built from the same tokens
 // and rules: square shapes, 1px hairlines, status always as icon + word, no coloured left border.
-import type { TextareaHTMLAttributes } from "react";
-import type { Citation, Role, Source } from "../api";
+import { useEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
+import type { Citation, InputSummary, Role, Source } from "../api";
 import { formatDate } from "../api";
-import { cx, FieldMessages, Icon, useFieldIds, type IconName } from "./components";
+import { Button, cx, FieldMessages, Icon, useFieldIds, type IconName } from "./components";
 
 /** Multi-line TextField: same label, hint and error wiring, plus a character counter. */
 export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -162,5 +162,162 @@ export function SourcesTable({ sources }: { sources: Source[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${Math.round(bytes / 1000)} kB`;
+  return `${(bytes / 1_000_000).toLocaleString("pl-PL", { maximumFractionDigits: 1 })} MB`;
+}
+
+/** Small preview so the person can confirm they attached the right picture. */
+function Thumb({ file }: { file: File }) {
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  if (!src) return <Icon name="file-text" size={28} className="mp-file-icon" />;
+  return <img className="mp-file-thumb" src={src} alt="" />;
+}
+
+export interface FilePickerProps {
+  id: string;
+  label: string;
+  hint?: string;
+  error?: string;
+  files: File[];
+  accept: string;
+  /** Hidden when the limit is reached. */
+  canAdd: boolean;
+  onAdd: (files: File[]) => void;
+  onRemove: (index: number) => void;
+}
+
+/** File field: a secondary button opens the system picker; chosen files are listed with a remove button. */
+export function FilePicker({ id, label, hint, error, files, accept, canAdd, onAdd, onRemove }: FilePickerProps) {
+  const { fid, hintId, errId, describedBy } = useFieldIds(id, hint, error);
+  const input = useRef<HTMLInputElement>(null);
+  const labelId = `${fid}-label`;
+  return (
+    <div className={cx("mp-field mp-files", error && "mp-field-invalid")} role="group" aria-labelledby={labelId}>
+      <span className="mp-field-label" id={labelId}>
+        {label}
+      </span>
+      <FieldMessages hint={hint} error={error} hintId={hintId} errId={errId} />
+      <input
+        ref={input}
+        id={fid}
+        type="file"
+        className="mp-sr"
+        tabIndex={-1}
+        aria-hidden="true"
+        multiple
+        accept={accept}
+        onChange={(e) => {
+          onAdd(Array.from(e.target.files ?? []));
+          e.target.value = ""; // the same file can be chosen again after removing it
+        }}
+      />
+      {files.length > 0 && (
+        <ul className="mp-files-list" aria-label="Dodane pliki">
+          {files.map((f, i) => (
+            <li key={`${f.name}-${f.size}-${i}`} className="mp-file">
+              <Thumb file={f} />
+              <span className="mp-file-name">
+                {f.name}
+                <span className="mp-file-size"> · {formatSize(f.size)}</span>
+              </span>
+              <Button variant="link" onClick={() => onRemove(i)} aria-label={`Usuń plik ${f.name}`}>
+                Usuń
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {canAdd && (
+        <div>
+          <Button variant="secondary" icon="file-text" iconPosition="start" onClick={() => input.current?.click()} aria-describedby={describedBy}>
+            {files.length ? "Dodaj kolejny plik" : "Dodaj zdjęcie lub plik PDF"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** What was read from each link, video, image or PDF, and what could not be done. Plain text only:
+ *  labels are user input (no links), `text` is OCR or page text. */
+export function MaterialList({ inputs, headingLevel = 3 }: { inputs: InputSummary[]; headingLevel?: 2 | 3 }) {
+  if (inputs.length === 0) return null;
+  const H = headingLevel === 2 ? "h2" : "h3";
+  return (
+    <section className="mp-material" aria-labelledby="material-t">
+      <H id="material-t" className="mp-material-title">
+        Co odczytaliśmy z przesłanego materiału
+      </H>
+      <p className="mp-material-lead">
+        Materiał to to, co sprawdzamy, a nie dowód. Ocenę opieramy tylko na źródłach z naszej bazy.
+      </p>
+      <ol className="mp-material-list">
+        {inputs.map((m) => (
+          <li key={m.id} className="mp-material-item">
+            <div className="mp-material-head">
+              <span className="mp-material-id" aria-hidden="true">
+                {m.id}
+              </span>
+              <div className="mp-material-meta">
+                <p className="mp-material-kind">
+                  <span className="mp-sr">Materiał {m.id}: </span>
+                  {m.kind_pl}
+                </p>
+                <p className="mp-material-label">{m.label}</p>
+                {m.date_label && <p className="mp-material-date">{m.date_label}</p>}
+              </div>
+              {m.readable ? (
+                <span className="mp-state mp-state-success">
+                  <Icon name="circle-check" size={18} />
+                  Odczytano
+                </span>
+              ) : (
+                <span className="mp-state mp-state-warning">
+                  <Icon name="triangle-alert" size={18} />
+                  Nie odczytano
+                </span>
+              )}
+            </div>
+            {m.notes.length > 0 && (
+              <ul className="mp-material-notes">
+                {m.notes.map((n, i) => (
+                  <li key={i}>
+                    <Icon name="info" size={18} />
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {m.limitations.length > 0 && (
+              <div className="mp-material-limits">
+                <p className="mp-material-limits-title">Ograniczenia</p>
+                <ul>
+                  {m.limitations.map((n, i) => (
+                    <li key={i}>{n}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {m.readable && (
+              <details className="mp-material-text">
+                <summary>Pokaż odczytany tekst</summary>
+                <pre>{m.text}</pre>
+              </details>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

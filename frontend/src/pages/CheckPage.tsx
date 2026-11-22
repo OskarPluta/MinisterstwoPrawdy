@@ -1,7 +1,18 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ApiError, MAX_INPUT_CHARS, MSG_OUTAGE, verify, type CheckResult } from "../api";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import {
+  ACCEPTED_FILES,
+  ApiError,
+  MAX_FILE_BYTES,
+  MAX_FILES,
+  MAX_IMAGE_BYTES,
+  MAX_INPUT_CHARS,
+  MSG_OUTAGE,
+  verify,
+  verifyUpload,
+  type CheckResult,
+} from "../api";
 import { Button, InfoSection, Notice, ServiceSteps } from "../design/components";
-import { TextArea } from "../design/extra";
+import { FilePicker, MaterialList, TextArea } from "../design/extra";
 import { RESULT_HEADING_ID, ResultView, STATUS_NOTICE } from "../result";
 
 type State =
@@ -15,12 +26,62 @@ function demoNow(): string | undefined {
   return new URLSearchParams(window.location.search).get("now") ?? undefined;
 }
 
+const ACCEPTED = new Set(ACCEPTED_FILES.split(","));
+const isPdf = (f: File) => f.type === "application/pdf" || (!f.type && f.name.toLowerCase().endsWith(".pdf"));
+
+/** Why a file cannot be added, in plain words, or null. The backend checks the content again. */
+function fileProblem(f: File): string | null {
+  if (!ACCEPTED.has(f.type) && !isPdf(f)) return `Pliku „${f.name}” nie możemy sprawdzić. Dodaj zdjęcie, zrzut ekranu albo plik PDF.`;
+  if (f.size === 0) return `Plik „${f.name}” jest pusty.`;
+  const limit = isPdf(f) ? MAX_FILE_BYTES : MAX_IMAGE_BYTES;
+  if (f.size > limit) return `Plik „${f.name}” jest za duży. Limit to ${limit / 1_000_000} MB.`;
+  return null;
+}
+
 function CheckForm() {
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [fieldError, setFieldError] = useState<string>();
+  const [fileError, setFileError] = useState<string>();
   const [state, setState] = useState<State>({ kind: "idle" });
   const formRef = useRef<HTMLFormElement>(null);
   const fieldId = "tresc";
+  const filesId = "pliki";
+
+  function addFiles(added: File[]) {
+    if (added.length === 0) return;
+    const problems: string[] = [];
+    const next = [...files];
+    for (const f of added) {
+      const p = fileProblem(f);
+      if (p) problems.push(p);
+      else if (next.length >= MAX_FILES) problems.push(`Możesz dodać najwyżej ${MAX_FILES} pliki.`);
+      else next.push(f);
+    }
+    setFiles(next);
+    setFileError(problems.length ? [...new Set(problems)].join(" ") : undefined);
+    if (next.length) setFieldError(undefined);
+  }
+
+  function removeFile(i: number) {
+    setFiles(files.filter((_, j) => j !== i));
+    setFileError(undefined);
+  }
+
+  /** Ctrl+V of a screenshot. Text from Word or a web page also carries a picture of itself: keep only the text then. */
+  function onPaste(e: ClipboardEvent) {
+    const pasted = Array.from(e.clipboardData.files);
+    if (pasted.length && !e.clipboardData.types.includes("text/plain")) {
+      e.preventDefault();
+      addFiles(pasted);
+    }
+  }
+
+  function onDrop(e: DragEvent) {
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    addFiles(Array.from(e.dataTransfer.files));
+  }
 
   const shown = state.kind === "done" && state.res.status === "ok" && state.res.claims.length > 0 ? state.res : null;
 
@@ -32,8 +93,8 @@ function CheckForm() {
     e.preventDefault();
     if (state.kind === "loading") return; // one check at a time; the button stays focusable
     const value = text.trim();
-    if (!value) {
-      setFieldError("Wpisz albo wklej treść wiadomości, którą chcesz sprawdzić.");
+    if (!value && files.length === 0) {
+      setFieldError("Wpisz albo wklej treść wiadomości, link albo dodaj zdjęcie lub plik PDF.");
       document.getElementById(fieldId)?.focus();
       return;
     }
@@ -45,7 +106,8 @@ function CheckForm() {
     setFieldError(undefined);
     setState({ kind: "loading" });
     try {
-      setState({ kind: "done", res: await verify(value, demoNow()) });
+      const res = files.length ? await verifyUpload(value, files, demoNow()) : await verify(value, demoNow());
+      setState({ kind: "done", res });
     } catch (err) {
       setState({ kind: "failed", message: err instanceof ApiError ? err.message : MSG_OUTAGE });
     }
@@ -53,6 +115,8 @@ function CheckForm() {
 
   function reset() {
     setText("");
+    setFiles([]);
+    setFileError(undefined);
     setState({ kind: "idle" });
     // Wait for the form to render again, then put the cursor back in the field.
     requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
@@ -68,15 +132,28 @@ function CheckForm() {
     const { status, message } = state.res;
     const view = status === "ok" ? STATUS_NOTICE.out_of_scope : STATUS_NOTICE[status];
     notice = (
-      <Notice tone={view.tone} title={view.title}>
-        <p>{message || "Nie znalazłem w tej wiadomości twierdzenia, które można sprawdzić."}</p>
-      </Notice>
+      <>
+        <Notice tone={view.tone} title={view.title}>
+          <p>{message || "Nie znalazłem w tej wiadomości twierdzenia, które można sprawdzić."}</p>
+        </Notice>
+        <MaterialList inputs={state.res.inputs ?? []} />
+      </>
     );
   }
 
   const loading = state.kind === "loading";
   return (
-    <form ref={formRef} className="app-check" onSubmit={submit} noValidate aria-busy={loading} aria-labelledby="sprawdz-t">
+    <form
+      ref={formRef}
+      className="app-check"
+      onSubmit={submit}
+      onPaste={onPaste}
+      onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
+      onDrop={onDrop}
+      noValidate
+      aria-busy={loading}
+      aria-labelledby="sprawdz-t"
+    >
       <h2 id="sprawdz-t" className="app-check-title">
         Sprawdź wiadomość
       </h2>
@@ -84,17 +161,32 @@ function CheckForm() {
       <TextArea
         id={fieldId}
         label="Treść wiadomości"
-        hint="Wklej tekst z komunikatora, SMS-a albo posta. Jeśli masz tylko link, wklej też tekst, który się pod nim znajduje."
+        hint="Wklej tekst z komunikatora, SMS-a albo posta. Możesz też wkleić link do strony albo filmu w serwisie YouTube."
         value={text}
         onChange={(e) => setText(e.target.value)}
         error={fieldError}
         maxChars={MAX_INPUT_CHARS}
         rows={6}
       />
+      <FilePicker
+        id={filesId}
+        label="Zdjęcie, zrzut ekranu lub PDF (nieobowiązkowo)"
+        hint={`Najwyżej ${MAX_FILES} pliki. Zrzut ekranu możesz też wkleić skrótem Ctrl+V.`}
+        error={fileError}
+        files={files}
+        accept={ACCEPTED_FILES}
+        canAdd={files.length < MAX_FILES}
+        onAdd={addFiles}
+        onRemove={removeFile}
+      />
       <div aria-live="polite">
         {loading && (
           <Notice tone="info" title="Sprawdzam">
-            <p>To może potrwać do 30 sekund. Nie zamykaj tej strony.</p>
+            <p>
+              {files.length || /https?:\/\/|www\./i.test(text)
+                ? "Odczytujemy materiał i sprawdzamy go. To może potrwać do minuty. Nie zamykaj tej strony."
+                : "To może potrwać do 30 sekund. Nie zamykaj tej strony."}
+            </p>
           </Notice>
         )}
       </div>
@@ -110,8 +202,8 @@ export function CheckPage() {
     <>
       <h1 className="app-h1">Sprawdź informację</h1>
       <p className="app-lead">
-        Wklej wiadomość, którą chcesz sprawdzić. Porównamy ją z komunikatami instytucji publicznych i pokażemy źródła. Sprawdzenie trwa
-        zwykle do 30 sekund.
+        Wklej wiadomość, link albo dodaj zrzut ekranu, który chcesz sprawdzić. Porównamy go z komunikatami instytucji publicznych i
+        pokażemy źródła. Sprawdzenie trwa zwykle do 30 sekund.
       </p>
       <ul className="app-links">
         <li>
@@ -135,13 +227,17 @@ export function CheckPage() {
           <li>komunikaty służb i urzędów,</li>
           <li>informacje o zdarzeniach w Twojej okolicy.</li>
         </ul>
+        <p>
+          Możesz wkleić tekst, link do strony albo filmu w serwisie YouTube, a także dodać zdjęcie, zrzut ekranu lub plik PDF. Odczytamy
+          z nich tekst i powiemy, czego nie udało się odczytać.
+        </p>
         <p>Nie oceniamy opinii. Jeśli wiadomość zawiera tylko opinię, powiemy Ci o tym.</p>
       </InfoSection>
 
       <InfoSection title="Co zrobisz" id="kroki">
         <ServiceSteps
           steps={[
-            "Wklej treść wiadomości w polu powyżej.",
+            "Wklej treść wiadomości lub link w polu powyżej albo dodaj zrzut ekranu.",
             "Kliknij „Sprawdź”.",
             "Przeczytaj ocenę każdego twierdzenia z wiadomości.",
             "Otwórz źródła i sprawdź je sam.",

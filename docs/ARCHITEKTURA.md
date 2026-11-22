@@ -14,11 +14,13 @@ sources.yaml ─► crawler ─► data/crawl/documents.jsonl + crawl_log.jsonl 
                PostgreSQL: sources, evidence (wersje), passages (FTS + wektor), checks (log)
                                    │
 tekst ─► Verifier: ekstrakcja (LLM) → search → werdykt (LLM) → _enforce/_notes → Markdown/JSON
+  ▲
+  └─ intake: linki z tekstu, pliki (obraz, PDF) → Attachment[] (tekst, data materiału, notatki, ograniczenia)
 ```
 
 - Crawler i RAG łączy wyłącznie katalog z plikami. Crawler nie zna bazy, a RAG nie importuje kodu crawlera.
 - Kroki są uruchamiane ręcznie. Nie ma harmonogramu, który po crawlu sam odświeża bazę.
-- Interfejsy: CLI (`rag verify`), WWW (`backend/api` + `frontend/`) oraz Discord (`backend/discord_bot`). Wszystkie wołają ten sam `rag.verify.Verifier`, więc wynik merytoryczny jest wspólny. API i bot trzymają jedno połączenie z bazą pod blokadą (opcjonalnie bot przekazuje zapytania do API przez `DISCORD_API_URL`), więc sprawdzenia idą po kolei. To wystarcza na demo, ale nie na ruch.
+- Interfejsy: CLI (`rag verify`), WWW (`backend/api` + `frontend/`) oraz Discord (`backend/discord_bot`). Wszystkie wołają ten sam `rag.verify.Verifier`, więc wynik merytoryczny jest wspólny. Materiał (linki, pliki) odczytuje `intake.Intake` w API (bot korzysta z niego, gdy przekazuje zapytania przez `DISCORD_API_URL`); `rag` nie zależy od `intake`. API i bot trzymają jedno połączenie z bazą pod blokadą, więc sprawdzenia idą po kolei. To wystarcza na demo, ale nie na ruch.
 
 ## Kontrakt crawler → rag
 
@@ -82,6 +84,15 @@ Rodzaje rekordów:
 6. Izolacja błędów: awaria jednego twierdzenia daje dla niego `error`, a reszta jest sprawdzana dalej.
 7. Log do `checks` z maskowaniem e-maili, IBAN, PESEL, numerów dowodu i telefonów.
 
+## Materiał od użytkownika ([`intake`](../backend/intake/README.md), [`attachments.py`](../backend/rag/src/rag/attachments.py))
+
+1. API wykrywa w tekście do 2 linków, przyjmuje do 3 plików (multipart `POST /api/verify/upload`) i woła `Intake.collect` **poza** blokadą bazy (sieć i OCR trwają).
+2. Każdy materiał staje się `Attachment`: tekst, metoda odczytu, data materiału (publikacja, EXIF, utworzenie PDF), notatki (np. domena w katalogu źródeł, metadane) i ograniczenia (np. robots.txt, CAPTCHA, brak OCR). Awaria nigdy nie jest wyjątkiem dla wywołującego.
+3. `Verifier.verify(text, now, attachments)`: identyfikatory A1…, limit 6000 znaków na materiał, heurystyka poleceń dla AI, potem ekstrakcja z blokami `<attachment>` oddzielnymi od `<user_input>`. Twierdzenie ma `origin` (`user` albo `A1`).
+4. Gdy nie da się odczytać żadnego materiału, a poza linkami nie ma tekstu, status to `unreadable` bez wywołania LLM. To ograniczenie techniczne, nie werdykt.
+5. Twierdzenie z materiału starszego niż 30 dni dostaje notatkę o możliwym wyrwaniu z kontekstu.
+6. Odpowiedź ma `inputs` (co odczytano, czego nie). Etykiety i odczytany tekst to dane użytkownika: tylko zwykły tekst, bez linków.
+
 ## Kluczowe decyzje
 
 | Decyzja | Powód |
@@ -94,6 +105,9 @@ Rodzaje rekordów:
 | Wspólne prompty i schematy, wymienny dostawca | Zmiana modelu lub dostawcy nie dotyka logiki. |
 | SQL w plikach `.sql` z nazwanymi zapytaniami | Jedno miejsce na SQL i brak wstrzyknięć przez składanie tekstu. |
 | Testy na `HashEmbedder` i schematach tymczasowych | Szybkie i deterministyczne, bez sieci i bez pobierania modelu. |
+| Materiał od użytkownika to przedmiot sprawdzenia, nie dowód | Strona lub zrzut ekranu nie może potwierdzić sam siebie. Dowody pochodzą tylko z bazy, a domena materiału nie wpływa na werdykt. |
+| OCR przez model wizyjny, Tesseract jako zapas | Model dobrze czyta zrzuty z mediów społecznościowych (daty, autor). Tesseract działa lokalnie, bez kosztu i bez wysyłania obrazu poza EOG. |
+| YouTube tylko przez oficjalne API | Transkrypcje cudzych filmów są dostępne tylko przez nieoficjalne endpointy, wbrew regulaminowi. Mówimy użytkownikowi, czego nie analizujemy. |
 
 ## Ograniczenia i ryzyka
 
@@ -110,4 +124,5 @@ Rodzaje rekordów:
   - `publishing_domain` dla `www.gov.pl` to `gov.pl`, więc walidacja przepuszcza dowolną subdomenę `*.gov.pl`,
   - atrybucja IMGW trafia do modelu, ale nie do odpowiedzi w Markdown,
   - załączniki (PDF) nie są pobierane, zapisuje się tylko lista linków.
-- **Brakuje względem [zadania](task/)**: weryfikacji adresu URL od użytkownika, eskalacji do moderatora, korpusu spełniającego minimum konkursu (≥ 100 dokumentów, ≥ 10 domen; sprawdź `rag stats`) i warstwy zapytań na żywo z [`notes/PLAN_OBSLUGI_ZRODEL.md`](notes/PLAN_OBSLUGI_ZRODEL.md).
+- **Materiał od użytkownika**: brak wykrywania edycji obrazu, odwrotnego wyszukiwania obrazu i lokalnego indeksu obrazów z incydentów, brak transkrypcji audio/wideo i nagrań YouTube. Strony z JavaScriptem lub logowaniem zwykle się nie odczytają. Obrazy idą do dostawcy LLM (poza EOG), chyba że `PRAWDOWID_OCR=tesseract`. Brak limitu zapytań na klienta.
+- **Brakuje względem [zadania](task/)**: eskalacji do moderatora, korpusu spełniającego minimum konkursu (≥ 100 dokumentów, ≥ 10 domen; sprawdź `rag stats`) i warstwy zapytań na żywo z [`notes/PLAN_OBSLUGI_ZRODEL.md`](notes/PLAN_OBSLUGI_ZRODEL.md).

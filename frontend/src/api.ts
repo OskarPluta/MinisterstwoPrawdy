@@ -1,7 +1,8 @@
 // Contract with backend/api (FastAPI). Types mirror the dataclasses in backend/rag/src/rag/verify.py
-// (CheckResult, ClaimResult, Citation) minus the internal fields the API strips.
+// (CheckResult, ClaimResult, Citation) and rag/attachments.py (InputSummary) minus the internal
+// fields the API strips.
 
-export type CheckStatus = "ok" | "needs_clarification" | "out_of_scope" | "too_long" | "error";
+export type CheckStatus = "ok" | "needs_clarification" | "out_of_scope" | "too_long" | "unreadable" | "error";
 export type Verdict = "true" | "false" | "misleading" | "insufficient" | "unverifiable" | "error";
 export type Role = "supports" | "contradicts" | "context";
 
@@ -44,6 +45,27 @@ export interface ClaimResult {
   known_disinformation: boolean;
   /** null only when the claim could not be checked (verdict "error"). */
   strength: Strength | null;
+  /** "user" (typed text) or the id of the InputSummary the claim was read from, e.g. "A1". */
+  origin: string;
+}
+
+export type InputKind = "url" | "youtube" | "image" | "pdf";
+
+/** Material the person sent (link, video, image, PDF): what was read from it and what was not. */
+export interface InputSummary {
+  id: string;
+  kind: InputKind | string;
+  kind_pl: string;
+  /** File name or the address the person sent. User input: shown as plain text, never as a link. */
+  label: string;
+  method: string;
+  readable: boolean;
+  /** "12.03.2019 (data publikacji)" or null. */
+  date_label: string | null;
+  notes: string[];
+  limitations: string[];
+  /** The text the model saw (OCR, page text). Plain text, never rendered as HTML. */
+  text: string;
 }
 
 export interface CheckResult {
@@ -51,6 +73,7 @@ export interface CheckResult {
   status: CheckStatus;
   message: string | null;
   claims: ClaimResult[];
+  inputs: InputSummary[];
   injection_detected: boolean;
   duration_ms: number;
 }
@@ -86,6 +109,11 @@ export interface SourcesResponse {
 export const MSG_OUTAGE = "Usługa weryfikacji jest chwilowo niedostępna. Spróbuj ponownie później.";
 /** MAX_INPUT_CHARS in verify.py. */
 export const MAX_INPUT_CHARS = 10_000;
+/** MAX_FILES and MAX_FILE_BYTES in intake/core.py; images have a lower limit (intake/image.py). */
+export const MAX_FILES = 3;
+export const MAX_FILE_BYTES = 15_000_000;
+export const MAX_IMAGE_BYTES = 10_000_000;
+export const ACCEPTED_FILES = "image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,application/pdf";
 
 export class ApiError extends Error {}
 
@@ -118,6 +146,15 @@ export function verify(text: string, now?: string): Promise<CheckResult> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(now ? { text, now } : { text }),
   });
+}
+
+/** Text plus files (images, PDF) as multipart; links in the text are read either way. */
+export function verifyUpload(text: string, files: File[], now?: string): Promise<CheckResult> {
+  const form = new FormData();
+  form.append("text", text);
+  if (now) form.append("now", now);
+  for (const f of files) form.append("files", f, f.name);
+  return call<CheckResult>("/api/verify/upload", { method: "POST", body: form });
 }
 
 export function getSources(): Promise<SourcesResponse> {

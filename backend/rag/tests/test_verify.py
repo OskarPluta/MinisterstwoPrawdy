@@ -76,7 +76,7 @@ class FakeLLM:
         self.extraction_error = extraction_error
         self.seen_xml: list[str] = []
 
-    def extract_claims(self, text: str, now: datetime) -> ClaimExtraction:
+    def extract_claims(self, text: str, now: datetime, attachments_xml: str = "") -> ClaimExtraction:
         if self.extraction_error:
             raise self.extraction_error
         return ClaimExtraction(
@@ -543,7 +543,7 @@ class _MeteredLLM(FakeLLM):
         self.usage = Usage()
         self._inj = injection_detected
 
-    def extract_claims(self, text: str, now: datetime) -> ClaimExtraction:
+    def extract_claims(self, text: str, now: datetime, attachments_xml: str = "") -> ClaimExtraction:
         self.usage.add("extract", 1000, 200)
         res = super().extract_claims(text, now)
         return res.model_copy(update={"injection_detected": self._inj})

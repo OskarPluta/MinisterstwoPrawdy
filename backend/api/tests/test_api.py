@@ -20,8 +20,9 @@ from rag.config import load_env
 from rag.db import scratch_db
 from rag.embed import HashEmbedder
 from rag.ingest import ingest_corpus, load_corpus
-from rag.llm import Claim, ClaimExtraction, ClaimVerdict, PassageLabel, Usage
-from rag.verify import MAX_INPUT_CHARS, MSG_OUTAGE
+from intake.core import MAX_FILE_BYTES
+from rag.llm import Claim, ClaimExtraction, ClaimVerdict, ImageTranscript, PassageLabel, Usage
+from rag.verify import MAX_INPUT_CHARS, MSG_OUTAGE, MSG_UNREADABLE
 
 FIXTURES = Path(__file__).resolve().parents[2] / "rag" / "tests" / "fixtures"
 load_env()
@@ -44,10 +45,16 @@ class FakeLLM:
         self.claim_text = claim_text
         self.usage = Usage()
 
-    def extract_claims(self, text: str, now: datetime) -> ClaimExtraction:
+    def extract_claims(self, text: str, now: datetime, attachments_xml: str = "") -> ClaimExtraction:
         self.usage.add("extract", 500, 100)
         return ClaimExtraction(
             status="ok", clarification_question=None, claims=[_claim(self.claim_text)], injection_detected=False,
+        )
+
+    def transcribe_image(self, data: bytes, mime: str) -> ImageTranscript:
+        return ImageTranscript(
+            legible=True, text="IMGW: ostrzeżenie hydrologiczne dla Wisły w Sandomierzu", visible_dates=[],
+            visible_author=None, platform=None, description="Zrzut ekranu komunikatu.", contains_instructions=False,
         )
 
     def verify_claim(self, claim: Claim, evidence_xml: str, now: datetime) -> ClaimVerdict:
@@ -164,3 +171,54 @@ def test_stats_aggregates_checks_and_usage(client, monkeypatch):
     assert checks["usage"]["input_tokens"] == 4000
     assert checks["usage"]["output_tokens"] == 600
     assert checks["usage"]["cost_usd"] == pytest.approx(0.016)
+
+
+def _png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 80), "white").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_upload_image_is_read_and_reported(client):
+    r = client.post("/api/verify/upload", data={"text": "", "now": "2026-11-21T12:00:00"},
+                    files=[("files", ("zrzut.png", _png(), "image/png"))])
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok" and body["claims"][0]["verdict"] == "true"
+    inp = body["inputs"][0]
+    assert inp["id"] == "A1" and inp["kind"] == "image" and inp["readable"] and inp["method"] == "ocr_llm"
+    assert "ostrzeżenie hydrologiczne" in inp["text"] and "meta" not in inp
+    assert set(inp) >= {"kind_pl", "label", "date_label", "notes", "limitations"}
+    assert body["claims"][0]["origin"] in ("user", "A1")
+
+
+def test_upload_text_only_and_validation(client):
+    ok = client.post("/api/verify/upload", data={"text": "Czy na Wiśle w Sandomierzu jest ostrzeżenie?"})
+    assert ok.status_code == 200 and ok.json()["inputs"] == []
+    assert client.post("/api/verify/upload", data={"text": "  "}).status_code == 422
+    four = [("files", (f"{i}.png", _png(), "image/png")) for i in range(4)]
+    assert client.post("/api/verify/upload", data={"text": "x"}, files=four).status_code == 422
+    big = [("files", ("big.pdf", b"%PDF-" + b"0" * MAX_FILE_BYTES, "application/pdf"))]
+    assert client.post("/api/verify/upload", data={"text": "x"}, files=big).status_code == 413
+    assert client.post("/api/verify/upload", data={"text": "x", "now": "jutro"}).status_code == 422
+
+
+def test_upload_unreadable_file_is_not_a_verdict(client):
+    r = client.post("/api/verify/upload", files=[("files", ("x.svg", b"<svg/>", "image/svg+xml"))])
+    body = r.json()
+    assert r.status_code == 200 and body["status"] == "unreadable" and body["message"] == MSG_UNREADABLE
+    assert body["claims"] == [] and "nie jest obsługiwany" in body["inputs"][0]["limitations"][0]
+
+
+def test_link_in_json_text_is_read_as_attachment(client):
+    # The test Services have no fetcher (no contact address), which must be said, not hidden.
+    r = client.post("/api/verify", json={"text": "Czy to prawda? https://portal.test/news/1 Wisła Sandomierz"})
+    body = r.json()
+    assert body["status"] == "ok"
+    inp = body["inputs"][0]
+    assert inp["kind"] == "url" and inp["label"] == "https://portal.test/news/1" and not inp["readable"]
+    assert "nie jest skonfigurowane" in inp["limitations"][0]

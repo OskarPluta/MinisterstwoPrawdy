@@ -1,15 +1,17 @@
 // CheckResult → UI. Model-written text (explanation, claim, message) is rendered as plain text only;
 // links come only from citation.url, which the backend takes from the database.
 import { useState, type ReactNode } from "react";
-import type { CheckResult, CheckStatus, ClaimResult, Strength, Verdict } from "./api";
+import type { CheckResult, CheckStatus, ClaimResult, InputSummary, Strength, Verdict } from "./api";
 import { Button, Notice, StatusPanel, type Tone } from "./design/components";
-import { CitationList } from "./design/extra";
+import { CitationList, MaterialList } from "./design/extra";
 
 /** Non-ok statuses: one Notice; the form stays filled in so the person can fix the input. */
 export const STATUS_NOTICE: Record<Exclude<CheckStatus, "ok">, { tone: Tone; title: string }> = {
   needs_clarification: { tone: "warning", title: "Doprecyzuj pytanie" },
   too_long: { tone: "warning", title: "Uwaga" },
   out_of_scope: { tone: "info", title: "Informacja" },
+  // A technical limitation (blocked page, unreadable file), not a verdict: never red.
+  unreadable: { tone: "warning", title: "Nie udało się odczytać materiału" },
   error: { tone: "danger", title: "Błąd" },
 };
 
@@ -51,13 +53,20 @@ function StrengthBox({ s }: { s: Strength }) {
   );
 }
 
-function ClaimPanel({ c, index, total }: { c: ClaimResult; index: number; total: number }) {
+function originLabel(c: ClaimResult, inputs: InputSummary[]): string | null {
+  const m = c.origin && c.origin !== "user" ? inputs.find((i) => i.id === c.origin) : undefined;
+  return m ? `materiał ${m.id} (${m.kind_pl})` : null;
+}
+
+function ClaimPanel({ c, index, total, inputs }: { c: ClaimResult; index: number; total: number; inputs: InputSummary[] }) {
   const view =
     c.known_disinformation && c.verdict === "unverifiable"
       ? KNOWN_NARRATIVE_OPINION
       : (VERDICT_VIEW[c.verdict] ?? VERDICT_VIEW.error);
   const details: { label: string; value: ReactNode }[] = [{ label: "Twierdzenie", value: c.claim }];
   if (total > 1) details.unshift({ label: "Numer", value: `${index + 1} z ${total}` });
+  const origin = originLabel(c, inputs);
+  if (origin) details.push({ label: "Pochodzi z", value: origin });
   if (c.known_disinformation) details.push({ label: KNOWN_NARRATIVE, value: "Tak, udokumentowana w bazie weryfikacji" });
   if (c.strength) details.push({ label: STRENGTH_LABEL, value: c.strength.level_pl });
   details.push({ label: "Liczba źródeł", value: String(c.citations.length) });
@@ -95,7 +104,15 @@ function ClaimPanel({ c, index, total }: { c: ClaimResult; index: number; total:
 export function resultAsText(res: CheckResult): string {
   const out: string[] = [];
   if (res.message) out.push(res.message, "");
+  for (const m of res.inputs ?? []) {
+    out.push(`Materiał ${m.id}: ${m.kind_pl}, ${m.label}${m.date_label ? ` · ${m.date_label}` : ""}`);
+    for (const n of m.notes) out.push(`Informacja: ${n}`);
+    for (const n of m.limitations) out.push(`Ograniczenie: ${n}`);
+  }
+  if (res.inputs?.length) out.push("");
   for (const c of res.claims) {
+    const origin = originLabel(c, res.inputs ?? []);
+    if (origin) out.push(`Pochodzi z: ${origin}`);
     out.push(`Twierdzenie: ${c.claim}`, `Ocena: ${c.verdict_pl}`);
     if (c.strength) {
       out.push(`${STRENGTH_LABEL}: ${c.strength.level_pl}`);
@@ -139,8 +156,9 @@ export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => 
           {INJECTION}
         </Notice>
       )}
+      <MaterialList inputs={res.inputs ?? []} />
       {res.claims.map((c, i) => (
-        <ClaimPanel key={i} c={c} index={i} total={res.claims.length} />
+        <ClaimPanel key={i} c={c} index={i} total={res.claims.length} inputs={res.inputs ?? []} />
       ))}
       <div className="app-result-actions">
         <Button variant="secondary" icon="file-text" iconPosition="start" onClick={copy}>

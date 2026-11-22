@@ -65,3 +65,40 @@
   .mp-table td > * { min-width: 0; overflow-wrap: anywhere; }
   .mp-state { white-space: normal; }
 }
+
+/* FilePicker */
+.mp-files .mp-btn { align-self: flex-start; }
+.mp-files-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.mp-file { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); background: var(--surface); }
+.mp-file-thumb { flex: none; width: 48px; height: 48px; object-fit: cover; border: 1px solid var(--border); }
+.mp-file-icon { flex: none; width: 48px; color: var(--ink-muted); }
+.mp-file-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 16px; line-height: 24px; }
+.mp-file-size { color: var(--ink-muted); font-size: 14px; }
+/* Pages may stretch form buttons to full width on phones; the per-file remove button must stay small. */
+.mp-files-list .mp-file .mp-btn { flex: none; width: auto; display: inline-flex; }
+
+/* MaterialList */
+.mp-material { margin: 0 0 var(--space-5); }
+.mp-material-title { margin: 0 0 var(--space-2); font-size: 20px; line-height: 28px; font-weight: 700; }
+.mp-material-lead { margin: 0 0 var(--space-3); color: var(--ink-muted); font-size: 16px; line-height: 24px; }
+.mp-material-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.mp-material-item { border: 1px solid var(--border); padding: var(--space-4); background: var(--surface); }
+.mp-material-head { display: flex; align-items: flex-start; gap: var(--space-3); }
+.mp-material-id { flex: none; min-width: 28px; height: 28px; padding: 0 var(--space-1); box-sizing: border-box; border: 1px solid var(--border-strong); font-weight: 700; font-size: 14px; line-height: 26px; text-align: center; }
+.mp-material-meta { flex: 1; min-width: 0; }
+.mp-material-meta p { margin: 0; }
+.mp-material-kind { font-weight: 600; font-size: 16px; line-height: 24px; }
+.mp-material-label { font-size: 14px; line-height: 20px; color: var(--ink-muted); overflow-wrap: anywhere; }
+.mp-material-date { font-size: 14px; line-height: 20px; }
+.mp-material-notes { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-2); }
+.mp-material-notes li { display: flex; gap: var(--space-2); align-items: flex-start; font-size: 16px; line-height: 24px; }
+.mp-material-notes .mp-icon, .mp-material-notes svg { flex: none; margin-top: 3px; color: var(--info); }
+.mp-material-limits { margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--warning); background: var(--surface-muted); }
+.mp-material-limits-title { margin: 0 0 var(--space-1); font-weight: 700; display: flex; align-items: center; gap: var(--space-2); }
+.mp-material-limits ul { margin: 0; padding-left: var(--space-5); }
+.mp-material-limits li { font-size: 16px; line-height: 24px; }
+.mp-material-text { margin-top: var(--space-3); }
+.mp-material-text summary { cursor: pointer; color: var(--primary); font-weight: 600; text-decoration: underline; }
+.mp-material-text summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.mp-material-text pre { margin: var(--space-2) 0 0; padding: var(--space-3); max-height: 320px; overflow: auto; background: var(--surface-muted); border: 1px solid var(--border); font: inherit; font-size: 15px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .mp-material-head { flex-wrap: wrap; } .mp-material-meta { flex-basis: calc(100% - 28px - var(--space-3)); } .mp-material-head > .mp-state { margin-left: calc(28px + var(--space-3)); } }
