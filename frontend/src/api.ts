@@ -34,12 +34,15 @@ export type Recency = "superseded" | "older" | "newer" | "current";
 
 export type StrengthLevel = "strong" | "moderate" | "weak" | "none";
 
-/** Computed by code from the kept citations (assess_strength in verify.py), not by the model. */
+/** Computed by code from the kept citations (assess_strength in verify.py). When Jev decided the
+ *  claim, `level_pl` is Jev's confidence in the verdict (e.g. "87%") and `level` its band. */
 export interface Strength {
   level: StrengthLevel;
   level_pl: string;
-  /** Explicit premises in Polish: independent sources, source type, recency, agreement. */
+  /** Explicit premises in Polish: Jev's confidence, independent sources, source type, recency, agreement. */
   reasons: string[];
+  /** Jev's confidence in the verdict (0–1); null when the LLM decided. Absent in older shared results. */
+  confidence?: number | null;
 }
 
 export interface ClaimResult {

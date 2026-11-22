@@ -850,15 +850,18 @@ def test_fresh_conflict_still_lowers_the_strength(retriever, embedder):
     assert "nowsze –" not in note and "z 15.11.2026" in note  # same day: no older/newer claim
 
 
-def test_verdict_resting_on_older_data_contradicted_by_newer_is_withheld(retriever, embedder):
+def test_newer_source_wins_over_an_older_contradicting_one(retriever, embedder):
+    """Sources for and against: one verdict, decided by the newer data."""
     add_records(retriever, embedder, NEW_RULES)
     v = Verifier(retriever, FakeLLM(), record=False, live=False)
     old, new = _pid_for(v, DELAY, UTK), _pid_for(v, DELAY, MI_NEW)
     v.llm = FakeLLM([DELAY], lambda cl, xml: verdict("true", ((old, "supports"), (new, "contradicts"))))
     cr = v.verify("x", NOW).claims[0]
-    assert cr.verdict == "insufficient" and cr.downgraded_from == "true" and cr.conflict
-    assert cr.explanation.startswith("Ocena opierała się na starszych danych")
+    assert cr.verdict == "false" and cr.downgraded_from is None and cr.conflict
+    assert cr.explanation.startswith("Źródła się różnią, a rozstrzygają nowsze dane.")
     assert any(n.startswith("Źródła się różnią: nowsze – Ministerstwo") for n in cr.notes)
+    assert cr.strength and "Brak źródeł sprzecznych z werdyktem." not in cr.strength.reasons
+    assert any(r.startswith("Starsze źródło (Urząd Transportu Kolejowego") for r in cr.strength.reasons)
 
 
 def test_claim_about_the_past_does_not_prefer_newer_articles(retriever, embedder):
@@ -880,3 +883,15 @@ def test_expired_warning_gets_an_older_label(retriever):
     v.llm = FakeLLM([c], lambda cl, xml: verdict("false", ((target, "contradicts"),)))
     cit = v.verify("x", NOW).claims[0].citations[0]
     assert cit.recency == "older" and cit.recency_pl == "starsze dane – sprzed okresu twierdzenia"
+
+
+def test_long_passage_shows_the_part_that_matches_the_claim():
+    from rag.verify import _stems, best_window
+
+    head = "Ostrzeżenia meteorologiczne: brak. Susza hydrologiczna na terenie całego kraju obowiązuje do odwołania. " * 4
+    text = head + "Po ustaniu zagrożenia wysłano SMS: Odwołano zagrożenie atakiem z powietrza. " + "Inne sprawy. " * 40
+    shown = best_window(text, _stems("Alert o ataku z powietrza nadal obowiązuje, odwołanie zagrożenia"))
+    assert "Odwołano zagrożenie atakiem z powietrza" in shown
+    assert shown.startswith("… ") and shown.endswith(" …") and len(shown) <= 404
+    assert best_window(text, set()).startswith("Ostrzeżenia"), "no claim terms: the opening"
+    assert best_window("Krótki tekst.", {"krotk"}) == "Krótki tekst."

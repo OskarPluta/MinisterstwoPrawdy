@@ -18,6 +18,8 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 load_env()
 # Tests never touch the network: live lookup (rag/live.py) is off unless a test turns it on explicitly.
 os.environ["PRAWDOWID_LIVE"] = "0"
+# ...and Jev (rag/jev.py) never decides from a real key in .env; test_jev.py injects a fake transport.
+os.environ["PRAWDOWID_JEV"] = "0"
 
 
 @pytest.fixture(scope="session")

@@ -369,7 +369,9 @@ def main() -> None:
     if live:
         missing = [name for name, env in LIVE_KEYS.items() if not os.environ.get(env)]
         live_desc = "włączone" + (f" (bez {', '.join(missing)}: brak klucza w .env)" if missing else "")
-    print(f"suite={suite} model={llm.model} embedder={emb.name} cases={len(cases)} live={live_desc}")
+    judge = getattr(llm, "judge", None)
+    print(f"suite={suite} model={llm.model} judge={judge.model + ' @ ' + judge.url if judge else 'llm'} "
+          f"embedder={emb.name} cases={len(cases)} live={live_desc}")
 
     rows: dict[str, dict[str, Any]] = {}
     groups: dict[tuple[str, ...], list[dict]] = {}
@@ -402,7 +404,8 @@ def main() -> None:
         "live": live_desc, "llm_calls": llm.usage.calls, "tokens_in": llm.usage.input_tokens,
         "tokens_out": llm.usage.output_tokens,
         "cost": "n/a (ustaw PRAWDOWID_PRICE_IN/OUT)" if cost is None else f"${cost:.3f}",
-        "wall_s": wall_s,
+        "wall_s": wall_s, "judge": judge.model if judge else None,
+        "jev_calls": judge.usage.calls if judge else 0, "jev_tokens_in": judge.usage.input_tokens if judge else 0,
     }
     out = Path(args.out_dir) / suite / f"{started:%Y%m%d-%H%M%S}_{re.sub(r'[^A-Za-z0-9.-]+', '-', llm.model)}"
     write_run(out, meta, m, ordered)

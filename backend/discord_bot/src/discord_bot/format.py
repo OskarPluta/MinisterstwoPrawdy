@@ -113,6 +113,7 @@ def _strength_from_dict(raw: Any) -> Strength | None:
         level=str(raw.get("level", "")),
         level_pl=str(raw.get("level_pl", "")),
         reasons=[str(r) for r in raw.get("reasons", ())],
+        confidence=float(raw["confidence"]) if isinstance(raw.get("confidence"), (int, float)) else None,
     )
 
 

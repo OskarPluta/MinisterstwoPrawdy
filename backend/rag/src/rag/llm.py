@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, NamedTuple, Protocol, TypeVar
+from typing import Any, Literal, NamedTuple, Protocol, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -133,6 +133,10 @@ Rules:
   where, keep the wording as is. Example: "Burmistrz Nowak otworzył most w Kłodzku. Tam od
   tygodnia nie ma prądu, a on to ukrywa." → "W Kłodzku od tygodnia nie ma prądu" (area
   "Kłodzko") and "Burmistrz Nowak ukrywa brak prądu w Kłodzku".
+- One sentence that asserts one thing is one claim. Do not split off what it presupposes or
+  mentions as background: "Alert RCB z 20 listopada nadal obowiązuje" is the single claim that
+  the alert is still in force, not also "RCB wydało alert 20 listopada". Extract a background
+  fact separately only when the user asserts it as a point of its own.
 - Resolve relative dates ("dziś", "wczoraj", "w zeszłym tygodniu") against the request time
   given, in the Europe/Warsaw time zone, and write ISO 8601 times with offset.
 - Questions like "Czy X?" become the claim "X".
@@ -424,6 +428,7 @@ class _StructuredLLM:
 
     model: str
     usage: Usage
+    judge: Any = None  # rag.jev.Jev when set: it decides claims instead of verify_claim
 
     def _parse(self, system: str, user: str, schema: type[M], tag: Tag, image: Image | None = None) -> M:
         raise NotImplementedError
@@ -563,14 +568,23 @@ def _require_key(var: str, example: str) -> None:
 
 
 def make_llm(provider: str | None = None, model: str | None = None) -> OpenAILLM | AnthropicLLM:
-    """provider: pcss | openai | anthropic (default: PRAWDOWID_PROVIDER or pcss)."""
+    """provider: pcss | openai | anthropic (default: PRAWDOWID_PROVIDER or pcss).
+
+    With a Jev key set (rag/jev.py) the LLM only extracts claims and reads images; `llm.judge`
+    (Jev) decides each claim. Without one, `judge` is None and the LLM decides as before."""
+    from .jev import make_jev
+
     provider = (provider or os.environ.get("PRAWDOWID_PROVIDER") or "pcss").lower()
+    llm: OpenAILLM | AnthropicLLM
     if provider == "pcss":
         _require_key("PCSS_API_KEY", "...")
-        return PCSSLLM(model=model)
-    if provider == "openai":
+        llm = PCSSLLM(model=model)
+    elif provider == "openai":
         _require_key("OPENAI_API_KEY", "sk-...")
-        return OpenAILLM(model=model)
-    if provider == "anthropic":
-        return AnthropicLLM(model=model)
-    raise SystemExit(f"unknown provider {provider!r} (use {' | '.join(PROVIDERS)})")
+        llm = OpenAILLM(model=model)
+    elif provider == "anthropic":
+        llm = AnthropicLLM(model=model)
+    else:
+        raise SystemExit(f"unknown provider {provider!r} (use {' | '.join(PROVIDERS)})")
+    llm.judge = make_jev()
+    return llm

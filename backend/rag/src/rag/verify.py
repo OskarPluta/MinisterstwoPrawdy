@@ -24,7 +24,9 @@ from .llm import (
     LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape, build_attachments_xml, usage_meter,
 )
 from .outcomes import classify, usage_columns
-from .search import TIMED_KINDS, Filters, Hit, Prefer, Retriever, is_timed, recorded_at, span, supersessions
+from .search import (
+    TIMED_KINDS, Filters, Hit, Prefer, Retriever, is_timed, query_tokens, recorded_at, span, supersessions,
+)
 from .timeutil import WARSAW, fmt_local, parse_ts, utcnow_iso
 
 log = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ MSG_UNREADABLE = (
 # A verdict resting only on older data that newer sources (or a newer record of the same
 # source) contradict or replace: strength reason / explanation prefix.
 MSG_OUTDATED_BASIS = "Ocena opierała się na starszych danych, które nowsze źródła zastąpiły, dlatego nie ma werdyktu."
+MSG_NEWER_WINS = "Źródła się różnią, a rozstrzygają nowsze dane."
 MSG_OUTDATED_EXPLANATION = "Ocena opierała się na starszych danych, które nowsze źródła zastąpiły, dlatego nie wydaję werdyktu."
 NOTE_INJECTION = "Jedno ze źródeł zawierało instrukcję skierowaną do systemu; została zignorowana."
 MSG_OPINION = "To opinia lub ocena, a nie twierdzenie o faktach, więc nie da się jej zweryfikować źródłami."
@@ -116,8 +119,9 @@ class Strength:
     (assess_strength); `reasons` lists the explicit premises in Polish."""
 
     level: str  # a STRENGTH_PL key
-    level_pl: str
+    level_pl: str  # with Jev: its confidence, e.g. "87%"
     reasons: list[str] = field(default_factory=list)
+    confidence: float | None = None  # Jev's confidence in the verdict (0-1); None when the LLM decided
 
 
 @dataclass
@@ -505,29 +509,66 @@ def _outdated(h: Hit, deciding: list[Hit], claim: Claim, now: datetime) -> bool:
     return bool(about_present(claim, now) and t and newest and t < newest - OUTDATED_MARGIN)
 
 
-def outdated_basis(verdict: str, kept: list[PassageLabel], by_id: dict[str, Hit], claim: Claim,
-                   now: datetime) -> bool:
-    """A true/false verdict whose every deciding citation is outdated (see _outdated) while a
-    fresh citation says the opposite: the newer data win, so the verdict cannot stand. Code does
-    not flip it either; it becomes `insufficient` with both sides shown and the conflict noted."""
-    needed = {"true": "supports", "false": "contradicts"}.get(verdict)
-    if needed is None:
-        return False
-    opposite = "contradicts" if needed == "supports" else "supports"
-    deciding = [by_id[lab.passage_id] for lab in kept if lab.role == needed]
-    opposing = [by_id[lab.passage_id] for lab in kept if lab.role == opposite]
-    return bool(deciding and opposing) and all(_outdated(h, opposing, claim, now) for h in deciding) \
-        and any(not _outdated(h, deciding, claim, now) for h in opposing)
+SIDE_VERDICT = {"supports": "true", "contradicts": "false"}
+
+
+def newer_side(kept: list[PassageLabel], by_id: dict[str, Hit], claim: Claim, now: datetime) -> str | None:
+    """"supports" or "contradicts" when the cited sources disagree and one side is newer: every
+    citation of the other side is outdated against it (see _outdated) while it has a fresh one.
+    The newer data win, so the claim gets one verdict (SIDE_VERDICT) instead of a conflict."""
+    sides = {r: [by_id[lab.passage_id] for lab in kept if lab.role == r] for r in SIDE_VERDICT}
+    if not (sides["supports"] and sides["contradicts"]):
+        return None
+    for win, lose in (("supports", "contradicts"), ("contradicts", "supports")):
+        if all(_outdated(h, sides[win], claim, now) for h in sides[lose]) \
+                and any(not _outdated(h, sides[lose], claim, now) for h in sides[win]):
+            return win
+    return None
 
 
 def assess_strength(
     verdict: str, kept: list[PassageLabel], by_id: dict[str, Hit], claim: Claim, now: datetime,
     model_strength: str | None = None, model_conflict: bool = False, downgraded: str | None = None,
-    outdated_basis: bool = False,
+    outdated_basis: bool = False, confidence: Confidence | None = None,
 ) -> Strength:
     """Strength of the basis for a verdict from explicit premises: the number of independent
     sources that carry it, their type, their recency and agreement. The model's own rating only
-    caps the result (it judges how well the passages match the claim) and is shown as such."""
+    caps the result (it judges how well the passages match the claim) and is shown as such.
+
+    With `confidence` (Jev decided the claim) the shown strength is Jev's confidence in the final
+    verdict; the premises above stay as reasons after it."""
+    s = _assess_strength(verdict, kept, by_id, claim, now, model_strength, model_conflict, downgraded,
+                         outdated_basis)
+    if confidence is None:
+        return s
+    pct = round(confidence.value * 100)
+    level = "strong" if confidence.value >= 0.85 else "moderate" if confidence.value >= 0.6 else "weak"
+    reasons = [f"Pewność oceny (Jev): {pct}%."]
+    if confidence.probabilities:
+        dist = sorted(confidence.probabilities.items(), key=lambda kv: -kv[1])
+        reasons.append("Rozkład ocen Jev: " + ", ".join(
+            f"{VERDICT_PL.get(k, k)} {round(p * 100)}%" for k, p in dist if p >= 0.01) + ".")
+    if confidence.decided != verdict:
+        reasons.append(f"Jev wskazał „{VERDICT_PL.get(confidence.decided, confidence.decided)}”; werdykt "
+                       "zmienił kod (pierwszeństwo nowszych danych lub brak cytatu o właściwej roli), "
+                       "więc pewność to prawdopodobieństwo obecnego werdyktu.")
+    return Strength(level, f"{pct}%", reasons + s.reasons, confidence=confidence.value)
+
+
+@dataclass
+class Confidence:
+    """Jev's answer for the verdict question: the code it chose, the confidence shown for the
+    final verdict and the probability of every verdict code."""
+
+    decided: str
+    value: float
+    probabilities: dict[str, float] = field(default_factory=dict)
+
+
+def _assess_strength(
+    verdict: str, kept: list[PassageLabel], by_id: dict[str, Hit], claim: Claim, now: datetime,
+    model_strength: str | None, model_conflict: bool, downgraded: str | None, outdated_basis: bool,
+) -> Strength:
     needed = REQUIRED_ROLES.get(verdict)
     if not needed:
         if downgraded == "unverifiable":
@@ -622,6 +663,53 @@ def assess_strength(
     return Strength(_LEVELS[level], STRENGTH_PL[_LEVELS[level]], reasons)
 
 
+def _confidence(decision: Any, verdict: str) -> Confidence | None:
+    """Jev's confidence in the final verdict: its own confidence when it chose this verdict,
+    otherwise the probability it gave this verdict (code overruled or downgraded it)."""
+    if decision is None:
+        return None
+    chosen = decision.verdict.verdict
+    value = decision.confidence if chosen == verdict else decision.probabilities.get(verdict, 0.0)
+    return Confidence(chosen, value, decision.probabilities)
+
+
+_EXPLAIN_LEAD = {
+    "true": "Źródła potwierdzają twierdzenie",
+    "false": "Źródła przeczą twierdzeniu",
+    "misleading": "Źródła potwierdzają tylko część twierdzenia albo podają je w innym zakresie, okresie lub kontekście",
+}
+
+
+def _refs(labels: list[PassageLabel], kept: list[PassageLabel], by_id: dict[str, Hit]) -> str:
+    n_of = {lab.passage_id: i for i, lab in enumerate(kept, 1)}
+    return "; ".join(
+        f"{by_id[lab.passage_id].meta['publisher']}, {_when(by_id[lab.passage_id])} (źródło {n_of[lab.passage_id]})"
+        if _date_of(by_id[lab.passage_id]) else
+        f"{by_id[lab.passage_id].meta['publisher']} (źródło {n_of[lab.passage_id]})"
+        for lab in labels
+    )
+
+
+def explain(verdict: str, kept: list[PassageLabel], by_id: dict[str, Hit]) -> str:
+    """Polish explanation written by code when Jev decided (it returns no text): which cited
+    sources carry the verdict. Fixed wording and catalogue fields only, never model text."""
+    kept = sorted(kept, key=lambda lab: lab.role == "context")  # the citation order
+    if verdict == "unverifiable":
+        return MSG_OPINION
+    if verdict == "insufficient":
+        if any(lab.role != "context" for lab in kept):
+            return "Znalezione źródła nie rozstrzygają twierdzenia, dlatego nie wydaję werdyktu."
+        return ("Znalezione źródła nie rozstrzygają twierdzenia, dlatego nie wydaję werdyktu. "
+                "Brak dowodów nie oznacza, że twierdzenie jest fałszywe.")
+    roles = REQUIRED_ROLES[verdict]
+    deciding = [lab for lab in kept if lab.role in roles]
+    out = f"{_EXPLAIN_LEAD[verdict]}: {_refs(deciding, kept, by_id)}."
+    context = [lab for lab in kept if lab.role == "context"]
+    if context:
+        out += f" Kontekst: {_refs(context, kept, by_id)}."
+    return out
+
+
 def _safe_url(url: str | None) -> str | None:
     """http(s) URLs only, with characters that could break a Markdown link encoded."""
     u = urlparse(url or "")
@@ -659,7 +747,35 @@ def claimreview_text(text: str) -> str | None:
     return " ".join(parts) or None
 
 
-def _citation(n: int, h: Hit, role: str) -> Citation:
+EXCERPT_CHARS = 400
+WINDOW_GAIN = 2  # claim stems a later window must add over the opening to be shown instead
+
+
+def _stems(text: str) -> set[str]:
+    return {t[:5] for t in query_tokens(text) if len(t) > 2}
+
+
+def best_window(text: str, terms: set[str], size: int = EXCERPT_CHARS) -> str:
+    """At most `size` characters of `text`, starting at the paragraph or sentence that shares
+    clearly more word stems with the claim (`terms`) than the opening does, so a long passage
+    shows the part that decides it. Cut at word boundaries, with "…" where text was left out."""
+    if len(text) <= size:
+        return text
+    starts = [0] + [m.end() for m in re.finditer(r"\n+|(?<=[.!?”])\s+", text)]
+    def score(i: int) -> int:
+        return len(_stems(text[i:i + size]) & terms)
+
+    best = max(starts, key=lambda i: (score(i), -i)) if terms else 0
+    if score(best) - score(0) < WINDOW_GAIN:  # the opening (title, newest update) unless clearly worse
+        best = 0
+    window = text[best:best + size]
+    cut = best + size < len(text)
+    if cut:
+        window = window.rsplit(" ", 1)[0]
+    return ("… " if best else "") + window.strip() + (" …" if cut else "")
+
+
+def _citation(n: int, h: Hit, role: str, terms: set[str] | None = None) -> Citation:
     m = h.meta
     date = m["published_at"] or m["observed_at"] or m["valid_from"]
     text = m["excerpt"] if m["is_verbatim"] else m["search_text"]
@@ -667,8 +783,7 @@ def _citation(n: int, h: Hit, role: str) -> Citation:
     rendered = claimreview_text(text or "")
     if rendered:
         text, verbatim = rendered, False
-    if len(text) > 400:
-        text = text[:400].rsplit(" ", 1)[0] + " …"
+    text = best_window(text, terms or set())
     return Citation(
         n=n, passage_id=pid(h), role=role, title=m["title"], publisher=m["publisher"],
         url=_safe_url(m["citation_url"]), date_label=fmt_local(date, with_time=False), text=text, date=date,
@@ -790,15 +905,18 @@ class Verifier:
                 strength=assess_strength("insufficient", [], {}, claim, now),
             )
         by_id = {pid(h): h for h in hits}
-        raw = self.llm.verify_claim(claim, build_evidence_xml(hits), now)
         newer = newer_versions(hits, claim)
+        raw, decision = self._decide(claim, hits, newer, now)
         raw, demoted = _prefer_newer(raw, newer)  # the newer record of a matter decides
         verdict, kept, invented, downgraded, known = _enforce(raw, by_id, claim.checkable)
-        older_basis = outdated_basis(verdict, kept, by_id, claim, now)
-        if older_basis:
-            downgraded, verdict = verdict, "insufficient"
-        elif downgraded and any(role in REQUIRED_ROLES.get(downgraded, ()) for _, _, role in demoted):
-            older_basis = True  # the verdict stood only on a record a newer one replaced
+        # Sources for and against: the newer side decides, so the claim gets one verdict.
+        overruled = None
+        side = newer_side(kept, by_id, claim, now)
+        if side and verdict in ("true", "false", "insufficient") and verdict != SIDE_VERDICT[side]:
+            overruled, verdict, downgraded = downgraded or verdict, SIDE_VERDICT[side], None
+        older_basis = not overruled and bool(downgraded) and any(
+            role in REQUIRED_ROLES.get(downgraded or "", ()) for _, _, role in demoted
+        )  # the verdict stood only on a record a newer one replaced
         for lab in list(kept):  # show the record that replaced a cited one
             new = newer.get(lab.passage_id)
             if new is not None and all(k.passage_id != pid(new) for k in kept):
@@ -819,13 +937,18 @@ class Verifier:
         # Supporting/contradicting evidence first, then context.
         kept.sort(key=lambda lab: lab.role == "context")
         cited = [by_id[lab.passage_id] for lab in kept]
-        citations = [_citation(i, by_id[lab.passage_id], lab.role) for i, lab in enumerate(kept, 1)]
+        terms = _stems(" ".join([claim.text, *claim.search_queries]))
+        citations = [_citation(i, by_id[lab.passage_id], lab.role, terms) for i, lab in enumerate(kept, 1)]
         for cit, (r, r_pl) in zip(citations, recency(cited, newer, claim, now)):
             cit.recency, cit.recency_pl = r, r_pl
         roles = {lab.role for lab in kept}
 
         explanation = raw.explanation_pl
-        if downgraded == "unverifiable":
+        if not explanation:  # Jev decided: code writes the explanation from the citations
+            explanation = explain(verdict, kept, by_id)
+            if older_basis:
+                explanation = MSG_OUTDATED_EXPLANATION
+        elif downgraded == "unverifiable":
             explanation = (
                 "To twierdzenie o faktach, a znalezione źródła go nie rozstrzygają, "
                 "dlatego nie wydaję werdyktu. " + explanation
@@ -837,6 +960,8 @@ class Verifier:
                 "Model nie wskazał źródeł, które potwierdzają tę ocenę, dlatego nie wydaję werdyktu. "
                 + explanation
             )
+        if overruled:
+            explanation = f"{MSG_NEWER_WINS} {explanation}"
         notes = _age_notes(claim, kept, by_id, demoted, now) + _notes(claim, cited, now)
         if known:
             notes.insert(0, _disinfo_note(cited))
@@ -849,9 +974,22 @@ class Verifier:
             conflict=raw.conflict or {"supports", "contradicts"} <= roles
             or any(_role_of(kept, new_id) not in (None, "context", role) for _, new_id, role in demoted),
             known_disinformation=known,
-            strength=assess_strength(verdict, kept, by_id, claim, now, raw.evidence_strength,
-                                     raw.conflict, downgraded, older_basis),
+            strength=assess_strength(verdict, kept, by_id, claim, now,
+                                     None if decision else raw.evidence_strength,
+                                     raw.conflict, downgraded, older_basis, _confidence(decision, verdict)),
         )
+
+    def _decide(self, claim: Claim, hits: list[Hit], newer: dict[str, Hit], now: datetime) -> tuple[ClaimVerdict, Any]:
+        """Jev decides when the LLM carries one (rag/jev.py, set by make_llm when its key is set);
+        otherwise, or when Jev fails, the LLM does. Returns (verdict, Jev's decision or None)."""
+        judge = getattr(self.llm, "judge", None)
+        if judge is not None:
+            try:
+                d = judge.decide(claim, hits, newer, now)
+                return d.verdict, d
+            except Exception as e:  # noqa: BLE001 - Jev outage: the LLM decides this claim instead
+                log.warning("Jev failed, falling back to the LLM: %r", e)
+        return self.llm.verify_claim(claim, build_evidence_xml(hits), now), None
 
     def _check_isolated(self, claim: Claim, hits: list[Hit], now: datetime) -> ClaimResult:
         """One failed claim (outage, refusal, bad output) must not sink the others."""
