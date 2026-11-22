@@ -48,6 +48,7 @@
 .mp-table tbody th { font-weight: 600; }
 .mp-table tbody tr:last-child > * { border-bottom: 0; }
 .mp-table .mp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mp-table .mp-license { min-width: 18em; font-size: 14px; line-height: 20px; }
 .mp-state { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; color: var(--ink-muted); font-weight: 600; }
 .mp-state-success { color: var(--success); }
 .mp-state-warning { color: var(--warning); }
@@ -65,4 +66,5 @@
   .mp-table .mp-num { text-align: left; }
   .mp-table td > * { min-width: 0; overflow-wrap: anywhere; }
   .mp-state { white-space: normal; }
+  .mp-table .mp-license { min-width: 0; font-size: 16px; line-height: 24px; }
 }

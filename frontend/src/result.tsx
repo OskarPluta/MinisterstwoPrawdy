@@ -184,7 +184,7 @@ function ShareBox({ checkId, erased }: { checkId: string; erased: boolean }) {
     <div className="app-share">
       <h3 className="app-share-title">Udostępnij wynik</h3>
       <p>
-        Każdy, kto dostanie link, zobaczy ten wynik w wersji tylko do odczytu. Wynik zapisujemy na serwerze w chwili udostępnienia, więc
+        Każdy, kto dostanie link, zobaczy ten wynik w wersji tylko do odczytu. Link pokazuje wynik zapisany na serwerze w chwili sprawdzenia, więc
         nikt nie może go zmienić. Dane osobowe w treści są ukryte.
       </p>
       {link ? (

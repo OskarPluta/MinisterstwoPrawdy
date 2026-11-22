@@ -175,7 +175,10 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
             res = verifier.verify(req.text, now)
         if res.error:
             log.warning("check %s: %s", res.check_id, res.error)
-        return public_result(res)
+        out = public_result(res)
+        if not verifier.record:  # nothing was logged (retention 0): no key to share or delete
+            out["check_id"] = ""
+        return out
 
     @app.delete("/api/checks/{check_id}")
     def delete_check(request: Request, check_id: str = PathParam(pattern=CHECK_ID_PATTERN)) -> dict[str, Any]:

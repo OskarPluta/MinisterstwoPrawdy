@@ -297,3 +297,9 @@ def test_export_is_rate_limited(client):
     assert client.get("/api/export", headers=AUTH).status_code == 200
     r = client.get("/api/export", headers=AUTH)
     assert r.status_code == 429 and int(r.headers["retry-after"]) > 0, "failed guesses count toward the limit"
+
+
+def test_unlogged_check_returns_no_check_id(client):
+    client.app.state.svc.verifier().record = False
+    body = client.post("/api/verify", json=QUESTION).json()
+    assert body["status"] == "ok" and body["check_id"] == ""

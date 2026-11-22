@@ -92,7 +92,12 @@ export const MSG_OUTAGE = "Usługa weryfikacji jest chwilowo niedostępna. Spró
 /** MAX_INPUT_CHARS in verify.py. */
 export const MAX_INPUT_CHARS = 10_000;
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  /** HTTP status; 0 when the backend could not be reached. 429: rate limited (rag/ratelimit.py). */
+  constructor(message: string, readonly status = 0) {
+    super(message);
+  }
+}
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -112,7 +117,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
         /* keep the generic message */
       }
     }
-    throw new ApiError(detail);
+    throw new ApiError(detail, res.status);
   }
   return (await res.json()) as T;
 }

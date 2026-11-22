@@ -72,7 +72,7 @@ export function HowPage() {
       <InfoSection title="Skąd mamy treści źródeł" id="licencje">
         <p>
           Przechowujemy komunikaty instytucji publicznych, dane pomiarowe i wyniki weryfikacji. Dla każdego źródła określiliśmy licencję
-          albo podstawę prawną. Znajdziesz je w kolumnie „Licencja” na stronie{" "}
+          albo podstawę prawną (także dla źródeł przeszukiwanych na żywo). Znajdziesz je w kolumnie „Licencja” na stronie{" "}
           <a className="mp-link" href="/zrodla">
             Źródła
           </a>
