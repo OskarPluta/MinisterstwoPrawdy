@@ -18,7 +18,7 @@ tekst ─► Verifier: ekstrakcja (LLM) → search → werdykt (LLM) → _enforc
 
 - Crawler i RAG łączy wyłącznie katalog z plikami. Crawler nie zna bazy, a RAG nie importuje kodu crawlera.
 - Kroki są uruchamiane ręcznie. Nie ma harmonogramu, który po crawlu sam odświeża bazę.
-- Interfejsy: CLI (`rag verify`) i WWW (`backend/api` + `frontend/`). Oba wołają ten sam `rag.verify.Verifier`, więc wynik merytoryczny jest wspólny. API trzyma jedno połączenie z bazą pod blokadą, więc sprawdzenia idą po kolei. To wystarcza na demo, ale nie na ruch.
+- Interfejsy: CLI (`rag verify`), WWW (`backend/api` + `frontend/`) oraz Discord (`backend/discord_bot`). Wszystkie wołają ten sam `rag.verify.Verifier`, więc wynik merytoryczny jest wspólny. API i bot trzymają jedno połączenie z bazą pod blokadą (opcjonalnie bot przekazuje zapytania do API przez `DISCORD_API_URL`), więc sprawdzenia idą po kolei. To wystarcza na demo, ale nie na ruch.
 
 ## Kontrakt crawler → rag
 
@@ -110,4 +110,4 @@ Rodzaje rekordów:
   - `publishing_domain` dla `www.gov.pl` to `gov.pl`, więc walidacja przepuszcza dowolną subdomenę `*.gov.pl`,
   - atrybucja IMGW trafia do modelu, ale nie do odpowiedzi w Markdown,
   - załączniki (PDF) nie są pobierane, zapisuje się tylko lista linków.
-- **Brakuje względem [zadania](task/)**: drugiego kanału, weryfikacji adresu URL od użytkownika, eskalacji do moderatora, korpusu spełniającego minimum konkursu (≥ 100 dokumentów, ≥ 10 domen; sprawdź `rag stats`) i warstwy zapytań na żywo z [`notes/PLAN_OBSLUGI_ZRODEL.md`](notes/PLAN_OBSLUGI_ZRODEL.md).
+- **Brakuje względem [zadania](task/)**: weryfikacji adresu URL od użytkownika, eskalacji do moderatora, korpusu spełniającego minimum konkursu (≥ 100 dokumentów, ≥ 10 domen; sprawdź `rag stats`) i warstwy zapytań na żywo z [`notes/PLAN_OBSLUGI_ZRODEL.md`](notes/PLAN_OBSLUGI_ZRODEL.md).
