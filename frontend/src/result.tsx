@@ -141,7 +141,8 @@ export function resultAsText(res: CheckResult): string {
       out.push("Źródła:");
       for (const s of c.citations) {
         const role = { supports: "potwierdza", contradicts: "przeczy", context: "kontekst" }[s.role];
-        out.push(`${s.n}. ${s.title} · ${s.publisher}, ${s.date_label} (${role})${s.url ? `\n   ${s.url}` : ""}`);
+        const age = s.recency_pl ? ` · ${s.recency_pl}` : "";
+        out.push(`${s.n}. ${s.title} · ${s.publisher}, ${s.date_label}${age} (${role})${s.url ? `\n   ${s.url}` : ""}`);
         out.push(s.is_verbatim ? `   „${s.text}”` : `   Dane ze źródła: ${s.text}`);
         if (s.attribution) out.push(`   ${s.attribution}`);
       }

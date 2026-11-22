@@ -325,3 +325,133 @@ def test_nothing_found_keeps_first_answer_with_note(retriever, monkeypatch, no_w
     assert notes and "Nie wszystkie odpowiedziały: gov.pl" in notes[0]
     assert "Nie znaleziono tam materiałów" not in notes[0]  # the only source failed: no "nothing there"
     assert cr.live["sources"][0]["error"] == "HttpError HTTP 404"
+
+
+# ---- opinions: fact-check databases only ------------------------------------------------------
+
+
+def _first_result(verdict_code: str = "unverifiable", known: bool = False):
+    from rag.verify import ClaimResult
+    return ClaimResult("x", verdict_code, verdict_code, "…", known_disinformation=known)
+
+
+def test_live_sources_per_claim():
+    fact = claim("Od 1 października szczepienia są bezpłatne")
+    opinion = claim("Ten rząd jest najgorszy w historii", checkable=False)
+    assert live.live_sources(fact, _first_result("insufficient")) == tuple(live.SOURCES)
+    assert live.live_sources(fact, _first_result("true")) == ()
+    assert live.live_sources(opinion, _first_result("unverifiable")) == ("factcheck", "euvsdisinfo")
+    assert live.live_sources(opinion, _first_result("insufficient")) == ("factcheck", "euvsdisinfo")
+    # A narrative already documented (code-enforced flag): nothing to look up.
+    assert live.live_sources(opinion, _first_result("false", known=True)) == ()
+    assert live.live_sources(opinion, _first_result("unverifiable", known=True)) == ()
+    assert not live.needs_live(opinion, _first_result("unverifiable", known=True))
+    assert "govpl" not in live.OPINION_SOURCES
+
+
+def test_factual_claims_go_first_and_opinions_ask_no_govpl(monkeypatch):
+    """MAX_LIVE_CLAIMS is filled with factual claims first; an opinion-only check asks only the
+    fact-check databases."""
+    from types import SimpleNamespace
+
+    asked: list[tuple[str, set[str]]] = []
+
+    def fake_lookup(conn, embedder, text, variants, *, sources=None, **kw):
+        asked.append((text, set(sources or {})))
+        return live.LiveResult()
+
+    monkeypatch.setattr(live, "live_lookup", fake_lookup)
+    verifier = SimpleNamespace(retriever=SimpleNamespace(conn=None, embedder=None), shortlist=8, workers=1)
+    op1, op2 = claim("Opinia pierwsza", checkable=False), claim("Opinia druga", checkable=False)
+    f1, f2 = claim("Fakt pierwszy"), claim("Fakt drugi")
+    out = live.live_pass(verifier, [op1, f1, f2], [_first_result(), _first_result("insufficient"),
+                                                   _first_result("insufficient")], NOW)
+    assert asked[-1] == ("Fakt pierwszy", {"factcheck", "euvsdisinfo", "govpl"})
+    assert out[0].live is None and out[1].live and out[2].live  # the opinion lost its slot
+    live.live_pass(verifier, [op1, op2], [_first_result(), _first_result()], NOW)
+    assert asked[-1] == ("Opinia pierwsza", {"factcheck", "euvsdisinfo"})
+    n = len(asked)
+    live.live_pass(verifier, [op1], [_first_result("unverifiable", known=True)], NOW)
+    assert len(asked) == n  # already a documented narrative: no lookup
+
+
+@pytest.fixture
+def replay_all(monkeypatch, no_wait, keys):
+    replay = Replay("govpl", "euvsdisinfo", "factcheck")
+    make = factory(replay)
+    monkeypatch.setattr(live, "_shared_fetcher", lambda key: (make(key), threading.Lock()))
+    return replay
+
+
+def _arms_case(xml: str) -> str | None:
+    for x in xml.split('id="')[1:]:
+        if "EUvsDisinfo (Europejska" in x and "Ukrainian arms flood into Poland" in x:
+            return x.split('"')[0]
+    return None
+
+
+def test_opinion_looks_up_factcheck_databases_and_gets_the_flag(retriever, replay_all):
+    rec = recorded("euvsdisinfo")
+    c = claim(rec["claim"], rec["queries"], checkable=False)
+    calls: list[str] = []
+
+    def policy(cl, xml):
+        calls.append(xml)
+        case = _arms_case(xml)
+        if not case:
+            return verdict("unverifiable")
+        return verdict("false", ((case, "contradicts"),), known_disinformation=True)
+
+    cr = Verifier(retriever, FakeLLM([c], policy), record=False, live=True).verify(rec["claim"], NOW).claims[0]
+    hosts = {r.url.host for r in replay_all.seen}
+    assert "www.gov.pl" not in hosts
+    assert {"mcp.euvsd.info", "factchecktools.googleapis.com"} <= hosts
+    assert [s["source"] for s in cr.live["sources"]] == ["factcheck", "euvsdisinfo"]
+    assert len(calls) == 2
+    assert cr.verdict == "false" and cr.known_disinformation
+    assert cr.citations[0].url == "https://euvsdisinfo.eu/report/ukrainian-arms-flood-into-poland"
+    assert cr.notes[0].startswith("Znana narracja dezinformacyjna udokumentowana przez: EUvsDisinfo")
+
+
+def test_opinion_without_a_cited_debunk_keeps_its_first_answer(retriever, replay_all):
+    """Live passages alone cannot give an opinion a verdict: without the code-enforced flag the
+    first answer stays (here the model calls it true on the quoted narrative, with no debunk)."""
+    rec = recorded("euvsdisinfo")
+    c = claim(rec["claim"], rec["queries"], checkable=False)
+
+    def policy(cl, xml):
+        case = _arms_case(xml)
+        return verdict("true", ((case, "supports"),)) if case else verdict("unverifiable")
+
+    cr = Verifier(retriever, FakeLLM([c], policy), record=False, live=True).verify(rec["claim"], NOW).claims[0]
+    assert cr.live and "www.gov.pl" not in {r.url.host for r in replay_all.seen}
+    assert cr.verdict == "unverifiable" and not cr.known_disinformation and not cr.citations
+    assert any(n.startswith("Wyszukano na żywo") for n in cr.notes)
+
+
+# ---- small helpers ---------------------------------------------------------------------------
+
+
+def test_utc_converts_to_utc():
+    assert live._utc("2026-11-20T10:00:00") == "2026-11-20T09:00:00Z"  # naive: Warsaw (CET)
+    assert live._utc("2026-07-01T12:00:00") == "2026-07-01T10:00:00Z"  # Warsaw summer time
+    assert live._utc("2026-11-20T10:00:00+02:00") == "2026-11-20T08:00:00Z"
+    assert live._utc("2026-10-05T06:25:26.082973Z") == "2026-10-05T06:25:26Z"
+    assert live._utc(None) is None and live._utc("wczoraj") is None
+
+
+def test_euvsdisinfo_case_date_becomes_published_at():
+    from crawler.fetcher import Resp
+    from crawler.mcp import tool_text
+
+    ex = next(e for e in recorded("euvsdisinfo")["exchanges"] if e["method"] == "POST")
+    text = tool_text(Resp(url="", final_url="", status=200, text=ex["body"]))
+    url = "https://euvsdisinfo.eu/report/ukrainian-arms-flood-into-poland"
+    # The recorded `search` answer has no date: nothing is made up.
+    plain = [i for i in live.parse_euvsd_search(text) if i["url"] == url]
+    assert live.euvsd_records(plain, "2026-11-22T00:00:00Z")[0]["published_at"] is None
+    # A `**Date:**` line (format of the server's `cases` tool) fills published_at, not the text.
+    dated = text.replace(f"**Source URL:** {url}", f"**Date:** 11/16/2026\n\n**Source URL:** {url}")
+    item = next(i for i in live.parse_euvsd_search(dated) if i["url"] == url)
+    assert "Date" not in item["content"] and item["content"].rstrip().endswith("RESPONSE")
+    assert live.euvsd_records([item], "2026-11-22T00:00:00Z")[0]["published_at"] == "2026-11-16T00:00:00Z"

@@ -83,6 +83,10 @@
 .mp-cite-sub { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .mp-cite-quote { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); background: var(--surface-muted); border: 1px solid var(--border); font-size: 16px; line-height: 24px; white-space: pre-line; overflow-wrap: anywhere; }
 .mp-cite-data-label { font-weight: 600; }
+/* Age of a citation (older / newer data): a neutral tag, never a verdict colour. */
+.mp-cite-age { display: inline-block; margin-left: var(--space-1); padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--ink); font-size: 13px; line-height: 20px; white-space: normal; }
+.mp-cite-age[data-recency="superseded"], .mp-cite-age[data-recency="older"] { color: var(--ink-muted); }
+.mp-cite-age[data-recency="newer"], .mp-cite-age[data-recency="current"] { font-weight: 600; }
 .mp-cite-credit { margin: var(--space-2) 0 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); overflow-wrap: anywhere; }
 
 .mp-role { flex: none; display: inline-flex; align-items: center; gap: var(--space-1); font-size: 14px; line-height: 20px; font-weight: 700; }

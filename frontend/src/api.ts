@@ -21,7 +21,16 @@ export interface Citation {
   is_verbatim: boolean;
   /** Credit required by the source's terms (e.g. IMGW), from the source catalog, never from the model. Plain text. */
   attribution?: string | null;
+  /** Stored ISO 8601 (UTC) behind date_label. Missing in check logs from before it existed. */
+  date?: string | null;
+  /** Age relative to the claim's period or the other citations, computed by code (recency() in verify.py). */
+  recency?: Recency | null;
+  /** Polish label, e.g. "starsze dane – sprzed okresu twierdzenia". Plain text. */
+  recency_pl?: string | null;
 }
+
+/** "superseded": a newer record of the same source on the same matter is listed (it decides). */
+export type Recency = "superseded" | "older" | "newer" | "current";
 
 export type StrengthLevel = "strong" | "moderate" | "weak" | "none";
 

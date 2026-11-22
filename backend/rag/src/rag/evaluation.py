@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from .search import Filters, Retriever
+from .search import Filters, Prefer, Retriever
 
 
 def load_cases(path: str | Path) -> dict[str, Any]:
@@ -32,12 +32,27 @@ def _filters(d: dict[str, Any] | None) -> Filters | None:
     )
 
 
+def _prefer(d: dict[str, Any] | None) -> Prefer | None:
+    """Soft preferences of a case (the claim's area and period), as Verifier.retrieve passes them."""
+    if not d:
+        return None
+    return Prefer(
+        area=d.get("area"),
+        since=datetime.fromisoformat(d["since"]) if d.get("since") else None,
+        until=datetime.fromisoformat(d["until"]) if d.get("until") else None,
+        now=datetime.fromisoformat(d["now"]) if d.get("now") else None,
+    )
+
+
 def evaluate_retrieval(
-    retriever: Retriever, cases: list[dict[str, Any]], mode: str, k: int = 8, cutoffs=(1, 3)
+    retriever: Retriever, cases: list[dict[str, Any]], mode: str, k: int = 8, cutoffs=(1, 3),
+    use_prefer: bool = True,
 ) -> dict:
     per_case: list[dict[str, Any]] = []
     for c in cases:
-        hits = retriever.hybrid(c["query"], filters=_filters(c.get("filters")), shortlist=k, mode=mode)
+        prefer = _prefer(c.get("prefer")) if use_prefer else None
+        hits = retriever.hybrid(c["query"], filters=_filters(c.get("filters")), shortlist=k, mode=mode,
+                                prefer=prefer)
         keys = [key(h.meta) for h in hits]
         gold = set(c["gold"])
         rank = next((i for i, kk in enumerate(keys, 1) if kk in gold), None)

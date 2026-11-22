@@ -13,7 +13,7 @@ sources.yaml ─► crawler ─► data/crawl/documents.jsonl + crawl_log.jsonl 
                                    ▼
                PostgreSQL: sources, evidence (wersje), passages (FTS + wektor), checks (log)
                                    │
-tekst ─► Verifier: ekstrakcja (LLM) → search → werdykt (LLM) → _enforce/_notes → Markdown/JSON
+tekst ─► Verifier: ekstrakcja (LLM) → search (+obszar/okres) → werdykt (LLM) → _prefer_newer/_enforce/_notes → Markdown/JSON
   ▲
   └─ intake: linki z tekstu, pliki (obraz, PDF) → Attachment[] (tekst, data materiału, notatki, ograniczenia)
 ```
@@ -70,7 +70,8 @@ Usuwanie danych idzie wyłącznie procedurą z [`DANE_I_LICENCJE.md`](DANE_I_LIC
 2. Pełny tekst: tokeny po złożeniu (małe litery, bez diakrytyków, bez stopwords), OR. Długie słowa są skracane do prefiksu (`mazow:*`) zamiast stemmera. Ranking `ts_rank_cd` z wagami tytuł > nagłówek > treść.
 3. Gęste: multilingual-e5, pełny skan macierzy NumPy w pamięci, tylko bieżące wersje.
 4. Fuzja RRF po wszystkich listach (metody × zapytania), potem limit fragmentów na jeden rekord (różnorodność) i krótka lista dla LLM.
-5. Filtry (`area`, okres, rodzaj) istnieją, ale używa ich tylko `rag search` i ewaluacja. **Weryfikator ich nie przekazuje.**
+5. Obszar i okres twierdzenia (`Claim.area`, `time_from`, `time_to`) weryfikator przekazuje jako `Prefer`: dodatkowe miękkie listy RRF (`area`, `period`) z kandydatów już znalezionych. Pasujące rekordy idą w górę, nic nie odpada i nic nie dochodzi. Koniec okresu (`until`) dotyczy tylko rekordów z okresem ważności i pomiarów (`TIMED_KINDS`, `structured`), bo późniejszy artykuł może opisywać wcześniejsze zdarzenie. Obszar porównuje `areas.py` (16 województw w formach przymiotnikowych, rzeczownikowych i odmienionych, „cała Polska”/kraj, wspólny przedrostek nazw miejscowości). Twarde filtry (`Filters`) zostają dla `rag search` i ewaluacji.
+6. Nowszy rekord tego samego źródła (albo przedruku) w tej samej sprawie (`search.supersessions`: ten sam rodzaj, zjawisko/rzeka/stacja, wspólny obszar z listy, podobny tytuł) idzie na liście tuż nad starszy. Oba zostają.
 
 ## Weryfikacja ([`verify.py`](../backend/rag/src/rag/verify.py), [`llm.py`](../backend/rag/src/rag/llm.py))
 

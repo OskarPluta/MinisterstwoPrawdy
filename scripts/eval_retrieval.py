@@ -32,6 +32,8 @@ def main() -> None:
     ap.add_argument("--k", type=int, default=8)
     ap.add_argument("--no-prefix-stem", action="store_true")
     ap.add_argument("--show-misses", action="store_true")
+    ap.add_argument("--no-prefer", action="store_true",
+                    help="ignore the cases' `prefer` (claim area/period soft lists), for a before/after comparison")
     ap.add_argument("--json-out")
     args = ap.parse_args()
     load_env()
@@ -49,7 +51,7 @@ def run(conn: Connection, args: argparse.Namespace) -> None:
     cases = load_cases(args.cases)["cases"]
     results = {}
     for mode in ("bm25", "dense", "hybrid"):
-        res = evaluate_retrieval(r, cases, mode, k=args.k)
+        res = evaluate_retrieval(r, cases, mode, k=args.k, use_prefer=not args.no_prefer)
         results[mode] = res
     tags = list(results["hybrid"]["summary"])
     cols = [c for c in results["hybrid"]["summary"]["ALL"] if c != "n"]

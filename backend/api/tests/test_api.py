@@ -115,7 +115,11 @@ def test_verify_returns_public_result(client):
     assert c["strength"]["level"] in ("strong", "moderate", "weak") and c["strength"]["reasons"]
     assert len(c["citations"]) == 1  # the invented P999999 was dropped by the Verifier
     cit = c["citations"][0]
-    assert set(cit) >= {"n", "role", "title", "publisher", "url", "date_label", "text", "is_verbatim"}
+    assert set(cit) >= {"n", "role", "title", "publisher", "url", "date_label", "text", "is_verbatim",
+                        "date", "recency", "recency_pl"}  # mirrored in frontend/src/api.ts
+    # The hydro warning (valid 19.11 06:00 – 22.11 12:00 UTC) covers the request time.
+    assert cit["date"] == "2026-11-19T05:30:00Z" and cit["date_label"] == "19.11.2026"
+    assert cit["recency"] == "current" and cit["recency_pl"].startswith("aktualne dane")
 
 
 def test_verify_too_long(client):

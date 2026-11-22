@@ -1,6 +1,8 @@
 # Retrieval test set over backend/rag/tests/fixtures/fake_corpus.json (FAKE TEST DATA).
 # gold: evidence keys "source_id:upstream_id"; a case is a hit if ANY gold key is in the shortlist.
-# tags: keyword | paraphrase | inflection | geo | date
+# tags: keyword | paraphrase | inflection | geo | date | context
+# prefer: the claim's area/period as Verifier.retrieve passes them (soft RRF lists, search.Prefer);
+# context cases have generic queries where only the area or period singles out the record.
 cases:
   - {id: r01, tags: [keyword], query: "ostrzeżenie IMGW silny wiatr", gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR, rcb:RCB-2026-11-21-ALERT-WIATR]}
   - {id: r02, tags: [inflection, geo], query: "wiatr na Mazowszu", gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR, rcb:RCB-2026-11-21-ALERT-WIATR]}
@@ -39,3 +41,11 @@ cases:
     filters: {since: "2026-11-21T00:00:00+01:00", until: "2026-11-21T23:59:00+01:00", kinds: [warning_meteo]}
     gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR, imgw_meteo:OST-2026-1121-LDZ-MGLA]
     must_exclude: [imgw_meteo:OST-2026-1118-POD-OBLODZENIE]
+  - {id: r40, tags: [context, geo], query: "ostrzeżenie meteorologiczne", prefer: {area: "Podlasie"}, gold: [imgw_meteo:OST-2026-1118-POD-OBLODZENIE]}
+  - {id: r41, tags: [context, geo], query: "ostrzeżenie przed wiatrem", prefer: {area: "całe Mazowsze"}, gold: [imgw_meteo:OST-2026-1121-MAZ-WIATR]}
+  - {id: r42, tags: [context, geo], query: "utrudnienia dla kierowców ciężarówek", prefer: {area: "Lubelszczyzna"}, gold: ["rso:https://www.gov.test/api/data/proxy/rso/ogolne/1#90001"]}
+  - {id: r43, tags: [context, geo], query: "ostrzeżenie hydrologiczne stan wody", prefer: {area: "województwo świętokrzyskie"}, gold: [imgw_hydro:HYD-2026-1119-WISLA-SAND]}
+  - {id: r44, tags: [context, geo], query: "ograniczenia żeglugi na rzece", prefer: {area: "Kujawy"}, gold: [wody:WP-KOMUNIKAT-NAW-2026-31]}
+  - {id: r45, tags: [context, date], query: "ostrzeżenie meteorologiczne", prefer: {since: "2026-11-21T22:00:00+01:00", until: "2026-11-22T06:00:00+01:00"}, gold: [imgw_meteo:OST-2026-1121-LDZ-MGLA]}
+  - {id: r46, tags: [context, date], query: "ostrzeżenie", prefer: {since: "2026-11-18T20:00:00+01:00", until: "2026-11-19T06:00:00+01:00"}, gold: [imgw_meteo:OST-2026-1118-POD-OBLODZENIE]}
+  - {id: r47, tags: [context, geo, date], query: "ostrzeżenie IMGW", prefer: {area: "łódzkie", since: "2026-11-21T21:00:00+01:00"}, gold: [imgw_meteo:OST-2026-1121-LDZ-MGLA]}

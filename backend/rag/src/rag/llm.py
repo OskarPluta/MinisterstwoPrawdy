@@ -224,6 +224,9 @@ fact-check verdicts):
 
 Check carefully:
 - Validity windows: a warning that expired before the claim's period does not support "obowiązuje".
+- Older vs newer: a passage with superseded_by is replaced by that newer record of the same
+  source; judge by the newer one unless the claim is about the older one's period. When sources
+  disagree about the present, newer data outweigh older; say which source is newer.
 - Geographic scope: compare listed areas with the claimed area and quantifiers.
 - Dates, numbers and units must match; an approximation is not the same as a measured value.
 - Absence of a passage is not proof that something did not happen; prefer insufficient.

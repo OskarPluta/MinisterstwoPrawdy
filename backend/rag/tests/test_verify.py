@@ -331,14 +331,18 @@ def test_expired_warning_flagged(retriever):
     assert any("wygasło 19.11.2026 09:00" in n for n in cr.notes)
 
 
-def test_failed_source_refresh_is_reported(retriever):
+def test_failed_source_refresh_is_reported_only_when_cited(retriever):
+    """Item 16a: stale/failing-source notes come from the cited sources, not the whole shortlist."""
     c = claim("Na Wiśle w Sandomierzu obowiązuje ostrzeżenie hydrologiczne", ["Wisła Sandomierz stan wody"])
-    llm = FakeLLM([c], lambda cl, xml: ClaimVerdict(
-        verdict="insufficient", passages=[], explanation_pl="…", evidence_strength="weak",
-        conflict=False, injection_noticed=False,
-    ))
-    cr = Verifier(retriever, llm, record=False).verify("x", NOW).claims[0]
+    v = Verifier(retriever, FakeLLM(), record=False)
+    target = _pid_for(v, c, "imgw_hydro:HYD-2026-1119-WISLA-SAND")
+    v.llm = FakeLLM([c], lambda cl, xml: verdict("insufficient", ((target, "context"),)))
+    cr = v.verify("x", NOW).claims[0]
     assert any("nie powiodła się" in n for n in cr.notes)
+
+    v.llm = FakeLLM([c], lambda cl, xml: verdict("insufficient"))  # nothing cited
+    cr = v.verify("x", NOW).claims[0]
+    assert not any("nie powiodła się" in n for n in cr.notes)
 
 
 def test_clarification_and_outage_statuses(retriever):
@@ -698,3 +702,175 @@ def test_claimreview_dump_is_rendered_as_source_data():
     cit = _citation(1, Hit(1, 1, 0.0, meta=meta), "contradicts")
     assert cit.text == text and cit.is_verbatim is False, "structured data, shown as 'Dane ze źródła'"
     assert "claimReview[0]" not in cit.text
+
+
+# --- claim area/period in retrieval; old vs new evidence ------------------------------------
+
+from test_search import EARLY_WIND, add_records  # noqa: E402
+
+from rag.search import Prefer  # noqa: E402
+
+EARLY = "imgw_meteo:OST-2026-1120-MAZ-WIATR-WSTEPNE"
+LATE = "imgw_meteo:OST-2026-1121-MAZ-WIATR"
+LEVEL1 = claim("Na Mazowszu obowiązuje ostrzeżenie pierwszego stopnia przed silnym wiatrem",
+               ["ostrzeżenie silny wiatr Mazowsze", "wstępne ostrzeżenie porywy wiatru 60 km/h"],
+               area="Mazowsze", time_from=NOW.isoformat())
+UTK = "utk:UTK-ODSZKODOWANIE-OPOZNIENIE-POCIAGU"
+MI_NEW = "mi_gov:MI-2026-11-15-ODSZKODOWANIA-KOLEJ"
+NEW_RULES = {
+    "source_id": "mi_gov", "upstream_id": "MI-2026-11-15-ODSZKODOWANIA-KOLEJ", "kind": "article",
+    "title": "Wyższe odszkodowania za opóźnienie pociągu od listopada 2026",
+    "citation_url": "https://www.gov.test/web/infrastruktura/odszkodowania-kolej",
+    "published_at": "2026-11-15T09:00:00Z",
+    "sections": [{"heading": None, "text": (
+        "Od 15 listopada 2026 r. odszkodowanie za opóźnienie pociągu od 60 do 119 minut wynosi "
+        "50% ceny biletu, a przy opóźnieniu 120 minut lub więcej 75% ceny biletu. Wcześniej było to "
+        "25% i 50%. Wniosek składa się do przewoźnika."
+    )}],
+}
+DELAY = claim("Za opóźnienie pociągu o 60 minut przysługuje odszkodowanie 25% ceny biletu",
+              ["odszkodowanie opóźnienie pociągu 25% ceny biletu", "odszkodowanie za opóźnienie pociągu 50%"])
+
+
+def test_retrieve_passes_claim_area_and_period_as_soft_lists(retriever):
+    seen: dict[str, Any] = {}
+    orig = retriever.hybrid
+
+    def spy(queries, **kw):
+        seen.update(kw)
+        return orig(queries, **kw)
+
+    retriever.hybrid = spy
+    c = claim("Na Podlasiu obowiązuje ostrzeżenie", ["ostrzeżenie meteorologiczne"], area="Podlasie",
+              time_from="2026-11-18T20:00:00", time_to="2026-11-19T06:00:00")
+    hits = Verifier(retriever, FakeLLM(), record=False).retrieve(c, NOW)
+    p = seen["prefer"]
+    assert isinstance(p, Prefer) and p.area == "Podlasie" and p.now == NOW
+    assert p.since and p.since.utcoffset().total_seconds() == 3600  # naive claim time read as Warsaw
+    assert seen.get("filters") is None  # soft only: no hard filter from the claim
+    assert key(hits[0].meta) == "imgw_meteo:OST-2026-1118-POD-OBLODZENIE"
+
+
+def test_newer_record_of_the_same_source_decides(retriever, embedder):
+    """An earlier IMGW warning (level 1) and the later one (level 2) for the same wind and
+    counties: the later one is the current state; the earlier one is shown as superseded."""
+    add_records(retriever, embedder, EARLY_WIND)
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    old, new = _pid_for(v, LEVEL1, EARLY), _pid_for(v, LEVEL1, LATE)
+    v.llm = FakeLLM([LEVEL1], lambda cl, xml: verdict("false", ((new, "contradicts"), (old, "supports"))))
+    res = v.verify("x", NOW)
+    cr = res.claims[0]
+    xml = v.llm.seen_xml[0]
+    assert f'superseded_by="{new}"' in xml and f'supersedes="{old}"' in xml
+    assert cr.verdict == "false" and cr.conflict
+    roles = {c.passage_id: c for c in cr.citations}
+    assert roles[old].role == "context" and roles[old].recency == "superseded"
+    assert roles[new].role == "contradicts" and roles[new].recency == "newer"
+    assert "zastąpione nowszymi (źródło 1)" in (roles[old].recency_pl or "")
+    assert roles[new].date == "2026-11-21T08:30:00Z"
+    note = next(n for n in cr.notes if "zastępuje" in n)
+    # Warsaw time: 08:30Z -> 09:30, 18:00Z -> 19:00.
+    assert "nowszy komunikat z 21.11.2026 09:30 (źródło 1)" in note
+    assert "wcześniejszy z 20.11.2026 19:00 (źródło 2), który potwierdzał twierdzenie" in note
+    assert cr.strength and not any("sprzeczne z werdyktem" in r for r in cr.strength.reasons)
+    md = render_markdown(res)
+    assert "starsze dane – zastąpione nowszymi (źródło 1)" in md and "nowsze dane – zastępują starsze (źródło 2)" in md
+
+
+def test_verdict_resting_on_a_superseded_record_is_withheld(retriever, embedder):
+    add_records(retriever, embedder, EARLY_WIND)
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    old, new = _pid_for(v, LEVEL1, EARLY), _pid_for(v, LEVEL1, LATE)
+    v.llm = FakeLLM([LEVEL1], lambda cl, xml: verdict("true", ((old, "supports"),)))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "insufficient" and cr.downgraded_from == "true"
+    assert [(c.passage_id, c.role) for c in cr.citations] == [(old, "context"), (new, "context")]  # newer added
+    assert cr.explanation.startswith("Ocena opierała się na starszych danych")
+    assert cr.strength and "starszych danych" in cr.strength.reasons[0]
+
+
+def test_claim_about_the_older_warnings_own_period_keeps_it(retriever, embedder):
+    """A newer warning for a later window does not replace the one valid in the claim's period."""
+    later = {**EARLY_WIND, "upstream_id": "OST-2026-1122-MAZ-WIATR", "published_at": "2026-11-21T20:00:00Z",
+             "valid_from": "2026-11-22T10:00:00Z", "valid_to": "2026-11-22T19:00:00Z",
+             "citation_url": "https://danepubliczne.imgw.test/ostrzezenia/OST-2026-1122-MAZ-WIATR"}
+    add_records(retriever, embedder, later)
+    c = LEVEL1.model_copy(update={"time_from": "2026-11-21T12:00:00", "time_to": "2026-11-21T14:00:00"})
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    current = _pid_for(v, c, LATE)
+    v.llm = FakeLLM([c], lambda cl, xml: verdict("true", ((current, "supports"),)))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "true" and cr.citations[0].role == "supports"
+    assert cr.citations[0].recency == "current" and cr.citations[0].recency_pl == "aktualne dane – z okresu twierdzenia"
+
+
+def test_newer_source_contradicting_an_older_one_is_explained(retriever, embedder):
+    add_records(retriever, embedder, NEW_RULES)
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    old, new = _pid_for(v, DELAY, UTK), _pid_for(v, DELAY, MI_NEW)
+    v.llm = FakeLLM([DELAY], lambda cl, xml: verdict(
+        "false", ((new, "contradicts"), (old, "supports")), evidence_strength="strong"))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "false" and cr.conflict
+    note = next(n for n in cr.notes if n.startswith("Źródła się różnią"))
+    assert "nowsze – Ministerstwo Infrastruktury (dane testowe) z 15.11.2026 (źródło 1) – przeczy twierdzeniu" in note
+    assert "starsze – Urząd Transportu Kolejowego (dane testowe) z 07.06.2025 (źródło 2) – potwierdza twierdzenie" in note
+    assert "stanu obecnego" in note
+    # The outdated supporting record is not counted like a fresh one: the strength is not lowered.
+    assert cr.strength and cr.strength.level == "moderate"  # one primary source
+    assert not any(r.startswith("Obniżono: część") for r in cr.strength.reasons)
+    assert any(r.startswith("Starsze źródło (Urząd Transportu Kolejowego") for r in cr.strength.reasons)
+    by_n = {c.n: c for c in cr.citations}
+    assert by_n[1].recency == "newer" and by_n[2].recency == "older"
+    assert by_n[2].recency_pl == "starsze dane – starsze niż inne cytowane"
+
+
+def test_fresh_conflict_still_lowers_the_strength(retriever, embedder):
+    """Same-age sources that disagree: neither is outdated, so the conflict lowers the strength."""
+    same_day = {**NEW_RULES, "source_id": "portal", "upstream_id": "PORTAL-2026-11-15-ODSZKODOWANIA",
+                "published_at": "2026-11-15T12:00:00Z", "citation_url": "https://portal-przykladowo.test/odszkodowania",
+                "title": "Odszkodowanie za opóźnienie pociągu nadal 25%",
+                "sections": [{"heading": None, "text": "Przewoźnicy przypominają: za opóźnienie pociągu od 60 "
+                              "do 119 minut odszkodowanie nadal wynosi 25% ceny biletu."}]}
+    add_records(retriever, embedder, NEW_RULES, same_day)
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    new = _pid_for(v, DELAY, MI_NEW)
+    other = _pid_for(v, DELAY, "portal:PORTAL-2026-11-15-ODSZKODOWANIA")
+    v.llm = FakeLLM([DELAY], lambda cl, xml: verdict("false", ((new, "contradicts"), (other, "supports"))))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "false" and cr.conflict
+    assert cr.strength and any(r.startswith("Obniżono: część") for r in cr.strength.reasons)
+    note = next(n for n in cr.notes if n.startswith("Źródła się różnią"))
+    assert "nowsze –" not in note and "z 15.11.2026" in note  # same day: no older/newer claim
+
+
+def test_verdict_resting_on_older_data_contradicted_by_newer_is_withheld(retriever, embedder):
+    add_records(retriever, embedder, NEW_RULES)
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    old, new = _pid_for(v, DELAY, UTK), _pid_for(v, DELAY, MI_NEW)
+    v.llm = FakeLLM([DELAY], lambda cl, xml: verdict("true", ((old, "supports"), (new, "contradicts"))))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "insufficient" and cr.downgraded_from == "true" and cr.conflict
+    assert cr.explanation.startswith("Ocena opierała się na starszych danych")
+    assert any(n.startswith("Źródła się różnią: nowsze – Ministerstwo") for n in cr.notes)
+
+
+def test_claim_about_the_past_does_not_prefer_newer_articles(retriever, embedder):
+    """For a claim about 2025 the 2025 rules are not outdated: the verdict stands."""
+    add_records(retriever, embedder, NEW_RULES)
+    past = DELAY.model_copy(update={"time_from": "2025-07-01", "time_to": "2025-07-31"})
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    old, new = _pid_for(v, past, UTK), _pid_for(v, past, MI_NEW)
+    v.llm = FakeLLM([past], lambda cl, xml: verdict("true", ((old, "supports"), (new, "context"))))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "true" and cr.downgraded_from is None
+
+
+def test_expired_warning_gets_an_older_label(retriever):
+    c = claim("Na Podlasiu obowiązuje ostrzeżenie przed oblodzeniem", ["oblodzenie podlaskie"],
+              time_from=NOW.isoformat())
+    v = Verifier(retriever, FakeLLM(), record=False)
+    target = _pid_for(v, c, "imgw_meteo:OST-2026-1118-POD-OBLODZENIE")
+    v.llm = FakeLLM([c], lambda cl, xml: verdict("false", ((target, "contradicts"),)))
+    cit = v.verify("x", NOW).claims[0].citations[0]
+    assert cit.recency == "older" and cit.recency_pl == "starsze dane – sprzed okresu twierdzenia"

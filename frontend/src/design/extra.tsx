@@ -50,6 +50,14 @@ export function CitationList({ citations }: { citations: Citation[] }) {
                   </p>
                   <p className="mp-cite-sub">
                     {c.publisher} · {c.date_label}
+                    {c.recency_pl && (
+                      <>
+                        {" "}
+                        <span className="mp-cite-age" data-recency={c.recency ?? undefined}>
+                          {c.recency_pl}
+                        </span>
+                      </>
+                    )}
                   </p>
                 </div>
                 <span className={cx("mp-role", role.cls)}>
