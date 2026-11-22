@@ -54,7 +54,7 @@ bun run dev | typecheck | build | test  # w frontend/
 - **SQL tylko jako nazwane zapytania** w `database/queries/<grupa>.sql` (`-- name: <nazwa>`), wywoływane przez `query("<grupa>.<nazwa>")`. Wartości przekazuje się tylko jako `%(nazwa)s`. Nie składaj SQL f-stringiem.
 - **Zmiana schematu** (`database/schema.sql`) wymaga podbicia `SCHEMA_VERSION` i dodania kroku migracji w `db.connect`.
 - **Frontend nie renderuje tekstu modelu jako HTML ani Markdown** i nie tworzy linków z tekstu. Linki pochodzą tylko z `citation.url`. Ocena `insufficient` nigdy nie jest czerwona.
-- **Dane strukturalne (ostrzeżenia IMGW, pomiary synop i GIOŚ) nie są cytowane dosłownie.** Renderuje je stały szablon i są pokazywane jako „Dane ze źródła”.
+- **Dane strukturalne (ostrzeżenia IMGW, pomiary synop i GIOŚ, rekordy ClaimReview z Google Fact Check) nie są cytowane dosłownie.** Renderuje je stały szablon (ClaimReview: `verify.claimreview_text`) i są pokazywane jako „Dane ze źródła”.
 - **Kanały mają limity żądań** (`rag/ratelimit.py`: na klienta na minutę i godzinę oraz dzienny limit procesu, `PRAWDOWID_RATE_*`). API ufa `X-Forwarded-For` tylko od lokalnego proxy (`PRAWDOWID_TRUSTED_PROXIES`), a proxy Bun ustawia ten nagłówek samo, nigdy nie przekazuje wartości z przeglądarki.
 - **Udostępniony wynik (`/wynik/<share_id>`) jest tylko do odczytu.** Pochodzi z `checks.result_json`, którego nic nie aktualizuje. `share_id` to osobny losowy klucz, a `check_id` (klucz do usunięcia) nigdy nie wychodzi przez udostępnienie. Link żyje tyle co zapis sprawdzenia.
 - **Tekst użytkownika jest maskowany w logu `checks`.** Treści źródeł nie są maskowane. Log ma retencję (`PRAWDOWID_CHECKS_RETENTION_DAYS`, domyślnie 30 dni) i można go usunąć po `check_id` (`DELETE /api/checks/{check_id}`).

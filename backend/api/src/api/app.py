@@ -15,6 +15,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import re
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -60,6 +61,15 @@ DEFAULT_TRUSTED_PROXIES = "127.0.0.1,::1"
 MAX_REQUEST_CHARS = 50_000
 # The analyst export is off unless PRAWDOWID_ADMIN_TOKEN holds at least this many characters.
 MIN_ADMIN_TOKEN_CHARS = 16
+
+
+_EMAIL_RX = re.compile(r"^[^@\s<>\"']+@[^@\s<>\"']+\.[A-Za-z]{2,}$")
+
+
+def public_contact() -> str | None:
+    """PRAWDOWID_CONTACT_EMAIL: where publishers ask for removal (shown on /jak-to-dziala)."""
+    email = (os.environ.get("PRAWDOWID_CONTACT_EMAIL") or "").strip()
+    return email if _EMAIL_RX.match(email) else None
 
 
 def admin_token_from_env() -> str | None:
@@ -155,7 +165,7 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
     def health() -> dict[str, Any]:
         s = svc()
         with s.lock:
-            return {"status": "ok", "corpus_version": corpus_version(s.conn)}
+            return {"status": "ok", "corpus_version": corpus_version(s.conn), "contact": public_contact()}
 
     @app.post("/api/verify")
     def verify(req: VerifyRequest, request: Request) -> dict[str, Any]:

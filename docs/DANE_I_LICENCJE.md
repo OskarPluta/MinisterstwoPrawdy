@@ -60,6 +60,8 @@ Reguły są w [`backend/crawler/sources.yaml`](../backend/crawler/sources.yaml) 
 
 ### Wniosek wydawcy albo brak podstawy prawnej
 
+Wydawcy piszą na adres z `PRAWDOWID_CONTACT_EMAIL`, który strona „Jak to działa” pokazuje w sekcji „Skąd mamy treści źródeł”.
+
 1. Dopisz wpis do [`backend/crawler/removed.yaml`](../backend/crawler/removed.yaml): `url` (adres dokumentu) albo `source` (nazwa źródła lub identyfikator `live-*`), do tego `date` i `reason`. Plik jest zarazem rejestrem usunięć, a wpis bez daty i powodu jest odrzucany.
 2. `uv run crawler forget` przepisuje `data/crawl/documents.jsonl` bez tych dokumentów i czyści po nich indeks i stan. To jedyny wyjątek od zasady „tylko dopisujemy”.
 3. `uv run crawler --data-dir data/snapshot forget`, jeśli dokument jest w zrzucie, a potem commit.

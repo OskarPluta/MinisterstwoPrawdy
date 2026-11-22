@@ -59,9 +59,12 @@ export function App() {
       />
       <main id="main" className="mp-container app-main" tabIndex={-1}>
         {shareId ? <SharedPage shareId={shareId} /> : <Page />}
-        <div className="app-measure">
-          <PageMeta updated="21.11.2026" publishedBy={["Departament Weryfikacji Informacji"]} />
-        </div>
+        {/* A shared result has its own check date; the page's publication note would only confuse. */}
+        {!shareId && (
+          <div className="app-measure">
+            <PageMeta updated="21.11.2026" publishedBy={["Departament Weryfikacji Informacji"]} />
+          </div>
+        )}
       </main>
       <SiteFooter
         name="Copernicus"

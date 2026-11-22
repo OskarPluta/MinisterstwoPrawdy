@@ -362,16 +362,49 @@ def _safe_url(url: str | None) -> str | None:
     return quote(url or "", safe=":/?#@!$&'*+,;=%~")
 
 
+_CLAIMREVIEW_KEY = "claimReview[0]."
+
+
+def claimreview_text(text: str) -> str | None:
+    """A Google Fact Check record stored as the crawler's "key: value" dump, rendered by a fixed
+    template (it is structured data, so it is shown as "Dane ze źródła", not as a quote).
+    None when `text` is not such a dump."""
+    if _CLAIMREVIEW_KEY not in text:
+        return None
+    kv: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, val = line.partition(": ")
+        if sep and val.strip():
+            kv.setdefault(key.strip(), val.strip())
+    r = lambda k: kv.get(_CLAIMREVIEW_KEY + k)  # noqa: E731
+    parts = []
+    if kv.get("text"):
+        parts.append(f"Sprawdzane twierdzenie: „{kv['text']}”.")
+    if kv.get("claimant"):
+        parts.append(f"Autor twierdzenia: {kv['claimant']}.")
+    if r("textualRating"):
+        who = r("publisher.name") or r("publisher.site") or "weryfikator"
+        when = fmt_local(r("reviewDate"), with_time=False) if r("reviewDate") else None
+        parts.append(f"Ocena ({who}{', ' + when if when else ''}): {r('textualRating')}.")
+    if r("title"):
+        parts.append(f"Tytuł weryfikacji: {r('title')}.")
+    return " ".join(parts) or None
+
+
 def _citation(n: int, h: Hit, role: str) -> Citation:
     m = h.meta
     date = m["published_at"] or m["observed_at"] or m["valid_from"]
     text = m["excerpt"] if m["is_verbatim"] else m["search_text"]
+    verbatim = bool(m["is_verbatim"])
+    rendered = claimreview_text(text or "")
+    if rendered:
+        text, verbatim = rendered, False
     if len(text) > 400:
         text = text[:400].rsplit(" ", 1)[0] + " …"
     return Citation(
         n=n, passage_id=pid(h), role=role, title=m["title"], publisher=m["publisher"],
         url=_safe_url(m["citation_url"]), date_label=fmt_local(date, with_time=False), text=text,
-        is_verbatim=bool(m["is_verbatim"]), attribution=_attribution(m),
+        is_verbatim=verbatim, attribution=_attribution({**m, "is_verbatim": verbatim}),
     )
 
 

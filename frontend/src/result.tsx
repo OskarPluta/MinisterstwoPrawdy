@@ -314,6 +314,7 @@ export function ResultView({
       {owner && <ShareBox checkId={res.check_id} erased={erase.kind === "done"} />}
       {owner && (
         <div className="app-erase">
+          <h3 className="app-share-title">Usuń zapis sprawdzenia</h3>
           <p>
             Zapis tego sprawdzenia (z ukrytymi danymi osobowymi) przechowujemy 30 dni. Możesz go usunąć od razu. Usunięcie wyłącza też
             link do wyniku.

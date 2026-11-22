@@ -1,6 +1,22 @@
+import { useEffect, useState } from "react";
 import { Breadcrumbs, Icon, InfoSection, ServiceSteps, TONE_ICON } from "../design/components";
 import { VERDICT_VIEW } from "../result";
-import type { Verdict } from "../api";
+import { getHealth, type Verdict } from "../api";
+
+/** Contact address for publishers from the API (PRAWDOWID_CONTACT_EMAIL); null while unknown or unset. */
+function useContact(): string | null {
+  const [contact, setContact] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    getHealth()
+      .then((h) => live && setContact(h.contact))
+      .catch(() => undefined); // the page reads fine without it
+    return () => {
+      live = false;
+    };
+  }, []);
+  return contact;
+}
 
 // Same words as VERDICT_PL in verify.py.
 const VERDICTS: { v: Verdict; word: string; meaning: string }[] = [
@@ -12,6 +28,7 @@ const VERDICTS: { v: Verdict; word: string; meaning: string }[] = [
 ];
 
 export function HowPage() {
+  const contact = useContact();
   return (
     <>
       <Breadcrumbs items={[{ label: "Jak to działa" }]} />
@@ -79,8 +96,19 @@ export function HowPage() {
           . Z serwisów fact-checkingowych zapisujemy tylko tezę, ocenę i link, bez treści artykułów.
         </p>
         <p>
-          Jeśli jesteś wydawcą i chcesz, żebyśmy usunęli Twoje materiały, napisz do zespołu. Usuwamy je z bazy, z archiwum i z zapisów
-          sprawdzeń, w których były cytowane, a adres trafia do rejestru usuniętych treści, więc nie wróci przy kolejnym pobraniu.
+          Jeśli jesteś wydawcą i chcesz, żebyśmy usunęli Twoje materiały,{" "}
+          {contact ? (
+            <>
+              napisz na adres{" "}
+              <a className="mp-link" href={`mailto:${contact}`}>
+                {contact}
+              </a>
+            </>
+          ) : (
+            "napisz do zespołu prowadzącego serwis"
+          )}
+          . Usuwamy je z bazy, z archiwum i z zapisów sprawdzeń, w których były cytowane, a adres trafia do rejestru usuniętych treści,
+          więc nie wróci przy kolejnym pobraniu.
         </p>
       </InfoSection>
 

@@ -56,7 +56,7 @@ Pod wynikiem (także na `/wynik/<id>`) są przyciski „Pobierz JSON” i „Pob
 
 | Trasa | Odpowiedź |
 | --- | --- |
-| `GET /api/health` | `{status, corpus_version}` |
+| `GET /api/health` | `{status, corpus_version, contact}`; `contact` to `PRAWDOWID_CONTACT_EMAIL` (adres dla wydawców na /jak-to-dziala) albo `null` |
 | `POST /api/verify` `{text, now?}` | `CheckResult` bez pól wewnętrznych (`error`, `shortlist_ids`, `invented_ids`). 503, gdy nie ma klucza LLM. |
 | `POST /api/checks/{check_id}/share` | `{share_id, path, expires_at}`: link do strony tylko do odczytu (ten sam przy ponownym wywołaniu). `DELETE` wyłącza udostępnianie. |
 | `GET /api/shares/{share_id}` | `{share_id, checked_at, shared_at, expires_at, result}`. `result.check_id` jest zawsze pusty. 404, gdy link wygasł lub został wyłączony. |

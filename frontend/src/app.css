@@ -30,13 +30,14 @@ html { background: var(--surface); }
 .app-strength ul { margin: 0; padding-left: var(--space-5); font-size: 15px; line-height: 22px; color: var(--ink-muted); }
 .app-claim .mp-notice { margin: 0 0 var(--space-4); }
 .app-result-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); }
+.app-shared-notice { box-sizing: border-box; max-width: var(--measure); }
 .app-share { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }
 .app-share-title { margin: 0 0 var(--space-2); font-size: 20px; line-height: 28px; }
 .app-share > p { margin: 0 0 var(--space-3); font-size: 16px; line-height: 24px; }
 .app-share .mp-field { margin-bottom: var(--space-3); }
 .app-share .app-share-note { margin: var(--space-2) 0 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .app-erase { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }
-.app-erase > p:first-child { margin: 0 0 var(--space-3); font-size: 16px; line-height: 24px; }
+.app-erase > p { margin: 0 0 var(--space-3); font-size: 16px; line-height: 24px; }
 .app-copy-state { margin: var(--space-2) 0 0; min-height: 20px; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 
 /* Sources page */

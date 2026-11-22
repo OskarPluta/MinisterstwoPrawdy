@@ -21,6 +21,14 @@ const server = Bun.serve({
         () => new Response(`backend niedostępny: ${API_URL}`, { status: 502 }),
       );
     },
+    // Shared results are for the people given the link: tell crawlers that do not run JS too.
+    "/wynik/*": async (req) => {
+      const page = await fetch(new URL("/", `http://127.0.0.1:${PORT}`));
+      const headers = new Headers(page.headers);
+      headers.set("X-Robots-Tag", "noindex, nofollow");
+      headers.set("Cache-Control", "no-store");
+      return new Response(page.body, { status: page.status, headers });
+    },
     "/*": index,
   },
   development: process.env.NODE_ENV !== "production" && { hmr: true, console: true },

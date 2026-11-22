@@ -49,7 +49,7 @@ export function SharedPage({ shareId }: { shareId: string }) {
       )}
       {state.kind === "ok" && (
         <>
-          <Notice tone="info" title="Wersja tylko do odczytu" className="app-measure">
+          <Notice tone="info" title="Wersja tylko do odczytu" className="app-shared-notice">
             <p>
               Sprawdzenie z {formatDateTime(state.data.checked_at)}. Ten wynik zapisaliśmy na serwerze w chwili sprawdzenia. Nikt nie może
               go zmienić, także osoba, która go udostępniła. Dane osobowe w treści są ukryte.

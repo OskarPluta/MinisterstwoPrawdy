@@ -77,10 +77,14 @@ def client():
             yield c
 
 
-def test_health(client):
+def test_health(client, monkeypatch):
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    monkeypatch.setenv("PRAWDOWID_CONTACT_EMAIL", "zespol@example.test")
+    assert client.get("/api/health").json()["contact"] == "zespol@example.test"
+    monkeypatch.setenv("PRAWDOWID_CONTACT_EMAIL", "javascript:alert(1)")
+    assert client.get("/api/health").json()["contact"] is None, "only a plain e-mail address is exposed"
 
 
 def test_verify_returns_public_result(client):

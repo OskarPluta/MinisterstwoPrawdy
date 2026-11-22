@@ -164,6 +164,17 @@ export function getShare(shareId: string): Promise<SharedResult> {
   return call("/api/shares/" + encodeURIComponent(shareId));
 }
 
+export interface Health {
+  status: string;
+  corpus_version: number;
+  /** PRAWDOWID_CONTACT_EMAIL of the API: where publishers ask for removal; null when not set. */
+  contact: string | null;
+}
+
+export function getHealth(): Promise<Health> {
+  return call<Health>("/api/health");
+}
+
 export function getSources(): Promise<SourcesResponse> {
   return call<SourcesResponse>("/api/sources");
 }

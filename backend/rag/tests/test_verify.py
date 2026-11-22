@@ -528,3 +528,34 @@ def test_no_verdict_means_no_strength_and_is_rendered(retriever, new_db, embedde
     assert "tylko kontekst" in cr.strength.reasons[0]
     md = render_markdown(CheckResult("id", "ok", None, [cr]))
     assert "**Siła dowodów:** brak" in md and "- Znalezione źródła dają tylko kontekst" in md
+
+
+CLAIMREVIEW_DUMP = """text: Była miss Ukrainy obraziła Polaków.
+claimant: wiele źródeł
+claimDate: 2026-11-16T00:00:00Z
+claimReview[0].publisher.name: Demagog
+claimReview[0].publisher.site: demagog.org.pl
+claimReview[0].url: https://demagog.org.pl/fake_news/x/
+claimReview[0].title: To nie miss Ukrainy tylko Aleksander Kwaśniewski
+claimReview[0].reviewDate: 2026-11-20T00:00:00Z
+claimReview[0].textualRating: Fałsz
+claimReview[0].languageCode: pl"""
+
+
+def test_claimreview_dump_is_rendered_as_source_data():
+    from rag.search import Hit
+    from rag.verify import _citation, claimreview_text
+
+    text = claimreview_text(CLAIMREVIEW_DUMP)
+    assert text == ("Sprawdzane twierdzenie: „Była miss Ukrainy obraziła Polaków.”. Autor twierdzenia: wiele źródeł. "
+                    "Ocena (Demagog, 20.11.2026): Fałsz. "
+                    "Tytuł weryfikacji: To nie miss Ukrainy tylko Aleksander Kwaśniewski.")
+    assert claimreview_text("Zwykły akapit komunikatu.") is None
+
+    meta = {"published_at": "2026-11-20T00:00:00Z", "observed_at": None, "valid_from": None,
+            "excerpt": CLAIMREVIEW_DUMP, "search_text": CLAIMREVIEW_DUMP, "is_verbatim": True,
+            "title": "To nie miss Ukrainy", "publisher": "Demagog", "citation_url": "https://demagog.org.pl/fake_news/x/",
+            "attribution": None, "processed_notice": None}
+    cit = _citation(1, Hit(1, 1, 0.0, meta=meta), "contradicts")
+    assert cit.text == text and cit.is_verbatim is False, "structured data, shown as 'Dane ze źródła'"
+    assert "claimReview[0]" not in cit.text
