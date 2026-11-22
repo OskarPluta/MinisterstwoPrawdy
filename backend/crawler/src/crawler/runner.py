@@ -105,15 +105,23 @@ def run_once(ctx: Ctx, sources: list[dict]) -> list[dict]:
     return out
 
 
+def pick_next(schedule: list[tuple[datetime, str, dict]], now: datetime) -> dict | None:
+    """Najbardziej zaległe źródło. Źródła `background: true` (np. całe jednostki gov.pl z mapy strony)
+    idą tylko wtedy, gdy nie czeka żadne zwykłe – inaczej zaległe archiwum zagłodziłoby alerty."""
+    due = sorted((e for e in schedule if e[0] <= now), key=lambda e: (e[0], e[1]))
+    fg = [e for e in due if not e[2].get("background")]
+    return (fg or due)[0][2] if due else None
+
+
 def run_loop(ctx: Ctx, sources: list[dict]) -> None:
     """Tryb ciągły: uruchamia źródła wg interval_minutes aż do sygnału STOP."""
     log.info("Tryb ciągły: %d źródeł. Ctrl+C kończy po bieżącym źródle.", len(sources))
     while not STOP.is_set():
         now = now_utc()
         schedule = [(next_due(ctx.store, s), s["name"], s) for s in sources]
-        due = sorted(entry for entry in schedule if entry[0] <= now)
-        if due:
-            run_source(ctx, due[0][2])  # najbardziej zaległe najpierw; po każdym ponowne sprawdzenie
+        src = pick_next(schedule, now)
+        if src:
+            run_source(ctx, src)  # po każdym źródle ponowne sprawdzenie harmonogramu
             continue
         wake = min(when for when, _, _ in schedule)
         log.debug("Następne źródło o %s", wake.isoformat())

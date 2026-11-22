@@ -1,0 +1,259 @@
+# gov.pl: listy aktualności ministerstw i całe jednostki przez mapę strony.
+# Wygenerowane 2026-11-22 z katalogu jednostek gov.pl (https://www.gov.pl/web/gov/katalog-jednostek) i stron głównych
+# ministerstw. Nową jednostkę dodaje się czterema liniami pod odpowiednią kotwicą.
+#
+# 1) Listy aktualności (z datami): nowe artykuły szybko, co 30 min.
+# 2) Całe jednostki: /web/<jednostka>/mapa-strony?show-bip=true w jednym zapytaniu daje wszystkie podstrony jednostki
+#    (KGPSP: ~3100). Każdy przebieg pobiera do max_items_per_run nowych stron, reszta w kolejnych przebiegach.
+#    background: true – scheduler uruchamia je tylko, gdy nie czeka żadne zwykłe źródło (alerty mają pierwszeństwo).
+#    recheck_hours: 720 – znane strony sprawdzane ponownie raz na 30 dni.
+#    Skala: ~95 jednostek, rzędu 100 tys. stron; przy 1 zapytaniu na 3 s to kilka dni pracy ciągłej (crawler run).
+x-govpl: &govpl
+  title_selector: "article h2"
+  content_selector: "article .editor-content"
+  drop_selectors: [".metrics", ".metric-history", ".gallery", ".main-photo"]
+  strip_title_suffix: " - [^-]+ - Portal Gov\\.pl"
+
+x-lista: &lista
+  <<: *govpl
+  type: html_list
+  interval_minutes: 30
+  pagination: {template: "page={n}&size=10", start: 2, max_pages: 3}
+
+x-mapa: &mapa
+  <<: *govpl
+  type: html_list
+  require_date: false        # mapa strony nie ma dat
+  background: true
+  interval_minutes: 60
+  max_items_per_run: 40
+  recheck_hours: 720
+  doc_type: informacja
+  silence_alert_hours: null
+
+sources:
+  # ======================= 1) listy aktualności ministerstw =======================
+  - {<<: *lista, name: aktywa-panstwowe-wiadomosci, institution: "Ministerstwo Aktywów Państwowych", doc_type: komunikat,
+     url: "https://www.gov.pl/web/aktywa-panstwowe/wiadomosci", path_prefix: /web/aktywa-panstwowe/}
+  - {<<: *lista, name: cyfryzacja-wiadomosci, institution: "Ministerstwo Cyfryzacji", doc_type: komunikat,
+     url: "https://www.gov.pl/web/cyfryzacja/wiadomosci", path_prefix: /web/cyfryzacja/}
+  - {<<: *lista, name: msz-aktualnosci, institution: "Ministerstwo Spraw Zagranicznych", doc_type: komunikat,
+     url: "https://www.gov.pl/web/dyplomacja/aktualnosci", path_prefix: /web/dyplomacja/}
+  - {<<: *lista, name: men-wiadomosci, institution: "Ministerstwo Edukacji Narodowej", doc_type: komunikat,
+     url: "https://www.gov.pl/web/edukacja/wiadomosci", path_prefix: /web/edukacja/}
+  - {<<: *lista, name: men-komunikaty, institution: "Ministerstwo Edukacji Narodowej", doc_type: komunikat,
+     url: "https://www.gov.pl/web/edukacja/komunikaty-men", path_prefix: /web/edukacja/}
+  - {<<: *lista, name: energia-wiadomosci, institution: "Ministerstwo Energii", doc_type: komunikat,
+     url: "https://www.gov.pl/web/energia/wiadomosci", path_prefix: /web/energia/}
+  - {<<: *lista, name: mf-wiadomosci, institution: "Ministerstwo Finansów", doc_type: komunikat,
+     url: "https://www.gov.pl/web/finanse/wiadomosci", path_prefix: /web/finanse/}
+  - {<<: *lista, name: mfipr-komunikaty, institution: "Ministerstwo Funduszy i Polityki Regionalnej", doc_type: komunikat,
+     url: "https://www.gov.pl/web/fundusze-regiony/komunikaty", path_prefix: /web/fundusze-regiony/}
+  - {<<: *lista, name: klimat-wiadomosci, institution: "Ministerstwo Klimatu i Środowiska", doc_type: komunikat,
+     url: "https://www.gov.pl/web/klimat/wiadomosci", path_prefix: /web/klimat/}
+  - {<<: *lista, name: klimat-komunikaty, institution: "Ministerstwo Klimatu i Środowiska", doc_type: komunikat,
+     url: "https://www.gov.pl/web/klimat/komunikaty", path_prefix: /web/klimat/}
+  - {<<: *lista, name: kultura-aktualnosci, institution: "Ministerstwo Kultury i Dziedzictwa Narodowego", doc_type: komunikat,
+     url: "https://www.gov.pl/web/kultura/aktualnosci", path_prefix: /web/kultura/}
+  - {<<: *lista, name: nauka-wiadomosci, institution: "Ministerstwo Nauki i Szkolnictwa Wyższego", doc_type: komunikat,
+     url: "https://www.gov.pl/web/nauka/wiadomosci", path_prefix: /web/nauka/}
+  - {<<: *lista, name: nauka-komunikaty, institution: "Ministerstwo Nauki i Szkolnictwa Wyższego", doc_type: komunikat,
+     url: "https://www.gov.pl/web/nauka/komunikaty-mnisw", path_prefix: /web/nauka/}
+  - {<<: *lista, name: rodzina-wiadomosci, institution: "Ministerstwo Rodziny i Polityki Społecznej", doc_type: komunikat,
+     url: "https://www.gov.pl/web/rodzina/aktualnosci-wiadomosci", path_prefix: /web/rodzina/}
+  - {<<: *lista, name: rolnictwo-wiadomosci, institution: "Ministerstwo Rolnictwa i Rozwoju Wsi", doc_type: komunikat,
+     url: "https://www.gov.pl/web/rolnictwo/wiadomosci", path_prefix: /web/rolnictwo/}
+  - {<<: *lista, name: mrit-wiadomosci, institution: "Ministerstwo Rozwoju i Technologii", doc_type: komunikat,
+     url: "https://www.gov.pl/web/rozwoj-technologia/wiadomosci", path_prefix: /web/rozwoj-technologia/}
+  - {<<: *lista, name: sport-wiadomosci, institution: "Ministerstwo Sportu i Turystyki", doc_type: komunikat,
+     url: "https://www.gov.pl/web/sport/wiadomosci", path_prefix: /web/sport/}
+  - {<<: *lista, name: sport-komunikaty, institution: "Ministerstwo Sportu i Turystyki", doc_type: komunikat,
+     url: "https://www.gov.pl/web/sport/komunikaty", path_prefix: /web/sport/}
+  - {<<: *lista, name: ms-aktualnosci, institution: "Ministerstwo Sprawiedliwości", doc_type: komunikat,
+     url: "https://www.gov.pl/web/sprawiedliwosc/aktualnosci", path_prefix: /web/sprawiedliwosc/}
+  - {<<: *lista, name: mz-wiadomosci, institution: "Ministerstwo Zdrowia", doc_type: komunikat,
+     url: "https://www.gov.pl/web/zdrowie/wiadomosci", path_prefix: /web/zdrowie/}
+  - {<<: *lista, name: mz-komunikaty, institution: "Ministerstwo Zdrowia", doc_type: komunikat,
+     url: "https://www.gov.pl/web/zdrowie/komunikatyzdrowie", path_prefix: /web/zdrowie/}
+  - {<<: *lista, name: cir-komunikaty, institution: "Kancelaria Prezesa Rady Ministrów", doc_type: komunikat,
+     url: "https://www.gov.pl/web/premier/komunikaty-cir", path_prefix: /web/premier/}
+
+  # ======================= 2) całe jednostki: ministerstwa i KPRM =======================
+  - {<<: *mapa, name: govpl-aktywa-panstwowe, institution: "Ministerstwo Aktywów Państwowych",
+     url: "https://www.gov.pl/web/aktywa-panstwowe/mapa-strony?show-bip=true", path_prefix: /web/aktywa-panstwowe/}
+  - {<<: *mapa, name: govpl-cyfryzacja, institution: "Ministerstwo Cyfryzacji",
+     url: "https://www.gov.pl/web/cyfryzacja/mapa-strony?show-bip=true", path_prefix: /web/cyfryzacja/}
+  - {<<: *mapa, name: govpl-dyplomacja, institution: "Ministerstwo Spraw Zagranicznych",
+     url: "https://www.gov.pl/web/dyplomacja/mapa-strony?show-bip=true", path_prefix: /web/dyplomacja/}
+  - {<<: *mapa, name: govpl-edukacja, institution: "Ministerstwo Edukacji Narodowej",
+     url: "https://www.gov.pl/web/edukacja/mapa-strony?show-bip=true", path_prefix: /web/edukacja/}
+  - {<<: *mapa, name: govpl-energia, institution: "Ministerstwo Energii",
+     url: "https://www.gov.pl/web/energia/mapa-strony?show-bip=true", path_prefix: /web/energia/}
+  - {<<: *mapa, name: govpl-finanse, institution: "Ministerstwo Finansów",
+     url: "https://www.gov.pl/web/finanse/mapa-strony?show-bip=true", path_prefix: /web/finanse/}
+  - {<<: *mapa, name: govpl-fundusze-regiony, institution: "Ministerstwo Funduszy i Polityki Regionalnej",
+     url: "https://www.gov.pl/web/fundusze-regiony/mapa-strony?show-bip=true", path_prefix: /web/fundusze-regiony/}
+  - {<<: *mapa, name: govpl-infrastruktura, institution: "Ministerstwo Infrastruktury",
+     url: "https://www.gov.pl/web/infrastruktura/mapa-strony?show-bip=true", path_prefix: /web/infrastruktura/}
+  - {<<: *mapa, name: govpl-klimat, institution: "Ministerstwo Klimatu i Środowiska",
+     url: "https://www.gov.pl/web/klimat/mapa-strony?show-bip=true", path_prefix: /web/klimat/}
+  - {<<: *mapa, name: govpl-kultura, institution: "Ministerstwo Kultury i Dziedzictwa Narodowego",
+     url: "https://www.gov.pl/web/kultura/mapa-strony?show-bip=true", path_prefix: /web/kultura/}
+  - {<<: *mapa, name: govpl-mswia, institution: "Ministerstwo Spraw Wewnętrznych i Administracji",
+     url: "https://www.gov.pl/web/mswia/mapa-strony?show-bip=true", path_prefix: /web/mswia/}
+  - {<<: *mapa, name: govpl-nauka, institution: "Ministerstwo Nauki i Szkolnictwa Wyższego",
+     url: "https://www.gov.pl/web/nauka/mapa-strony?show-bip=true", path_prefix: /web/nauka/}
+  - {<<: *mapa, name: govpl-obrona-narodowa, institution: "Ministerstwo Obrony Narodowej",
+     url: "https://www.gov.pl/web/obrona-narodowa/mapa-strony?show-bip=true", path_prefix: /web/obrona-narodowa/}
+  - {<<: *mapa, name: govpl-rodzina, institution: "Ministerstwo Rodziny i Polityki Społecznej",
+     url: "https://www.gov.pl/web/rodzina/mapa-strony?show-bip=true", path_prefix: /web/rodzina/}
+  - {<<: *mapa, name: govpl-rolnictwo, institution: "Ministerstwo Rolnictwa i Rozwoju Wsi",
+     url: "https://www.gov.pl/web/rolnictwo/mapa-strony?show-bip=true", path_prefix: /web/rolnictwo/}
+  - {<<: *mapa, name: govpl-rozwoj-technologia, institution: "Ministerstwo Rozwoju i Technologii",
+     url: "https://www.gov.pl/web/rozwoj-technologia/mapa-strony?show-bip=true", path_prefix: /web/rozwoj-technologia/}
+  - {<<: *mapa, name: govpl-sport, institution: "Ministerstwo Sportu i Turystyki",
+     url: "https://www.gov.pl/web/sport/mapa-strony?show-bip=true", path_prefix: /web/sport/}
+  - {<<: *mapa, name: govpl-sprawiedliwosc, institution: "Ministerstwo Sprawiedliwości",
+     url: "https://www.gov.pl/web/sprawiedliwosc/mapa-strony?show-bip=true", path_prefix: /web/sprawiedliwosc/}
+  - {<<: *mapa, name: govpl-zdrowie, institution: "Ministerstwo Zdrowia",
+     url: "https://www.gov.pl/web/zdrowie/mapa-strony?show-bip=true", path_prefix: /web/zdrowie/}
+  - {<<: *mapa, name: govpl-premier, institution: "Kancelaria Prezesa Rady Ministrów",
+     url: "https://www.gov.pl/web/premier/mapa-strony?show-bip=true", path_prefix: /web/premier/}
+
+  # ======================= 2) całe jednostki: urzędy centralne, inspekcje, agencje =======================
+  - {<<: *mapa, name: govpl-rcb, institution: "Rządowe Centrum Bezpieczeństwa",
+     url: "https://www.gov.pl/web/rcb/mapa-strony?show-bip=true", path_prefix: /web/rcb/}
+  - {<<: *mapa, name: govpl-kgpsp, institution: "Komenda Główna Państwowej Straży Pożarnej",
+     url: "https://www.gov.pl/web/kgpsp/mapa-strony?show-bip=true", path_prefix: /web/kgpsp/}
+  - {<<: *mapa, name: govpl-gis, institution: "Główny Inspektorat Sanitarny",
+     url: "https://www.gov.pl/web/gis/mapa-strony?show-bip=true", path_prefix: /web/gis/}
+  - {<<: *mapa, name: govpl-paa, institution: "Państwowa Agencja Atomistyki",
+     url: "https://www.gov.pl/web/paa/mapa-strony?show-bip=true", path_prefix: /web/paa/}
+  - {<<: *mapa, name: govpl-gif, institution: "Główny Inspektorat Farmaceutyczny",
+     url: "https://www.gov.pl/web/gif/mapa-strony?show-bip=true", path_prefix: /web/gif/}
+  - {<<: *mapa, name: govpl-gitd, institution: "Główny Inspektorat Transportu Drogowego",
+     url: "https://www.gov.pl/web/gitd/mapa-strony?show-bip=true", path_prefix: /web/gitd/}
+  - {<<: *mapa, name: govpl-gdos, institution: "Generalna Dyrekcja Ochrony Środowiska",
+     url: "https://www.gov.pl/web/gdos/mapa-strony?show-bip=true", path_prefix: /web/gdos/}
+  - {<<: *mapa, name: govpl-gugik, institution: "Główny Urząd Geodezji i Kartografii",
+     url: "https://www.gov.pl/web/gugik/mapa-strony?show-bip=true", path_prefix: /web/gugik/}
+  - {<<: *mapa, name: govpl-piorin, institution: "Główny Inspektorat Ochrony Roślin i Nasiennictwa",
+     url: "https://www.gov.pl/web/piorin/mapa-strony?show-bip=true", path_prefix: /web/piorin/}
+  - {<<: *mapa, name: govpl-urpl, institution: "Urząd Rejestracji Produktów Leczniczych, Wyrobów Medycznych i Produktów Biobójczych",
+     url: "https://www.gov.pl/web/urpl/mapa-strony?show-bip=true", path_prefix: /web/urpl/}
+  - {<<: *mapa, name: govpl-udsc, institution: "Urząd do Spraw Cudzoziemców",
+     url: "https://www.gov.pl/web/udsc/mapa-strony?show-bip=true", path_prefix: /web/udsc/}
+  - {<<: *mapa, name: govpl-wody-polskie, institution: "Państwowe Gospodarstwo Wodne Wody Polskie",
+     url: "https://www.gov.pl/web/wody-polskie/mapa-strony?show-bip=true", path_prefix: /web/wody-polskie/}
+  - {<<: *mapa, name: govpl-arimr, institution: "Agencja Restrukturyzacji i Modernizacji Rolnictwa",
+     url: "https://www.gov.pl/web/arimr/mapa-strony?show-bip=true", path_prefix: /web/arimr/}
+  - {<<: *mapa, name: govpl-krus, institution: "Kasa Rolniczego Ubezpieczenia Społecznego",
+     url: "https://www.gov.pl/web/krus/mapa-strony?show-bip=true", path_prefix: /web/krus/}
+  - {<<: *mapa, name: govpl-pfron, institution: "Państwowy Fundusz Rehabilitacji Osób Niepełnosprawnych",
+     url: "https://www.gov.pl/web/pfron/mapa-strony?show-bip=true", path_prefix: /web/pfron/}
+  - {<<: *mapa, name: govpl-prokuratura-krajowa, institution: "Prokuratura Krajowa",
+     url: "https://www.gov.pl/web/prokuratura-krajowa/mapa-strony?show-bip=true", path_prefix: /web/prokuratura-krajowa/}
+  - {<<: *mapa, name: govpl-krrit, institution: "Krajowa Rada Radiofonii i Telewizji",
+     url: "https://www.gov.pl/web/krrit/mapa-strony?show-bip=true", path_prefix: /web/krrit/}
+  - {<<: *mapa, name: govpl-kowr, institution: "Krajowy Ośrodek Wsparcia Rolnictwa",
+     url: "https://www.gov.pl/web/kowr/mapa-strony?show-bip=true", path_prefix: /web/kowr/}
+
+  # ======================= 2) całe jednostki: jednostki regionalne (UW, WSSE, GDDKiA, KW PSP) =======================
+  - {<<: *mapa, name: govpl-gddkia-bialystok, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Białystok", region: podlaskie,
+     url: "https://www.gov.pl/web/gddkia-bialystok/mapa-strony?show-bip=true", path_prefix: /web/gddkia-bialystok/}
+  - {<<: *mapa, name: govpl-gddkia-bydgoszcz, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Bydgoszcz", region: kujawsko-pomorskie,
+     url: "https://www.gov.pl/web/gddkia-bydgoszcz/mapa-strony?show-bip=true", path_prefix: /web/gddkia-bydgoszcz/}
+  - {<<: *mapa, name: govpl-gddkia-gdansk, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Gdańsk", region: pomorskie,
+     url: "https://www.gov.pl/web/gddkia-gdansk/mapa-strony?show-bip=true", path_prefix: /web/gddkia-gdansk/}
+  - {<<: *mapa, name: govpl-gddkia-katowice, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Katowice", region: śląskie,
+     url: "https://www.gov.pl/web/gddkia-katowice/mapa-strony?show-bip=true", path_prefix: /web/gddkia-katowice/}
+  - {<<: *mapa, name: govpl-gddkia-kielce, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Kielce", region: świętokrzyskie,
+     url: "https://www.gov.pl/web/gddkia-kielce/mapa-strony?show-bip=true", path_prefix: /web/gddkia-kielce/}
+  - {<<: *mapa, name: govpl-gddkia-krakow, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Kraków", region: małopolskie,
+     url: "https://www.gov.pl/web/gddkia-krakow/mapa-strony?show-bip=true", path_prefix: /web/gddkia-krakow/}
+  - {<<: *mapa, name: govpl-gddkia-lodz, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Łódź", region: łódzkie,
+     url: "https://www.gov.pl/web/gddkia-lodz/mapa-strony?show-bip=true", path_prefix: /web/gddkia-lodz/}
+  - {<<: *mapa, name: govpl-gddkia-lublin, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Lublin", region: lubelskie,
+     url: "https://www.gov.pl/web/gddkia-lublin/mapa-strony?show-bip=true", path_prefix: /web/gddkia-lublin/}
+  - {<<: *mapa, name: govpl-gddkia-olsztyn, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Olsztyn", region: warmińsko-mazurskie,
+     url: "https://www.gov.pl/web/gddkia-olsztyn/mapa-strony?show-bip=true", path_prefix: /web/gddkia-olsztyn/}
+  - {<<: *mapa, name: govpl-gddkia-opole, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Opole", region: opolskie,
+     url: "https://www.gov.pl/web/gddkia-opole/mapa-strony?show-bip=true", path_prefix: /web/gddkia-opole/}
+  - {<<: *mapa, name: govpl-gddkia-poznan, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Poznań", region: wielkopolskie,
+     url: "https://www.gov.pl/web/gddkia-poznan/mapa-strony?show-bip=true", path_prefix: /web/gddkia-poznan/}
+  - {<<: *mapa, name: govpl-gddkia-rzeszow, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Rzeszów", region: podkarpackie,
+     url: "https://www.gov.pl/web/gddkia-rzeszow/mapa-strony?show-bip=true", path_prefix: /web/gddkia-rzeszow/}
+  - {<<: *mapa, name: govpl-gddkia-szczecin, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Szczecin", region: zachodniopomorskie,
+     url: "https://www.gov.pl/web/gddkia-szczecin/mapa-strony?show-bip=true", path_prefix: /web/gddkia-szczecin/}
+  - {<<: *mapa, name: govpl-gddkia-warszawa, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Warszawa", region: mazowieckie,
+     url: "https://www.gov.pl/web/gddkia-warszawa/mapa-strony?show-bip=true", path_prefix: /web/gddkia-warszawa/}
+  - {<<: *mapa, name: govpl-gddkia-wroclaw, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Wrocław", region: dolnośląskie,
+     url: "https://www.gov.pl/web/gddkia-wroclaw/mapa-strony?show-bip=true", path_prefix: /web/gddkia-wroclaw/}
+  - {<<: *mapa, name: govpl-gddkia-zielona-gora, institution: "Generalna Dyrekcja Dróg Krajowych i Autostrad Zielona Góra", region: lubuskie,
+     url: "https://www.gov.pl/web/gddkia-zielona-gora/mapa-strony?show-bip=true", path_prefix: /web/gddkia-zielona-gora/}
+  - {<<: *mapa, name: govpl-uw-kujawsko-pomorski, institution: "Kujawsko-Pomorski Urząd Wojewódzki w Bydgoszczy", region: kujawsko-pomorskie,
+     url: "https://www.gov.pl/web/uw-kujawsko-pomorski/mapa-strony?show-bip=true", path_prefix: /web/uw-kujawsko-pomorski/}
+  - {<<: *mapa, name: govpl-uw-lodzki, institution: "Łódzki Urząd Wojewódzki w Łodzi", region: łódzkie,
+     url: "https://www.gov.pl/web/uw-lodzki/mapa-strony?show-bip=true", path_prefix: /web/uw-lodzki/}
+  - {<<: *mapa, name: govpl-uw-lubelski, institution: "Lubelski Urząd Wojewódzki w Lublinie", region: lubelskie,
+     url: "https://www.gov.pl/web/uw-lubelski/mapa-strony?show-bip=true", path_prefix: /web/uw-lubelski/}
+  - {<<: *mapa, name: govpl-uw-lubuski, institution: "Lubuski Urząd Wojewódzki", region: lubuskie,
+     url: "https://www.gov.pl/web/uw-lubuski/mapa-strony?show-bip=true", path_prefix: /web/uw-lubuski/}
+  - {<<: *mapa, name: govpl-uw-mazowiecki, institution: "Mazowiecki Urząd Wojewódzki", region: mazowieckie,
+     url: "https://www.gov.pl/web/uw-mazowiecki/mapa-strony?show-bip=true", path_prefix: /web/uw-mazowiecki/}
+  - {<<: *mapa, name: govpl-uw-opolski, institution: "Opolski Urząd Wojewódzki", region: opolskie,
+     url: "https://www.gov.pl/web/uw-opolski/mapa-strony?show-bip=true", path_prefix: /web/uw-opolski/}
+  - {<<: *mapa, name: govpl-uw-podkarpacki, institution: "Podkarpacki Urząd Wojewódzki", region: podkarpackie,
+     url: "https://www.gov.pl/web/uw-podkarpacki/mapa-strony?show-bip=true", path_prefix: /web/uw-podkarpacki/}
+  - {<<: *mapa, name: govpl-uw-podlaski, institution: "Podlaski Urząd Wojewódzki", region: podlaskie,
+     url: "https://www.gov.pl/web/uw-podlaski/mapa-strony?show-bip=true", path_prefix: /web/uw-podlaski/}
+  - {<<: *mapa, name: govpl-uw-warminsko-mazurski, institution: "Warmińsko-Mazurski Urząd Wojewódzki", region: warmińsko-mazurskie,
+     url: "https://www.gov.pl/web/uw-warminsko-mazurski/mapa-strony?show-bip=true", path_prefix: /web/uw-warminsko-mazurski/}
+  - {<<: *mapa, name: govpl-uw-zachodniopomorski, institution: "Zachodniopomorski Urząd Wojewódzki w Szczecinie", region: zachodniopomorskie,
+     url: "https://www.gov.pl/web/uw-zachodniopomorski/mapa-strony?show-bip=true", path_prefix: /web/uw-zachodniopomorski/}
+  - {<<: *mapa, name: govpl-wsse-bialystok, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Białymstoku", region: podlaskie,
+     url: "https://www.gov.pl/web/wsse-bialystok/mapa-strony?show-bip=true", path_prefix: /web/wsse-bialystok/}
+  - {<<: *mapa, name: govpl-wsse-bydgoszcz, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Bydgoszczy", region: kujawsko-pomorskie,
+     url: "https://www.gov.pl/web/wsse-bydgoszcz/mapa-strony?show-bip=true", path_prefix: /web/wsse-bydgoszcz/}
+  - {<<: *mapa, name: govpl-wsse-gdansk, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Gdańsku", region: pomorskie,
+     url: "https://www.gov.pl/web/wsse-gdansk/mapa-strony?show-bip=true", path_prefix: /web/wsse-gdansk/}
+  - {<<: *mapa, name: govpl-wsse-gorzowwlkp, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Gorzowie Wielkopolskim", region: lubuskie,
+     url: "https://www.gov.pl/web/wsse-gorzowwlkp/mapa-strony?show-bip=true", path_prefix: /web/wsse-gorzowwlkp/}
+  - {<<: *mapa, name: govpl-wsse-katowice, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Katowicach", region: śląskie,
+     url: "https://www.gov.pl/web/wsse-katowice/mapa-strony?show-bip=true", path_prefix: /web/wsse-katowice/}
+  - {<<: *mapa, name: govpl-wsse-kielce, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Kielcach", region: świętokrzyskie,
+     url: "https://www.gov.pl/web/wsse-kielce/mapa-strony?show-bip=true", path_prefix: /web/wsse-kielce/}
+  - {<<: *mapa, name: govpl-wsse-krakow, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Krakowie", region: małopolskie,
+     url: "https://www.gov.pl/web/wsse-krakow/mapa-strony?show-bip=true", path_prefix: /web/wsse-krakow/}
+  - {<<: *mapa, name: govpl-wsse-lodz, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Łodzi", region: łódzkie,
+     url: "https://www.gov.pl/web/wsse-lodz/mapa-strony?show-bip=true", path_prefix: /web/wsse-lodz/}
+  - {<<: *mapa, name: govpl-wsse-lublin, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Lublinie", region: lubelskie,
+     url: "https://www.gov.pl/web/wsse-lublin/mapa-strony?show-bip=true", path_prefix: /web/wsse-lublin/}
+  - {<<: *mapa, name: govpl-wsse-olsztyn, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Olsztynie", region: warmińsko-mazurskie,
+     url: "https://www.gov.pl/web/wsse-olsztyn/mapa-strony?show-bip=true", path_prefix: /web/wsse-olsztyn/}
+  - {<<: *mapa, name: govpl-wsse-opole, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Opolu", region: opolskie,
+     url: "https://www.gov.pl/web/wsse-opole/mapa-strony?show-bip=true", path_prefix: /web/wsse-opole/}
+  - {<<: *mapa, name: govpl-wsse-poznan, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Poznaniu", region: wielkopolskie,
+     url: "https://www.gov.pl/web/wsse-poznan/mapa-strony?show-bip=true", path_prefix: /web/wsse-poznan/}
+  - {<<: *mapa, name: govpl-wsse-rzeszow, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Rzeszowie", region: podkarpackie,
+     url: "https://www.gov.pl/web/wsse-rzeszow/mapa-strony?show-bip=true", path_prefix: /web/wsse-rzeszow/}
+  - {<<: *mapa, name: govpl-wsse-szczecin, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Szczecinie", region: zachodniopomorskie,
+     url: "https://www.gov.pl/web/wsse-szczecin/mapa-strony?show-bip=true", path_prefix: /web/wsse-szczecin/}
+  - {<<: *mapa, name: govpl-wsse-warszawa, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna w Warszawie", region: mazowieckie,
+     url: "https://www.gov.pl/web/wsse-warszawa/mapa-strony?show-bip=true", path_prefix: /web/wsse-warszawa/}
+  - {<<: *mapa, name: govpl-wsse-wroclaw, institution: "Wojewódzka Stacja Sanitarno-Epidemiologiczna we Wrocławiu", region: dolnośląskie,
+     url: "https://www.gov.pl/web/wsse-wroclaw/mapa-strony?show-bip=true", path_prefix: /web/wsse-wroclaw/}
+  - {<<: *mapa, name: govpl-kwpsp-gdansk, institution: "Komenda Wojewódzka PSP w Gdańsku", region: pomorskie,
+     url: "https://www.gov.pl/web/kwpsp-gdansk/mapa-strony?show-bip=true", path_prefix: /web/kwpsp-gdansk/}
+  - {<<: *mapa, name: govpl-kwpsp-opole, institution: "Komenda Wojewódzka PSP w Opolu", region: opolskie,
+     url: "https://www.gov.pl/web/kwpsp-opole/mapa-strony?show-bip=true", path_prefix: /web/kwpsp-opole/}
+  - {<<: *mapa, name: govpl-kwpsp-poznan, institution: "Komenda Wojewódzka PSP w Poznaniu", region: wielkopolskie,
+     url: "https://www.gov.pl/web/kwpsp-poznan/mapa-strony?show-bip=true", path_prefix: /web/kwpsp-poznan/}
+  - {<<: *mapa, name: govpl-kwpsp-warszawa, institution: "Komenda Wojewódzka PSP w Warszawie", region: mazowieckie,
+     url: "https://www.gov.pl/web/kwpsp-warszawa/mapa-strony?show-bip=true", path_prefix: /web/kwpsp-warszawa/}
+  - {<<: *mapa, name: govpl-kwpsp-krakow, institution: "Komenda Wojewódzka PSP w Krakowie", region: małopolskie,
+     url: "https://www.gov.pl/web/kwpsp-krakow/mapa-strony?show-bip=true", path_prefix: /web/kwpsp-krakow/}
+  - {<<: *mapa, name: govpl-kwpsp-katowice, institution: "Komenda Wojewódzka PSP w Katowicach", region: śląskie,
+     url: "https://www.gov.pl/web/kwpsp-katowice/mapa-strony?show-bip=true", path_prefix: /web/kwpsp-katowice/}
+  - {<<: *mapa, name: govpl-kwpsp-wroclaw, institution: "Komenda Wojewódzka PSP we Wrocławiu", region: dolnośląskie,
+     url: "https://www.gov.pl/web/kwpsp-wroclaw/mapa-strony?show-bip=true", path_prefix: /web/kwpsp-wroclaw/}

@@ -406,6 +406,20 @@ def test_json_api_token_pagination(tmp_path):
     assert len(asked) == 2 and any("max_pages" in m for m in stats.messages), "max_pages ogranicza liczbę stron"
 
 
+def test_scheduler_background_sources_wait():
+    """Źródła background (mapy stron gov.pl) nie zagładzają zwykłych, nawet gdy są bardziej zaległe."""
+    from datetime import datetime, timedelta, timezone
+    from crawler.runner import pick_next
+    now = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
+    bg = {"name": "mapa", "background": True}
+    alert = {"name": "alert"}
+    sched = [(now - timedelta(hours=5), "mapa", bg), (now - timedelta(minutes=1), "alert", alert)]
+    assert pick_next(sched, now) is alert, "zwykłe źródło przed zaległym background"
+    sched = [(now - timedelta(hours=5), "mapa", bg), (now + timedelta(minutes=4), "alert", alert)]
+    assert pick_next(sched, now) is bg, "background, gdy nic zwykłego nie czeka"
+    assert pick_next([(now + timedelta(minutes=1), "alert", alert)], now) is None
+
+
 def test_readonly_store_writes_nothing(tmp_path):
     ro_dir = tmp_path / "u3"
     ro_dir.mkdir()

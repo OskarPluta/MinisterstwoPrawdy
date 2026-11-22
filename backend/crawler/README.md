@@ -14,10 +14,12 @@ uv run crawler once --max-items 5          # jeden przebieg, maks. 5 nowych pozy
 uv run crawler once --source rcb           # tylko wybrane źródła (opcja powtarzalna, działa też dla wyłączonych)
 uv run crawler run                         # pętla: każde źródło co interval_minutes
 uv run crawler status                      # tabela statusów i alarmów (bez sieci, nie zmienia danych)
+scripts/crawler_run.sh                     # (z katalogu głównego) `run` z kluczami z .env; w tle: setsid nohup … &
 ```
 
 - Opcje globalne (`--config`, `--data-dir`, `-v`) podaje się **przed** podkomendą. Ścieżka względna `--data-dir` liczy się od katalogu `sources.yaml`, np. `uv run crawler --data-dir ../../data/snapshot status`.
 - Pierwszy Ctrl+C/SIGTERM kończy pracę po bieżącym źródle, a drugi przerywa od razu. Stan przetrwa restart.
+- Scheduler (`run`) uruchamia najbardziej zaległe źródło. Źródła z `background: true` (całe jednostki gov.pl z mapy strony, `sources.d/govpl.yaml`) idą tylko wtedy, gdy nie czeka żadne zwykłe źródło, więc zaległe archiwum nie opóźnia alertów bardziej niż o jeden przebieg (≤ `max_items_per_run` stron).
 - Jeden katalog danych obsługuje jeden proces (`flock` na `.lock`, kod 3). Plik `.lock` zostaje na dysku i to normalne.
 - Kody wyjścia: 0 to normalne zakończenie (także przy źródłach z błędami), 2 to błąd konfiguracji lub brak maila, 3 to blokada zajęta.
 
@@ -34,6 +36,11 @@ uv run crawler status                      # tabela statusów i alarmów (bez si
 | `extract.py` | Treść, tytuł, data (formaty polskie, strefa Europe/Warsaw), RSS/Atom, sitemapy, załączniki |
 | `storage.py` | Zapis plików (dopisywanie z fsync, zapisy atomowe) |
 | `mcp.py` | Adapter `mcp_tool`: JSON-RPC przez `Fetcher.http_send`, parser rekordów EUvsDisinfo z Markdown |
+
+## Gov.pl w całości
+
+`sources.d/govpl.yaml` ma dwie warstwy: listy aktualności ministerstw (z datami, co 30 min) i ~90 całych jednostek (ministerstwa, urzędy centralne, UW, WSSE, GDDKiA, KW PSP). Całą jednostkę opisuje strona `/web/<jednostka>/mapa-strony?show-bip=true`: jedno zapytanie zwraca wszystkie podstrony (np. KGPSP ~3100, GIF ~1000). Źródło typu `html_list` z `require_date: false` pobiera co przebieg do `max_items_per_run` nowych stron, a znane sprawdza ponownie po `recheck_hours: 720`. Listy aktualności gov.pl pokazują najwyżej 20 pozycji na stronę (większe `size` jest przycinane).
+Skala to rzędu 100 tys. stron, czyli kilka dni pracy ciągłej przy 1 zapytaniu na 3 s. Nową jednostkę dodaje się czterema liniami pod kotwicą `*mapa` (slug z https://www.gov.pl/web/gov/katalog-jednostek).
 
 ## Typy adapterów
 
