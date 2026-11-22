@@ -406,10 +406,21 @@ def test_discord_service_end_to_end_with_db():
         assert len(formatted.embeds) == 1
         assert formatted.embeds[0].color.value == COLOR_SUCCESS
 
-        row = conn.execute("SELECT input_masked FROM checks WHERE check_id = %s", (res.check_id,)).fetchone()
+        row = conn.execute("SELECT input_masked, channel, outcome FROM checks WHERE check_id = %s", (res.check_id,)).fetchone()
         assert row is not None
         assert "jan@example.pl" not in row["input_masked"]
         assert "[email]" in row["input_masked"]
+        assert row["channel"] == "discord" and row["outcome"] == "verdict"
+
+        # No LLM client: the failed check is still logged for the admin panel (outcome + alert).
+        def no_key() -> Any:
+            raise SystemExit("PCSS_API_KEY is not set")
+
+        broken = DiscordService(conn=conn, embedder=embedder, llm_factory=no_key, owns_conn=False)
+        assert asyncio.run(broken.verify("Czy jest ostrzeżenie? tel. 600 700 800")).status == "error"
+        failed = conn.execute("SELECT input_masked, channel, outcome FROM checks WHERE outcome = 'config_error'").fetchone()
+        assert failed is not None and failed["channel"] == "discord" and "600 700 800" not in failed["input_masked"]
+        assert conn.execute("SELECT count(*) AS n FROM alerts WHERE acknowledged_at IS NULL").fetchone()["n"] == 1
 
         totals, sources = asyncio.run(svc.sources())
         assert totals["current_records"] > 0

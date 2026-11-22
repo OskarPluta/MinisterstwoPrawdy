@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -17,8 +18,12 @@ from urllib.parse import quote, urlparse
 from . import attachments as att
 from . import live as live_mod
 from .attachments import Attachment, InputSummary
-from .db import corpus_version, prune_checks, record_check
-from .llm import LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape, build_attachments_xml
+from .alerts import alert_for_check
+from .db import Connection, corpus_version, prune_checks, record_check
+from .llm import (
+    LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape, build_attachments_xml, usage_meter,
+)
+from .outcomes import classify, usage_columns
 from .search import TIMED_KINDS, Filters, Hit, Prefer, Retriever, is_timed, recorded_at, span, supersessions
 from .timeutil import WARSAW, fmt_local, parse_ts, utcnow_iso
 
@@ -133,6 +138,7 @@ class ClaimResult:
     strength: Strength | None = None  # None only for `error`
     origin: str = "user"  # "user" or the id of the attachment (InputSummary.id) the claim comes from
     error: str | None = None  # internal detail, not shown to the user
+    error_type: str | None = None  # internal: exception class name (rag/outcomes.py)
     live: dict[str, Any] | None = None  # live lookup log (rag/live.py), internal
 
 
@@ -146,7 +152,9 @@ class CheckResult:
     injection_detected: bool = False
     duration_ms: int = 0
     error: str | None = None  # internal detail, not shown to the user
-    usage: dict[str, Any] | None = None  # internal: {calls, input_tokens, output_tokens, cost_usd}
+    error_type: str | None = None  # internal: exception class name (rag/outcomes.py)
+    # internal: {calls, input_tokens, output_tokens, cost, currency, cost_usd, by_call}
+    usage: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -730,9 +738,10 @@ def _masked_input(text: str, attachments: list[Attachment]) -> str:
 class Verifier:
     def __init__(
         self, retriever: Retriever, llm: LLM, shortlist: int = 8, record: bool = True,
-        workers: int = LLM_WORKERS, live: bool | None = None,
+        workers: int = LLM_WORKERS, live: bool | None = None, channel: str = "cli",
     ):
         self.retriever = retriever
+        self.channel = channel  # checks log: web | discord | cli | eval
         self.llm = llm
         self.shortlist = shortlist
         self.workers = workers
@@ -853,6 +862,7 @@ class Verifier:
             return ClaimResult(
                 claim.text, "error", VERDICT_PL["error"],
                 "Nie udało się sprawdzić tego twierdzenia. Spróbuj ponownie później.", error=repr(e),
+                error_type=type(e).__name__,
             )
 
     def _run(self, res: CheckResult, text: str, now: datetime, attachments: list[Attachment]) -> None:
@@ -886,7 +896,10 @@ class Verifier:
         # Retrieval shares one database connection, so it runs here; LLM calls run in parallel.
         shortlists = [self.retrieve(c, now) for c in claims]
         with ThreadPoolExecutor(max_workers=max(1, min(self.workers, len(claims)))) as pool:
-            res.claims = list(pool.map(lambda c, h: self._check_isolated(c, h, now), claims, shortlists))
+            # copy_context per task: the per-check usage meter (rag/llm.py) must see these calls.
+            futures = [pool.submit(contextvars.copy_context().run, self._check_isolated, c, h, now)
+                       for c, h in zip(claims, shortlists)]
+            res.claims = [f.result() for f in futures]
         if self.live:  # claims the corpus could not settle: look them up live in trusted sources (rag/live.py)
             res.claims = live_mod.live_pass(self, claims, res.claims, now)
         # After the live pass: it replaces the results it re-checks, which would drop the origin.
@@ -901,53 +914,98 @@ class Verifier:
         failed = [c for c in res.claims if c.verdict == "error"]
         if len(failed) == len(res.claims):
             res.status, res.message, res.error = "error", MSG_OUTAGE, failed[0].error
+            res.error_type = failed[0].error_type
 
     def verify(
         self, text: str, now: datetime | None = None, attachments: list[Attachment] | None = None,
+        channel: str | None = None,
     ) -> CheckResult:
-        """`attachments`: material the user forwarded, already read by the intake package."""
+        """`attachments`: material the user forwarded, already read by the intake package.
+        `channel` overrides the Verifier's own for this check (the API serves web and Discord)."""
         now = now or datetime.now(WARSAW)
         now = (now if now.tzinfo else now.replace(tzinfo=WARSAW)).astimezone(WARSAW)
         t0 = time.monotonic()
         res = CheckResult(check_id=str(uuid.uuid4()), status="ok", message=None)
-        llm_usage = getattr(self.llm, "usage", None)
-        snap = llm_usage.snapshot() if hasattr(llm_usage, "snapshot") else None
         atts = att.prepare(list(attachments or []))
-        try:
-            self._run(res, text, now, atts)
-        except LLMRefusal as e:
-            res.status, res.message, res.claims, res.error = "error", MSG_REFUSED, [], repr(e)
-        except Exception as e:  # noqa: BLE001 - outage, network, schema failure: shown as an outage
-            res.status, res.message, res.claims, res.error = "error", MSG_OUTAGE, [], repr(e)
+        # Reuses a meter the caller opened (the API: it also covers OCR during intake).
+        with usage_meter() as meter:
+            try:
+                self._run(res, text, now, atts)
+            except LLMRefusal as e:
+                res.status, res.message, res.claims, res.error = "error", MSG_REFUSED, [], repr(e)
+                res.error_type = type(e).__name__
+            except Exception as e:  # noqa: BLE001 - outage, network, schema failure: shown as an outage
+                res.status, res.message, res.claims, res.error = "error", MSG_OUTAGE, [], repr(e)
+                res.error_type = type(e).__name__
         res.duration_ms = int((time.monotonic() - t0) * 1000)
-        if llm_usage is not None and snap is not None and hasattr(llm_usage, "since"):
-            delta = llm_usage.since(snap)
-            cost = delta.cost_usd(getattr(self.llm, "model", "") or "")
-            res.usage = {
-                "calls": delta.calls,
-                "input_tokens": delta.input_tokens,
-                "output_tokens": delta.output_tokens,
-                "cost_usd": round(cost, 6) if cost is not None else None,
-            }
+        if getattr(self.llm, "usage", None) is not None or meter.calls:
+            res.usage = usage_dict(meter, getattr(self.llm, "model", "") or "")
 
         if self.record:
-            conn = self.retriever.conn
-            record_check(conn, {
-                "check_id": res.check_id,
-                "created_at": utcnow_iso(),
-                "input_masked": _masked_input(text, atts),
-                "status": res.status,
-                "result_json": json.dumps(_masked_result(res), ensure_ascii=False),
-                "corpus_version": corpus_version(conn),
-                "model": getattr(self.llm, "model", None),
-                "embedding_model": getattr(self.retriever.embedder, "name", None),
-                "duration_ms": res.duration_ms,
-            })
+            _record(self.retriever.conn, res, text, atts, channel=channel or self.channel,
+                    model=getattr(self.llm, "model", None),
+                    embedding_model=getattr(self.retriever.embedder, "name", None))
             try:
                 self.prune()
             except Exception as e:  # noqa: BLE001 - retention must not fail a check; retried next hour
                 log.warning("check log retention failed: %r", e)
         return res
+
+
+def usage_dict(u: Any, model: str) -> dict[str, Any]:
+    """Logged usage of one check; cost in the model's own currency (PCSS: PLN), `cost_usd` kept
+    for USD-priced models (sum in /api/stats)."""
+    cost = u.cost(model)
+    return {
+        "calls": u.calls,
+        "input_tokens": u.input_tokens,
+        "output_tokens": u.output_tokens,
+        "cost": round(cost.amount, 6) if cost is not None else None,
+        "currency": cost.currency if cost is not None else None,
+        "cost_usd": round(cost.amount, 6) if cost is not None and cost.currency == "USD" else None,
+        "by_call": list(u.by_call),
+    }
+
+
+def _record(
+    conn: Connection, res: CheckResult, text: str, atts: list[Attachment], *, channel: str,
+    model: str | None, embedding_model: str | None, outcome: str | None = None,
+) -> None:
+    """Write the masked check log row, its derived columns, and an alert when it failed."""
+    payload = _masked_result(res)
+    derived, error_type = classify(payload)
+    outcome = outcome or derived
+    record_check(conn, {
+        "check_id": res.check_id,
+        "created_at": utcnow_iso(),
+        "input_masked": _masked_input(text, atts),
+        "status": res.status,
+        "result_json": json.dumps(payload, ensure_ascii=False),
+        "corpus_version": corpus_version(conn),
+        "model": model,
+        "embedding_model": embedding_model,
+        "duration_ms": res.duration_ms,
+        "channel": channel,
+        "outcome": outcome,
+        "error_type": res.error_type or error_type,
+        **usage_columns(payload, model),
+    })
+    alert_for_check(conn, res.check_id, outcome, res.error_type or error_type)
+
+
+def record_failure(
+    conn: Connection, text: str, error: BaseException, *, outcome: str, channel: str,
+    attachments: list[Attachment] | None = None, model: str | None = None,
+) -> CheckResult:
+    """Log a check that failed before or outside Verifier.verify (no LLM client, an unexpected
+    exception in an adapter) the same way, so the admin panel sees it and an alert is raised.
+    Like Verifier, writes nothing when PRAWDOWID_CHECKS_RETENTION_DAYS=0 (no check log)."""
+    res = CheckResult(check_id=str(uuid.uuid4()), status="error", message=MSG_OUTAGE,
+                      error=repr(error), error_type=type(error).__name__)
+    if checks_retention_days() > 0:
+        _record(conn, res, text, list(attachments or []), channel=channel, model=model,
+                embedding_model=None, outcome=outcome)
+    return res
 
 
 # ---------------------------------------------------------------------------------------

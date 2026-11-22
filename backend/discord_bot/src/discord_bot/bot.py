@@ -40,7 +40,7 @@ from rag.embed import DEFAULT_EMBEDDER, Embedder, get_embedder
 from rag.ratelimit import RateLimiter
 from rag.search import Retriever
 from rag.timeutil import WARSAW, parse_ts
-from rag.verify import MSG_OUTAGE, CheckResult, Verifier, checks_retention_days
+from rag.verify import MSG_OUTAGE, CheckResult, Verifier, checks_retention_days, record_failure
 
 from .format import (
     MSG_BAD_ID,
@@ -132,7 +132,7 @@ class DiscordService:
         if self._verifier is None:
             if self.conn is None or self.embedder is None or self.llm_factory is None:
                 raise RuntimeError("DiscordService missing conn, embedder, or llm_factory")
-            self._verifier = Verifier(Retriever(self.conn, self.embedder), self.llm_factory())
+            self._verifier = Verifier(Retriever(self.conn, self.embedder), self.llm_factory(), channel="discord")
         return self._verifier
 
     def _verify_via_api(self, text: str, now: datetime | None, user: str | None = None) -> CheckResult:
@@ -140,7 +140,9 @@ class DiscordService:
         if now is not None:
             payload["now"] = now.isoformat()
         # The API trusts X-Forwarded-For from a local peer, so it limits each Discord user separately.
-        headers = {"X-Forwarded-For": f"discord:{user}"} if user else {}
+        headers = {"X-Prawdowid-Channel": "discord"}
+        if user:
+            headers["X-Forwarded-For"] = f"discord:{user}"
         try:
             with self._http(DEFAULT_HTTP_TIMEOUT_S) as client:
                 resp = client.post(f"{self.api_url}/api/verify", json=payload, headers=headers)
@@ -165,6 +167,7 @@ class DiscordService:
                 verifier = self.verifier()
             except (Exception, SystemExit) as e:  # make_llm exits when no API key is set
                 log.error("cannot create LLM client: %s", e)
+                self._record_failure(text, e)
                 return CheckResult(check_id="", status="error", message=MSG_OUTAGE, error=repr(e))
             res = verifier.verify(text, now)
         if res.error:
@@ -172,6 +175,15 @@ class DiscordService:
         if not getattr(verifier, "record", True):
             res.check_id = ""  # retention 0: nothing was logged, so there is nothing to share or delete
         return res
+
+    def _record_failure(self, text: str, e: BaseException) -> None:
+        """Log the failed check for the admin panel (and its alert); never raises."""
+        if self.conn is None:
+            return
+        try:
+            record_failure(self.conn, text, e, outcome="config_error", channel="discord")
+        except Exception as err:  # noqa: BLE001 - the bot must keep running
+            log.error("cannot log failed check: %r", err)
 
     async def verify(self, text: str, now: datetime | None = None, user: str | None = None) -> CheckResult:
         return await asyncio.to_thread(self.verify_sync, text, now, user)

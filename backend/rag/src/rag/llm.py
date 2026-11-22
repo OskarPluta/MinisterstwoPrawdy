@@ -6,6 +6,9 @@ import base64
 import os
 import platform
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, NamedTuple, Protocol, TypeVar
@@ -349,6 +352,12 @@ class Usage:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def add(self, tag: str, tokens_in: int, tokens_out: int) -> None:
+        self._count(tag, tokens_in, tokens_out)
+        meter = _METER.get()
+        if meter is not None and meter is not self:
+            meter._count(tag, tokens_in, tokens_out)
+
+    def _count(self, tag: str, tokens_in: int, tokens_out: int) -> None:
         with self._lock:  # verify calls run in parallel threads
             self.calls += 1
             self.input_tokens += tokens_in
@@ -386,6 +395,28 @@ class Usage:
         else:
             return None
         return Cost((self.input_tokens * pin + self.output_tokens * pout) / 1e6, currency)
+
+
+# Per-check usage: every Usage.add also counts on the meter of the current context. One LLM
+# object serves concurrent requests (API), so its own totals cannot be split per check.
+_METER: ContextVar[Usage | None] = ContextVar("prawdowid_usage_meter", default=None)
+
+
+@contextmanager
+def usage_meter() -> Iterator[Usage]:
+    """Count the LLM calls made in this context on one Usage. Nested use returns the outer meter,
+    so a caller can cover more than verify() (the API also counts image OCR during intake).
+    Worker threads see the meter only when started with `contextvars.copy_context().run`."""
+    outer = _METER.get()
+    if outer is not None:
+        yield outer
+        return
+    meter = Usage()
+    token = _METER.set(meter)
+    try:
+        yield meter
+    finally:
+        _METER.reset(token)
 
 
 class _StructuredLLM:

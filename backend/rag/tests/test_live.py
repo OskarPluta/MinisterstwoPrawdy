@@ -239,6 +239,22 @@ def test_lookup_reuses_url_already_crawled(conn, embedder, no_wait, keys):
     assert n == 0
 
 
+def test_lookup_uses_the_trusted_domains_table(conn, embedder, no_wait, keys):
+    """The admin panel manages the fact-check domains: a removed domain is not accepted any more."""
+    from rag.admin_db import delete_trusted_domain
+
+    rec = recorded("factcheck")
+    url = json.loads(rec["exchanges"][-1]["body"])["claims"][0]["claimReview"][0]["url"]
+    host = url.split("/")[2].removeprefix("www.")
+    trusted = [d for d in live.DEFAULT_TRUSTED_FACTCHECK_DOMAINS if host == d or host.endswith("." + d)]
+    assert trusted
+    for d in trusted:
+        delete_trusted_domain(conn, d)
+    res = live.live_lookup(conn, embedder, rec["claim"], rec["queries"], fetcher_factory=factory(Replay("factcheck")),
+                           sources={"factcheck": live.search_factcheck})
+    assert res.evidence_ids == [] and res.new_docs == 0
+
+
 # ---- the verifier hook -----------------------------------------------------------------------------
 
 

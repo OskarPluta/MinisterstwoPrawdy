@@ -23,6 +23,8 @@ twierdzenie ─► rag verify ─► LLM: ekstrakcja twierdzeń ─► wyszukiwa
 | [`backend/api/`](backend/api/) | API HTTP (FastAPI) dla interfejsu WWW: `POST /api/verify`, `POST /api/verify/upload`, `DELETE /api/checks/{id}`, `POST/DELETE /api/checks/{id}/share`, `GET /api/shares/{id}`, `GET /api/sources`, `GET /api/stats`, `GET /api/health`, `GET /api/export` (eksport logu CSV/JSON dla analityka, token `PRAWDOWID_ADMIN_TOKEN`). Limity żądań na klienta. | [frontend README](frontend/README.md#backend) |
 | [`backend/discord_bot/`](backend/discord_bot/) | Kanał Discord (`discord-bot`): komendy `/sprawdz`, `/zrodla`, wzmianki i DM oparte o `rag.verify.Verifier` lub `/api`. | [README](backend/discord_bot/README.md) |
 | [`frontend/`](frontend/) | Interfejs WWW **Copernicus** w systemie Ministerstwo Prawdy (Bun + React + TypeScript), `/api/*` przekazywane do backendu. | [README](frontend/README.md) |
+| [`backend/admin/`](backend/admin/) | API panelu administracyjnego (osobny proces, `/admin/api`): historia wiadomości, koszty tokenów, kategorie nieudanych sprawdzeń, alerty (panel + webhook Discord), źródła, domeny weryfikatorów, dodawanie i wycofywanie dokumentów. | [README](backend/admin/README.md) |
+| [`admin-frontend/`](admin-frontend/) | Panel administracyjny (Bun + React, ten sam system projektowy co `frontend/`), `/admin/api/*` przekazywane do `backend/admin`. | [README](admin-frontend/README.md) |
 | [`data/snapshot/`](data/snapshot/) | Zamrożony zrzut crawla w repo, domyślne wejście `rag ingest`. `data/crawl/` (świeże przebiegi) jest poza git. | |
 | [`scripts/`](scripts/) | Ewaluacja wyszukiwania i werdyktów. | [rag README](backend/rag/README.md#ewaluacja) |
 | [`docs/`](docs/) | [Architektura](docs/ARCHITEKTURA.md), [dane, licencje i usuwanie](docs/DANE_I_LICENCJE.md), [treść zadania](docs/task/), [notatki badawcze](docs/notes/). | |
@@ -65,6 +67,15 @@ uv run api                                  # http://127.0.0.1:8000/api/docs; te
 cd frontend && bun install && bun run dev   # http://localhost:3000
 ```
 
+Panel administracyjny (osobne procesy, ta sama baza; wymaga `ADMIN_PASSWORD` i `ADMIN_SECRET` w `.env`, szczegóły w [backend/admin/README.md](backend/admin/README.md)):
+
+```bash
+uv run admin                                          # http://127.0.0.1:8001/admin/api/docs
+cd admin-frontend && bun install && bun run dev       # http://127.0.0.1:3001
+```
+
+Wszystko naraz (baza, API, strona, API panelu i panel; Ctrl+C zatrzymuje całość): `scripts/dev.sh` (`--no-admin`, `--admin-only`, `--no-db`).
+
 Kanał Discord (wymaga `DISCORD_BOT_TOKEN` w `.env`, szczegóły w [backend/discord_bot/README.md](backend/discord_bot/README.md)):
 
 ```bash
@@ -92,7 +103,9 @@ Opcje poleceń: `uv run rag --help`, `uv run rag <polecenie> --help`, `uv run cr
 uv run pytest                  # RAG + crawler, bez sieci i bez kluczy API
 uv run pytest backend/crawler  # tylko crawler (test end-to-end na lokalnych serwerach)
 uv run pytest backend/intake   # linki, YouTube, obrazy, PDF (lokalny serwer, bez sieci i LLM)
+uv run pytest backend/admin    # panel: logowanie, historia, koszty, źródła, alerty (sieć i webhook atrapami)
 cd frontend && bun run typecheck
+cd admin-frontend && bun run typecheck
 ```
 
 Testy bazodanowe używają `TEST_DATABASE_URL` (albo `DATABASE_URL`). Każdy test działa w tymczasowym schemacie, więc nie rusza danych.

@@ -13,7 +13,9 @@ Wskazówki dla agentów i nowych osób w zespole. Ogólny obraz: [`README.md`](R
 | `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `verify/upload`, `checks/{id}` (usunięcie, udostępnienie), `shares/{id}`, `sources`, `stats`, `export` dla analityka z tokenem). Tylko adaptuje HTTP do `intake` i `rag.verify.Verifier`, bez własnej logiki. |
 | `backend/discord_bot/` | Pakiet `discord-bot`: kanał Discord (`/sprawdz`, `/zrodla`, wzmianki, DM). Adaptuje Discord do `rag.verify.Verifier` (lub `DISCORD_API_URL`), bez własnej logiki. |
 | `frontend/` | Interfejs WWW: Bun + React + TS. `server.ts` serwuje `src/index.html` i przekazuje `/api/*` do `API_URL`. Własne zależności (`bun install`), poza workspace uv. |
-| `scripts/` | `eval_retrieval.py` (bezpłatna), `eval_verify.py` i `eval_scenarios.py` (płatne, wołają LLM; zestawy `--suite scenarios` i `extended` z miernikami MVP, wyniki w `eval_results/`). |
+| `backend/admin/` | Pakiet `admin`: API panelu administracyjnego pod `/admin/api`, **osobny proces** (127.0.0.1:8001). Logowanie jednym hasłem, historia (zamaskowana), koszty, kategorie błędów, alerty + webhook Discord, źródła, domeny weryfikatorów, linki. Logika danych w `rag.admin_db`, `rag.outcomes`, `rag.alerts`. |
+| `admin-frontend/` | Panel administracyjny: Bun + React + TS (port 3001), przekazuje `/admin/api/*` do `ADMIN_API_URL`. Importuje system projektowy z `../frontend/src/design/`; wtyczka `dedupe-react.ts` pilnuje jednej kopii Reacta. |
+| `scripts/` | `dev.sh` (cały stos naraz: baza, API, strona, panel), `eval_retrieval.py` (bezpłatna), `eval_verify.py` i `eval_scenarios.py` (płatne, wołają LLM; zestawy `--suite scenarios` i `extended` z miernikami MVP, wyniki w `eval_results/`). |
 | `data/snapshot/` | Zamrożony zrzut crawla w git. Nie nadpisuj go przypadkiem przebiegiem crawlera. |
 | `docs/DANE_I_LICENCJE.md` | Podstawa prawna i licencje źródeł, retencja, kontrola dostępu, procedura usunięcia. |
 | `docs/task/` | Treść konkursu. **Nie edytować.** |
@@ -27,14 +29,16 @@ uv run pytest                    # wszystkie testy; DB z TEST_DATABASE_URL lub D
 uv run rag --help                # ingest | reembed | stats | search | verify | purge | prune-checks | export | delete-check
 uv run crawler --help            # once | run | status | forget
 uv run api                       # API na 127.0.0.1:8000 (to samo `.env` co rag)
+uv run admin                     # API panelu na 127.0.0.1:8001 (wymaga ADMIN_PASSWORD i ADMIN_SECRET)
+scripts/dev.sh                   # wszystko naraz; --no-admin | --admin-only | --no-db
 uv run discord-bot --help        # kanał Discord (wymaga DISCORD_BOT_TOKEN w `.env`)
 uv run intake read <plik|url>    # co intake odczytuje z materiału (obraz = płatne wywołanie LLM, chyba że --ocr none)
 
 cd frontend && bun install       # zależności frontu
-bun run dev | typecheck | build | test  # w frontend/
+bun run dev | typecheck | build | test  # w frontend/ (w admin-frontend/ bez test)
 ```
 
-- Polecenia Pythona uruchamiaj z katalogu głównego, polecenia Bun z `frontend/`.
+- Polecenia Pythona uruchamiaj z katalogu głównego, polecenia Bun z `frontend/` albo `admin-frontend/`.
 - W testach i pracy offline używaj `--embedder hash`. Domyślny jest `e5`.
 - Nie uruchamiaj bez potrzeby `rag verify` ani `scripts/eval_verify.py`, bo kosztują. `rag verify` i API przy wyniku `insufficient` pytają na żywo Google Fact Check, EUvsDisinfo i gov.pl (`PRAWDOWID_LIVE=0` wyłącza). Nie uruchamiaj też crawla na żywo, bo odpytuje prawdziwe serwisy.
 - Linter nie jest skonfigurowany ani wymagany.
@@ -63,7 +67,11 @@ bun run dev | typecheck | build | test  # w frontend/
 - **Udostępniony wynik (`/wynik/<share_id>`) jest tylko do odczytu.** Pochodzi z `checks.result_json`, którego nic nie aktualizuje. `share_id` to osobny losowy klucz, a `check_id` (klucz do usunięcia) nigdy nie wychodzi przez udostępnienie. Link żyje tyle co zapis sprawdzenia.
 - **Tekst użytkownika jest maskowany w logu `checks`.** Treści źródeł nie są maskowane. Log ma retencję (`PRAWDOWID_CHECKS_RETENTION_DAYS`, domyślnie 30 dni) i można go usunąć po `check_id` (`DELETE /api/checks/{check_id}`).
 - **Eksport (CSV/JSON) wypuszcza tylko pola z listy dozwolonych** (`rag/export.py`, `frontend/src/export.ts`). Nigdy `check_id` (klucz usunięcia; w eksporcie analityka zastępuje go skrót `check_ref`), treści wiadomości użytkownika (`input_masked`) ani pól wewnętrznych. Każda komórka CSV zaczynająca się od `= + - @`, tabulatora lub CR dostaje apostrof. `GET /api/export` działa tylko z `PRAWDOWID_ADMIN_TOKEN`.
-- Czas w bazie jest w UTC (ISO 8601, porównywany w Pythonie), a użytkownikowi pokazywany w strefie Europe/Warsaw.
+- **Panel administracyjny widzi tylko zamaskowany tekst** z `checks`, a **alerty i wiadomości webhooka nigdy nie zawierają tekstu użytkownika ani modelu**. Alert składa kod z kategorii, nazwy wyjątku i liczników.
+- **Kategorię wyniku sprawdzenia liczy kod** (`rag/outcomes.py:classify`), nie model. Każde sprawdzenie trafia do `checks`, także to, które nie doszło do `Verifier` (`record_failure`). Wyjątek: `PRAWDOWID_CHECKS_RETENTION_DAYS=0` wyłącza log całkiem.
+- **Panel niczego nie usuwa z bazy dowodów.** Wyłączenie źródła (`sources.enabled`) i wycofanie dokumentu (`evidence.withdrawn_at`) tylko zdejmują je z wyszukiwania i podbijają `corpus_version`. Import nie cofa decyzji admina: nie nadpisuje `enabled`/`admin_*` i nie przywraca wycofanej tożsamości.
+- **Trasy panelu istnieją tylko w procesie `backend/admin`** (domyślnie 127.0.0.1), a każda zmiana wymaga sesji i nagłówka `X-Requested-With: admin-panel`. Nie dodawaj tras administracyjnych do `backend/api`.
+- Czas w bazie jest w UTC (ISO 8601, porównywany w Pythonie), a użytkownikowi pokazywany w strefie Europe/Warsaw. Wyjątek: filtry zakresu logu w panelu (`checks.page`, `checks.in_range`) porównują tekst `created_at` w SQL, co działa, bo `utcnow_iso` ma stały format.
 - Testy nie korzystają z sieci ani z prawdziwego LLM. Korpus testowy używa domeny `.test`.
 
 ## Gdzie zmienić X
@@ -77,7 +85,7 @@ bun run dev | typecheck | build | test  # w frontend/
 | zmienić starsze vs nowsze dowody (pierwszeństwo nowszych, konflikt, etykiety wieku cytatów) | `rag/search.py` (`same_matter`, `supersessions`), `rag/verify.py` (`_prefer_newer`, `outdated_basis`, `_outdated`, `recency`, `_age_notes`, `RECENCY_PL`) | Etykieta wieku idzie przez API (`Citation.recency`, `recency_pl`) do `frontend/src/api.ts` i `design/extra.tsx`. Testy: `test_search.py`, `test_verify.py`. |
 | zmienić wyszukiwanie lub fuzję | `rag/search.py` (`Retriever`, `fts_query`, `STOPWORDS`, `RRF_K`, `Prefer`, `SOFT_WEIGHT`, `in_period`), `rag/areas.py` (województwa, kraj) | Porównaj wyniki przed i po: `scripts/eval_retrieval.py` (`--no-prefer` wyłącza miękkie listy obszaru i okresu; przypadki z tagiem `context`). |
 | zmienić wykrywanie przedruków | `rag/reprints.py` (`JACCARD_MIN`, `CONTAINMENT_MIN`, `MIN_SHINGLES`, `SHINGLE_WORDS`) | Wynik w `reprint_signatures.reprint_of`, czytany jako `syndicated_from`, gdy rekord go nie podaje. Testy: `test_reprints.py`. |
-| zmienić wyszukiwanie na żywo | `rag/live.py` (`SOURCES`, `TRUSTED_FACTCHECK_DOMAINS`, `BUDGET_S`, `needs_live`) | Testy: `test_live.py` na nagranych odpowiedziach w `tests/fixtures/live/`. Nowe nagranie: prawdziwa odpowiedź, bez kluczy w pliku. |
+| zmienić wyszukiwanie na żywo | `rag/live.py` (`SOURCES`, `BUDGET_S`, `needs_live`); domeny weryfikatorów: tabela `trusted_domains` (panel `/domeny`), lista startowa w `rag/trusted.py` | Testy: `test_live.py` na nagranych odpowiedziach w `tests/fixtures/live/`. Nowe nagranie: prawdziwa odpowiedź, bez kluczy w pliku. |
 | zmienić podział na fragmenty | `rag/chunking.py` (`MAX_TOKENS`, `split_section`, `estimate_tokens`) | Potem ponowny `ingest` na świeżej bazie. |
 | usunąć treść (wniosek wydawcy, brak licencji) | `backend/crawler/removed.yaml`, potem `crawler forget` i `rag purge` | Procedura: `docs/DANE_I_LICENCJE.md#procedura-usunięcia`. Testy: `test_db.py`, `test_crawler_offline.py`. |
 | zmienić schemat bazy | `rag/database/schema.sql`, `rag/db.py` (`SCHEMA_VERSION`, migracja) | Zapytania w `database/queries/`. |
@@ -89,3 +97,6 @@ bun run dev | typecheck | build | test  # w frontend/
 | zmienić odpowiedź API | `backend/api/src/api/app.py` (`public_result`) i `frontend/src/api.ts` | Typy w `api.ts` odwzorowują dataclassy z `rag/verify.py` i `rag/attachments.py`. Zmieniaj je razem. Testy: `backend/api/tests/test_api.py`. |
 | dodać rodzaj materiału od użytkownika (np. audio) | `backend/intake/src/intake/` (nowy czytnik zwracający `Attachment`, wpięty w `core.Intake`), `rag/attachments.py` (`KIND_PL`) | Każda awaria to ograniczenie na `Attachment`, nie wyjątek. Testy bez sieci: `backend/intake/tests/`. |
 | zmienić odczyt obrazów (OCR) | `intake/ocr.py`, prompt `IMAGE_SYSTEM` i `ImageTranscript` w `rag/llm.py` | `PRAWDOWID_OCR=llm|tesseract|none`. |
+| zmienić kategorie wyników sprawdzeń | `rag/outcomes.py` (`OUTCOMES`, `classify`, `ALERT_OUTCOMES`) | Kategorie stoją w kolumnie `checks.outcome`; nowa kategoria dla starych wierszy wymaga kroku migracji. Testy: `test_admin_db.py`. |
+| zmienić reguły alertów lub powiadomienia | `rag/alerts.py` (zapis, deduplikacja), `backend/admin/src/admin/notifier.py` (reguły okresowe, webhook Discord) | Bez tekstu użytkownika w treści. Testy: `backend/admin/tests/test_admin.py` (webhook przez `httpx.MockTransport`). |
+| zmienić panel administracyjny | API: `backend/admin/src/admin/app.py` (+ `reports.py`, `links.py`), SQL i operacje: `rag/admin_db.py` i `database/queries/`; UI: `admin-frontend/src/` (strony w `pages/`, typy w `api.ts`, komponenty w `ui.tsx`) | Typy w `admin-frontend/src/api.ts` odwzorowują JSON z `app.py`. Zmieniaj je razem. Sprawdź `uv run pytest backend/admin` i `bun run typecheck` w `admin-frontend/`. |

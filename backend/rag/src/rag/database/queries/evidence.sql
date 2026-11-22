@@ -1,5 +1,5 @@
 -- name: find_by_hash
-SELECT evidence_id, version, is_current FROM evidence
+SELECT evidence_id, version, is_current, withdrawn_at FROM evidence
 WHERE source_id = %(source_id)s AND upstream_id = %(upstream_id)s AND content_hash = %(content_hash)s;
 
 -- name: find_current
@@ -33,3 +33,43 @@ WHERE (source_id, upstream_id) IN (
 
 -- name: delete
 DELETE FROM evidence WHERE evidence_id = ANY(%(ids)s);
+
+-- name: is_withdrawn
+-- An identity an admin withdrew; ingest must not bring it back (rag/db.py:upsert_evidence).
+SELECT evidence_id, version FROM evidence
+WHERE source_id = %(source_id)s AND upstream_id = %(upstream_id)s AND withdrawn_at IS NOT NULL
+ORDER BY version DESC
+LIMIT 1;
+
+-- name: get
+SELECT evidence_id, source_id, upstream_id, version, is_current, kind, title, citation_url,
+       published_at, fetched_at, withdrawn_at, withdrawn_note
+FROM evidence WHERE evidence_id = %(evidence_id)s;
+
+-- name: latest_version
+SELECT evidence_id FROM evidence
+WHERE source_id = %(source_id)s AND upstream_id = %(upstream_id)s
+ORDER BY version DESC
+LIMIT 1;
+
+-- name: withdraw
+-- Every version of the identity is marked, so no older version can be made current again.
+UPDATE evidence SET is_current = FALSE, withdrawn_at = %(at)s, withdrawn_note = %(note)s
+WHERE source_id = %(source_id)s AND upstream_id = %(upstream_id)s
+RETURNING evidence_id;
+
+-- name: unwithdraw
+UPDATE evidence SET withdrawn_at = NULL, withdrawn_note = NULL
+WHERE source_id = %(source_id)s AND upstream_id = %(upstream_id)s;
+
+-- name: make_current
+UPDATE evidence SET is_current = TRUE WHERE evidence_id = %(evidence_id)s;
+
+-- name: by_source
+-- Admin: the latest version of each record of a source, current and withdrawn ones, newest first.
+SELECT DISTINCT ON (e.upstream_id)
+       e.evidence_id, e.upstream_id, e.version, e.is_current, e.kind, e.title, e.citation_url,
+       e.published_at, e.fetched_at, e.withdrawn_at, e.withdrawn_note
+FROM evidence e
+WHERE e.source_id = %(source_id)s
+ORDER BY e.upstream_id, e.version DESC;

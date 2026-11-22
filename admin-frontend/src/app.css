@@ -1,0 +1,105 @@
+/* The one stylesheet entry. The design system and the public site's page classes come first (same cascade
+   order as frontend/src/app.css), then the admin panel's own classes. Tokens only, no new colours. */
+@import "../../frontend/src/app.css";
+
+/* Admin pages are data pages: they use the full container width, not the reading measure. */
+.adm-page { padding-bottom: var(--space-6); }
+.adm-page .app-h1 { max-width: none; }
+.adm-page .app-lead { max-width: var(--measure); }
+.adm-section { margin: 0 0 var(--space-7); }
+.adm-section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.adm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.adm-loading { display: flex; align-items: center; gap: var(--space-2); color: var(--ink-muted); }
+.adm-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; overflow-wrap: anywhere; }
+
+/* Badges: .mp-state from the design system plus the two tones it does not define */
+.adm-badge-success { color: var(--success); }
+.adm-badge-warning { color: var(--warning); }
+.adm-badge-danger { color: var(--danger); }
+.adm-badge-info { color: var(--info); }
+
+/* Stat tiles (on .app-totals) */
+.adm-tiles > div { min-width: 140px; }
+.adm-tile-hint { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+
+/* Filters: fields side by side, wrapping on phones */
+.adm-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0 var(--space-4); margin: 0 0 var(--space-3); }
+.adm-filters .mp-field { margin-bottom: var(--space-4); min-width: 160px; }
+.adm-filters .adm-grow { flex: 1 1 240px; }
+@media (max-width: 640px) { .adm-filters .mp-field { flex: 1 1 100%; } }
+.adm-select { appearance: auto; background: var(--surface); color: var(--ink); }
+.adm-textarea { height: auto; min-height: 96px; padding: var(--space-3); font: inherit; resize: vertical; }
+.adm-check { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); font-weight: 600; cursor: pointer; }
+.adm-check input { width: 20px; height: 20px; accent-color: var(--primary); }
+
+/* Tables */
+.adm-table td, .adm-table th { font-size: 15px; line-height: 22px; }
+.adm-table .adm-preview { max-width: 420px; overflow-wrap: anywhere; color: var(--ink); }
+.adm-disabled-row { color: var(--ink-muted); }
+.adm-more { margin-top: var(--space-4); }
+
+/* Plain text (masked user input, model explanations) */
+.adm-text { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); background: var(--surface-muted); border: 1px solid var(--border);
+  border-radius: var(--radius-md); font: 400 16px/24px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
+.adm-text.adm-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 20px; }
+
+/* Detail page: key-value grid */
+.adm-dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-5); margin: 0 0 var(--space-5); }
+.adm-dl dt { color: var(--ink-muted); }
+.adm-dl dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .adm-dl { grid-template-columns: 1fr; gap: 0; } .adm-dl dd { margin-bottom: var(--space-2); } }
+
+.adm-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin: 0 0 var(--space-4); background: var(--surface); }
+.adm-card h3 { margin: 0 0 var(--space-2); font-size: 18px; line-height: 26px; }
+.adm-card ul { margin: 0 0 var(--space-3); padding-left: var(--space-5); }
+.adm-form { max-width: var(--measure); }
+.adm-inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0 var(--space-4); }
+.adm-inline-form .mp-field { flex: 1 1 260px; }
+.adm-inline-form .mp-btn { margin-bottom: var(--space-5); }
+
+/* Danger-styled secondary button (withdraw, delete); the word on it says what happens */
+.adm-btn-danger.mp-btn-secondary { border-color: var(--danger); color: var(--danger); }
+.adm-btn-danger.mp-btn-secondary:hover { background: var(--danger-tint); }
+
+/* Small buttons inside table cells, stacked and left-aligned; numbers and exception names do not break */
+.adm-table .mp-btn { min-height: 36px; padding: 0 var(--space-3); font-size: 14px; }
+.adm-table .mp-btn-link { min-height: 0; padding: 0; }
+.adm-table .adm-actions { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+.adm-table .mp-num, .adm-table .adm-mono { white-space: nowrap; overflow-wrap: normal; }
+@media (max-width: 640px) { .adm-table .adm-actions { flex-direction: row; } .adm-table .adm-mono { white-space: normal; overflow-wrap: anywhere; } }
+
+/* Chart (inline SVG) */
+.adm-chart { margin: 0 0 var(--space-5); }
+.adm-chart svg { display: block; width: 100%; height: 180px; }
+.adm-chart-axis { stroke: var(--border-strong); stroke-width: 1; }
+.adm-chart-labels { display: grid; margin: var(--space-1) 0 var(--space-2); font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.adm-chart-labels span { text-align: center; white-space: nowrap; overflow: visible; }
+.adm-fill-success { fill: var(--success); background: var(--success); }
+.adm-fill-info { fill: var(--info); background: var(--info); }
+.adm-fill-warning { fill: var(--warning); background: var(--warning); }
+.adm-fill-danger { fill: var(--danger); background: var(--danger); }
+.adm-fill-muted { fill: var(--border-strong); background: var(--border-strong); }
+.adm-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); font-size: 14px; line-height: 20px; }
+.adm-legend > span { display: inline-flex; align-items: center; gap: var(--space-2); }
+.adm-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
+
+/* Tabs (cost grouping) */
+.adm-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); padding: 0; list-style: none; }
+.adm-tabs button { min-height: 40px; padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface);
+  color: var(--ink); font: 600 15px/22px var(--font-sans); cursor: pointer; }
+.adm-tabs button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.adm-tabs button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-halo); }
+
+/* Dialog */
+.adm-dialog { max-width: min(560px, calc(100vw - 32px)); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: var(--space-5);
+  background: var(--surface); color: var(--ink); }
+.adm-dialog::backdrop { background: rgba(14, 39, 71, 0.45); }
+.adm-dialog-title { margin: 0 0 var(--space-3); font-size: 22px; line-height: 30px; }
+.adm-dialog-body { margin: 0 0 var(--space-5); }
+
+/* Login */
+.adm-login { max-width: 420px; }
+
+/* Nav counter (open alerts) */
+.adm-count { display: inline-block; min-width: 20px; margin-left: var(--space-1); padding: 0 6px; border-radius: 10px; background: var(--danger); color: var(--on-primary);
+  font-size: 13px; line-height: 20px; font-weight: 700; text-align: center; }
