@@ -1,0 +1,30 @@
+# EUvsDisinfo (ESDZ / East StratCom Task Force): baza spraw dezinformacji i artykułów analitycznych
+# przez serwer MCP https://mcp.euvsd.info/mcp (Streamable HTTP, JSON-RPC 2.0; odpowiedzi to Markdown).
+# Klucz: formularz na https://euvsdisinfo.eu/about/ (szczegóły: docs/notes/DODATKOWE_ZRODLA_I_API.md, sekcja 3).
+# Klucz tylko w środowisku (EUVSDISINFO_API_KEY), wysyłany nagłówkiem, więc nie trafia do danych ani adresów.
+# robots.txt mcp.euvsd.info: 404 (brak ograniczeń); /health bez klucza: authRequired=true (sprawdzone 2026-11-22).
+# Zwykły przebieg czyta najnowsze rekordy do pierwszej strony bez zmian; archiwum (~19 000 spraw, ~6 800 artykułów)
+# jest dociągane po backfill_pages_per_run stron na przebieg (kursor w state.json).
+sources:
+  - &euvsd
+    name: euvsdisinfo-cases
+    type: mcp_tool
+    institution: EUvsDisinfo (Europejska Służba Działań Zewnętrznych)
+    doc_type: weryfikacja
+    endpoint: https://mcp.euvsd.info/mcp
+    headers: {Authorization: "Bearer ${EUVSDISINFO_API_KEY}"}
+    tool: cases
+    page_size: 100
+    max_pages: 3
+    backfill_pages_per_run: 10
+    url_pattern: "euvsdisinfo\\.eu/report/"
+    date_fields: [date]
+    interval_minutes: 360
+    silence_alert_hours: null
+
+  - <<: *euvsd
+    name: euvsdisinfo-articles
+    doc_type: analiza
+    tool: articles
+    url_pattern: "euvsdisinfo\\.eu/"
+    date_fields: [dategmt, date]

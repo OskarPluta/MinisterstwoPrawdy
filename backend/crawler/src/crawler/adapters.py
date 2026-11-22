@@ -1,4 +1,4 @@
-"""Adaptery źródeł: rss, html_list, sitemap, json_api, static_page."""
+"""Adaptery źródeł: rss, html_list, sitemap, json_api, static_page (mcp_tool w mcp.py)."""
 from __future__ import annotations
 
 import fnmatch
@@ -681,3 +681,7 @@ ADAPTERS = {
     "json_api": run_json_api,
     "static_page": run_static_page,
 }
+
+from .mcp import run_mcp_tool  # noqa: E402  (mcp.py korzysta z pomocników tego modułu)
+
+ADAPTERS["mcp_tool"] = run_mcp_tool
