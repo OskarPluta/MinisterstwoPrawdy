@@ -110,8 +110,7 @@ class DeterministicInvariants(BaseModel):
     )
     abstention_expected: bool = Field(
         default=False,
-        description="True iff system must abstain (all acceptable_verdicts, or primary_verdict when acceptable_verdicts is empty, "
-        "belong to ABSTAIN_VERDICTS: BRAK_WYSTARCZAJACYCH_DOWODOW / NIE_PODLEGA_WERYFIKACJI)",
+        description="True iff primary_verdict belongs to ABSTAIN_VERDICTS (BRAK_WYSTARCZAJACYCH_DOWODOW / NIE_PODLEGA_WERYFIKACJI)",
     )
     verdict_subject_claim: Optional[str] = Field(
         default=None,
@@ -182,11 +181,10 @@ class DeterministicInvariants(BaseModel):
         if self.primary_verdict is not None:
             if self.acceptable_verdicts and self.primary_verdict not in self.acceptable_verdicts:
                 raise ValueError("primary_verdict must be included in acceptable_verdicts")
-            verdicts_to_check = self.acceptable_verdicts or [self.primary_verdict]
-            must_abstain = all(v.value in ABSTAIN_VERDICTS for v in verdicts_to_check)
+            must_abstain = self.primary_verdict.value in ABSTAIN_VERDICTS
             if self.abstention_expected != must_abstain:
                 raise ValueError(
-                    "abstention_expected must be True iff all acceptable_verdicts (or primary_verdict) are abstention verdicts"
+                    "abstention_expected must be True iff primary_verdict is an abstention verdict"
                 )
         if self.required_urls_any_of:
             domains = [*self.required_domains_any_of, *self.required_domains_all_of]
