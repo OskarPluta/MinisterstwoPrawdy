@@ -17,3 +17,8 @@ RETURNING evidence_id;
 
 -- name: retire
 UPDATE evidence SET is_current = FALSE, superseded_by = %(new_id)s WHERE evidence_id = %(old_id)s;
+
+-- name: current_by_urls
+-- Live lookup (rag/live.py): current records that already cite one of these URLs.
+SELECT evidence_id, source_id, upstream_id, citation_url FROM evidence
+WHERE is_current AND citation_url = ANY(%(urls)s);
