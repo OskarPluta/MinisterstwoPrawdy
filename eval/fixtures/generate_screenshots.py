@@ -6,7 +6,7 @@ Supports Polish diacritics using portable system font lookup (fc-match / standar
 import subprocess
 from pathlib import Path
 from typing import Optional
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "screenshots"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -297,38 +297,10 @@ def create_f04_screenshot():
     print(f"Generated {out_file}")
 
 
-def create_f05_screenshot():
-    """TC-F-05: Low-quality, blurred photo of a notice; key details are unreadable."""
-    width, height = 800, 460
-    img = Image.new("RGB", (width, height), color=(250, 248, 240))
-    draw = ImageDraw.Draw(img)
-    font_head, font_body = get_font(46), get_font(17)
-    draw.text((60, 40), "KOMUNIKAT", fill=(20, 20, 20), font=font_head)
-    lines = [
-        "Informujemy, że od dnia 1 grudnia 2026 r.",
-        "wprowadzona zostaje nowa opłata w wysokości 187 zł",
-        "dla wszystkich właścicieli samochodów osobowych.",
-        "Opłatę należy uiścić do dnia 15 grudnia 2026 r.",
-        "na rachunek urzędu wskazany na stronie internetowej.",
-    ]
-    y = 120
-    for line in lines:
-        draw.text((60, y), line, fill=(40, 40, 40), font=font_body)
-        y += 36
-    draw.text((60, 360), "Urząd Miasta i Gminy", fill=(40, 40, 40), font=font_body)
-    # Simulate a bad phone photo: heavy downscale, blur and rotation so numbers and issuer are unreadable
-    small = img.resize((width // 7, height // 7), Image.BILINEAR).filter(ImageFilter.GaussianBlur(1.5))
-    img = small.resize((width, height), Image.BILINEAR).rotate(4, fillcolor=(90, 90, 90))
-    out_file = OUTPUT_DIR / "tc_f05_blurred_notice.png"
-    img.save(out_file)
-    print(f"Generated {out_file}")
-
-
 if __name__ == "__main__":
     create_f01_screenshot()
     create_f02_screenshot()
     create_f03_screenshot()
     create_e04_screenshot()
     create_f04_screenshot()
-    create_f05_screenshot()
     print("All screenshots generated successfully.")
