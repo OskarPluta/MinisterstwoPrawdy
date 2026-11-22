@@ -10,7 +10,7 @@ import httpx2 as httpx
 import openai
 import pytest
 
-from rag.llm import ClaimExtraction, LLMRefusal, OpenAILLM
+from rag.llm import ClaimExtraction, LLMRefusal, OpenAILLM, Usage
 
 NOW = datetime(2026, 11, 21, 12, tzinfo=ZoneInfo("Europe/Warsaw"))
 
@@ -75,3 +75,27 @@ def test_refusal_and_truncation_raise():
     llm, _ = _llm(lambda r: _completion('{"status": "ok"', finish="length"))
     with pytest.raises(openai.LengthFinishReasonError):
         llm.extract_claims("x", NOW)
+
+
+def test_openai_pricing_prefix_and_usage_delta(monkeypatch):
+    monkeypatch.delenv("PRAWDOWID_PRICE_IN", raising=False)
+    monkeypatch.delenv("PRAWDOWID_PRICE_OUT", raising=False)
+
+    u = Usage()
+    u.add("extract", 1000, 500)
+    snap = u.snapshot()
+    u.add("verify", 2000, 1000)
+
+    delta = u.since(snap)
+    assert delta.calls == 1
+    assert delta.input_tokens == 2000 and delta.output_tokens == 1000
+    assert [c["call"] for c in delta.by_call] == ["verify"]
+
+    # gpt-5.5: $2.50 / 1M in, $10.00 / 1M out -> 2000*2.5/1e6 + 1000*10/1e6 = 0.015
+    assert delta.cost_usd("gpt-5.5") == pytest.approx(0.015)
+    assert delta.cost_usd("gpt-5.5-2026-01-01") == pytest.approx(0.015)
+    assert delta.cost_usd("unknown-model") is None
+
+    monkeypatch.setenv("PRAWDOWID_PRICE_IN", "1.0")
+    monkeypatch.setenv("PRAWDOWID_PRICE_OUT", "2.0")
+    assert delta.cost_usd("gpt-5.5") == pytest.approx(0.004)

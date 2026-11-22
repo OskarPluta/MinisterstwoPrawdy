@@ -11,7 +11,7 @@ import typer
 
 from . import ingest as ingest_mod
 from .config import load_env
-from .db import Connection, corpus_totals
+from .db import Connection, checks_stats, corpus_totals
 from .db import connect as _db_connect
 from .embed import DEFAULT_EMBEDDER, get_embedder
 from .search import Filters, Retriever
@@ -77,8 +77,9 @@ def reembed(
 
 @app.command()
 def stats(db: str | None = typer.Option(None, "--database-url", help=DB_HELP)):
-    """Corpus totals (records are counted before chunking)."""
-    typer.echo(json.dumps(corpus_totals(connect(db)), indent=2))
+    """Corpus totals (records are counted before chunking) and check observability stats."""
+    c = connect(db)
+    typer.echo(json.dumps({**corpus_totals(c), "checks": checks_stats(c)}, indent=2))
 
 
 @app.command()

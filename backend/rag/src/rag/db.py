@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import statistics
 import uuid
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -247,3 +249,77 @@ def corpus_totals(conn: Connection) -> dict[str, Any]:
 
 def record_check(conn: Connection, row: dict[str, Any]) -> None:
     conn.execute(query("checks.insert"), row)
+
+
+def checks_stats(conn: Connection) -> dict[str, Any]:
+    """Aggregate observability metrics (latency, verdicts, errors, usage/cost) from `checks`."""
+    rows = conn.execute(query("checks.list")).fetchall()
+    by_status: Counter[str] = Counter()
+    by_verdict: Counter[str] = Counter()
+    durations: list[int] = []
+    injection_detected = 0
+    search_errors = 0
+    live_lookups = 0
+    calls = 0
+    input_tokens = 0
+    output_tokens = 0
+    cost_usd = 0.0
+
+    for row in rows:
+        status = row["status"]
+        by_status[status] += 1
+        if row["duration_ms"] is not None:
+            durations.append(int(row["duration_ms"]))
+        payload = json.loads(row["result_json"])
+        if payload.get("injection_detected"):
+            injection_detected += 1
+        claims = payload.get("claims") or []
+        if status == "error" and not any(c.get("verdict") == "error" for c in claims):
+            search_errors += 1
+        for c in claims:
+            verdict = c.get("verdict")
+            if verdict:
+                by_verdict[verdict] += 1
+            if verdict == "error":
+                search_errors += 1
+            live = c.get("live")
+            if isinstance(live, dict):
+                live_lookups += 1
+                if live.get("error"):
+                    search_errors += 1
+                search_errors += sum(
+                    1
+                    for s in (live.get("sources") or ())
+                    if s.get("error") or s.get("status") not in (None, "ok", "skipped")
+                )
+        usage = payload.get("usage")
+        if isinstance(usage, dict):
+            calls += int(usage.get("calls") or 0)
+            input_tokens += int(usage.get("input_tokens") or 0)
+            output_tokens += int(usage.get("output_tokens") or 0)
+            if usage.get("cost_usd") is not None:
+                cost_usd += float(usage["cost_usd"])
+
+    total_claims = sum(by_verdict.values())
+    insufficient_claims = by_verdict.get("insufficient", 0)
+    return {
+        "total_checks": len(rows),
+        "by_status": dict(by_status),
+        "total_claims": total_claims,
+        "by_verdict": dict(by_verdict),
+        "insufficient_claims": insufficient_claims,
+        "insufficient_rate": round(insufficient_claims / total_claims, 4) if total_claims else 0.0,
+        "injection_detected": injection_detected,
+        "search_errors": search_errors,
+        "live_lookups": live_lookups,
+        "duration_ms": {
+            "median": int(statistics.median(durations)) if durations else 0,
+            "max": max(durations) if durations else 0,
+        },
+        "usage": {
+            "calls": calls,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_usd": round(cost_usd, 6),
+        },
+    }

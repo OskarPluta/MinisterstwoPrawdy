@@ -197,7 +197,27 @@ class LLM(Protocol):
 
 # USD per million tokens (input, output); used for cost reporting only.
 # For models not listed, set PRAWDOWID_PRICE_IN / PRAWDOWID_PRICE_OUT (USD per 1M tokens).
-PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "claude-haiku-5-5": (0.10, 0.50)}
+PRICES = {
+    "claude-opus-5-5": (4.0, 20.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-haiku-5-5": (0.10, 0.50),
+    "gpt-5.5": (2.50, 10.0),
+    "gpt-5.4": (2.50, 10.0),
+    "gpt-5.4-mini": (0.40, 1.60),
+    "gpt-5.4-nano": (0.10, 0.40),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1-nano": (0.10, 0.40),
+    "gpt-4o": (2.50, 10.0),
+    "gpt-4o-mini": (0.15, 0.60),
+}
+
+
+def _price_for(model: str) -> tuple[float, float] | None:
+    if model in PRICES:
+        return PRICES[model]
+    matches = [k for k in PRICES if model.startswith(f"{k}-")]
+    return PRICES[max(matches, key=len)] if matches else None
 
 # Per-request limits. Worst case per call is timeout x (retries + 1).
 LLM_TIMEOUT_S = float(os.environ.get("PRAWDOWID_LLM_TIMEOUT", "60"))
@@ -223,12 +243,27 @@ class Usage:
             self.output_tokens += tokens_out
             self.by_call.append({"call": tag, "in": tokens_in, "out": tokens_out})
 
+    def snapshot(self) -> tuple[int, int, int, int]:
+        """Return a consistent counter snapshot for computing per-check deltas."""
+        with self._lock:
+            return (self.calls, self.input_tokens, self.output_tokens, len(self.by_call))
+
+    def since(self, snap: tuple[int, int, int, int]) -> Usage:
+        """Return a new Usage representing tokens and calls recorded after `snap`."""
+        with self._lock:
+            return Usage(
+                calls=self.calls - snap[0],
+                input_tokens=self.input_tokens - snap[1],
+                output_tokens=self.output_tokens - snap[2],
+                by_call=list(self.by_call[snap[3]:]),
+            )
+
     def cost_usd(self, model: str) -> float | None:
         """None when the price of `model` is unknown."""
         if os.environ.get("PRAWDOWID_PRICE_IN") and os.environ.get("PRAWDOWID_PRICE_OUT"):
             pin, pout = float(os.environ["PRAWDOWID_PRICE_IN"]), float(os.environ["PRAWDOWID_PRICE_OUT"])
-        elif model in PRICES:
-            pin, pout = PRICES[model]
+        elif (price := _price_for(model)) is not None:
+            pin, pout = price
         else:
             return None
         return (self.input_tokens * pin + self.output_tokens * pout) / 1e6

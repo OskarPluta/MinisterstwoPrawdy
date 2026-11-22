@@ -117,6 +117,7 @@ class CheckResult:
     injection_detected: bool = False
     duration_ms: int = 0
     error: str | None = None  # internal detail, not shown to the user
+    usage: dict[str, Any] | None = None  # internal: {calls, input_tokens, output_tokens, cost_usd}
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -520,6 +521,8 @@ class Verifier:
         now = (now if now.tzinfo else now.replace(tzinfo=WARSAW)).astimezone(WARSAW)
         t0 = time.monotonic()
         res = CheckResult(check_id=str(uuid.uuid4()), status="ok", message=None)
+        llm_usage = getattr(self.llm, "usage", None)
+        snap = llm_usage.snapshot() if hasattr(llm_usage, "snapshot") else None
         try:
             self._run(res, text, now)
         except LLMRefusal as e:
@@ -527,6 +530,15 @@ class Verifier:
         except Exception as e:  # noqa: BLE001 - outage, network, schema failure: shown as an outage
             res.status, res.message, res.claims, res.error = "error", MSG_OUTAGE, [], repr(e)
         res.duration_ms = int((time.monotonic() - t0) * 1000)
+        if llm_usage is not None and snap is not None and hasattr(llm_usage, "since"):
+            delta = llm_usage.since(snap)
+            cost = delta.cost_usd(getattr(self.llm, "model", "") or "")
+            res.usage = {
+                "calls": delta.calls,
+                "input_tokens": delta.input_tokens,
+                "output_tokens": delta.output_tokens,
+                "cost_usd": round(cost, 6) if cost is not None else None,
+            }
 
         if self.record:
             conn = self.retriever.conn
