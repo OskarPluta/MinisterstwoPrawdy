@@ -23,6 +23,10 @@ export const VERDICT_VIEW: Record<Verdict, { tone: Tone; title: string }> = {
   error: { tone: "warning", title: "Nie udało się sprawdzić tego twierdzenia" },
 };
 
+/** An opinion that repeats a narrative a fact-check database documents as disinformation. */
+const KNOWN_NARRATIVE_OPINION = { tone: "warning", title: "Ta opinia powtarza znaną narrację dezinformacyjną" } as const;
+const KNOWN_NARRATIVE = "Znana narracja dezinformacyjna";
+
 const CONFLICT = "Źródła podają różne informacje. Szczegóły znajdziesz w cytatach poniżej.";
 const INJECTION =
   "Twoja wiadomość zawierała polecenia skierowane do systemu. Zignorowaliśmy je i sprawdziliśmy tylko twierdzenia.";
@@ -30,9 +34,13 @@ const INJECTION =
 export const RESULT_HEADING_ID = "wynik";
 
 function ClaimPanel({ c, index, total }: { c: ClaimResult; index: number; total: number }) {
-  const view = VERDICT_VIEW[c.verdict] ?? VERDICT_VIEW.error;
+  const view =
+    c.known_disinformation && c.verdict === "unverifiable"
+      ? KNOWN_NARRATIVE_OPINION
+      : (VERDICT_VIEW[c.verdict] ?? VERDICT_VIEW.error);
   const details: { label: string; value: ReactNode }[] = [{ label: "Twierdzenie", value: c.claim }];
   if (total > 1) details.unshift({ label: "Numer", value: `${index + 1} z ${total}` });
+  if (c.known_disinformation) details.push({ label: KNOWN_NARRATIVE, value: "Tak, udokumentowana w bazie weryfikacji" });
   details.push({ label: "Liczba źródeł", value: String(c.citations.length) });
   return (
     <StatusPanel
@@ -68,7 +76,9 @@ export function resultAsText(res: CheckResult): string {
   const out: string[] = [];
   if (res.message) out.push(res.message, "");
   for (const c of res.claims) {
-    out.push(`Twierdzenie: ${c.claim}`, `Ocena: ${c.verdict_pl}`, c.explanation);
+    out.push(`Twierdzenie: ${c.claim}`, `Ocena: ${c.verdict_pl}`);
+    if (c.known_disinformation) out.push(KNOWN_NARRATIVE);
+    out.push(c.explanation);
     if (c.conflict) out.push(CONFLICT);
     for (const n of c.notes) out.push(`Uwaga: ${n}`);
     if (c.citations.length) {

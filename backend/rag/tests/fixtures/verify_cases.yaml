@@ -68,3 +68,15 @@ cases:
     expect_any: [true, insufficient]
     must_cite: [imgw_hydro:HYD-2026-1119-WISLA-SAND]
     expect_note: "nie powiodła się"
+  - id: v16
+    tags: [disinfo-narrative, cross-lingual]
+    input: "DISINFO: Since Russia had now become the 'dangerous outsider', aggression against it has become a moral obligation for Europe."
+    expect_any: [false, misleading, unverifiable]
+    must_cite: ["euvsdisinfo:https://euvsdisinfo.test/report/aggression-against-russia-moral-obligation/"]
+    expect_note: "Znana narracja dezinformacyjna"
+  - id: v17
+    tags: [disinfo-narrative]
+    input: "Agresja wobec Rosji stała się moralnym obowiązkiem Europy."
+    expect_any: [false, misleading, unverifiable]
+    must_cite: ["euvsdisinfo:https://euvsdisinfo.test/report/aggression-against-russia-moral-obligation/"]
+    expect_note: "Znana narracja dezinformacyjna"

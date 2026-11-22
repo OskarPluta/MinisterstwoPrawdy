@@ -93,6 +93,7 @@ def test_verify_returns_public_result(client):
     assert c["verdict"] == "true" and c["verdict_pl"] == "potwierdzone"
     for internal in ("error", "shortlist_ids", "invented_ids"):
         assert internal not in c
+    assert c["known_disinformation"] is False  # public field, mirrored in frontend/src/api.ts
     assert len(c["citations"]) == 1  # the invented P999999 was dropped by the Verifier
     cit = c["citations"][0]
     assert set(cit) >= {"n", "role", "title", "publisher", "url", "date_label", "text", "is_verbatim"}

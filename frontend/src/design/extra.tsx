@@ -99,7 +99,11 @@ export function CitationList({ citations }: { citations: Citation[] }) {
   );
 }
 
-const SOURCE_TYPE: Record<string, string> = { official: "Komunikaty", structured: "Dane strukturalne" };
+const SOURCE_TYPE: Record<string, string> = {
+  official: "Komunikaty",
+  structured: "Dane strukturalne",
+  factcheck: "Weryfikacje i bazy dezinformacji",
+};
 
 /** Source catalog for audit. Scrolls horizontally inside its own box on phones. */
 export function SourcesTable({ sources }: { sources: Source[] }) {

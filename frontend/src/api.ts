@@ -30,6 +30,8 @@ export interface ClaimResult {
   notes: string[];
   downgraded_from: string | null;
   conflict: boolean;
+  /** Set by code only when a debunk from a fact-check database (EUvsDisinfo, fact-check verdicts) is cited. */
+  known_disinformation: boolean;
 }
 
 export interface CheckResult {
@@ -45,7 +47,7 @@ export interface Source {
   source_id: string;
   publisher: string;
   publishing_domain: string;
-  source_type: "official" | "structured" | string;
+  source_type: "official" | "structured" | "factcheck" | string;
   citation_url: string | null;
   terms_url: string | null;
   /** UTC, ISO 8601. */

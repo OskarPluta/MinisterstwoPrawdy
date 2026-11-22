@@ -41,7 +41,15 @@ Wzorcowy przykład wszystkich rodzajów rekordów: [`tests/fixtures/fake_corpus.
 - Artykuły (`article`, `report`, `factcheck`…) mają `sections: [{heading, text, page?}]` i są cytowane dosłownie.
 - Rodzaje strukturalne (`warning_meteo`, `warning_hydro`, `weather_reading`, `air_quality`) mają typowane `fields` (wymagane pola w `chunking.REQUIRED_FIELDS`) i nie są cytowane dosłownie.
 - `alert` (komunikaty RSO) to tekst cytowany dosłownie jak artykuł, ale z `valid_from`/`valid_to`, więc wygasły komunikat daje notatkę (`verify.TIMED_KINDS`).
+- Źródła z `doc_type: weryfikacja` (sprawy EUvsDisinfo, weryfikacje z Google Fact Check) dostają `source_type: factcheck`. Zmienia się tylko wiersz źródła, więc rekordy zachowują hasz i nie są ponownie osadzane. Typ ustawia się przy najbliższym `ingest`.
 - Import jest idempotentny. Wynik podaje akcje: `inserted`, `new_version`, `unchanged`, `known_version`, `invalid`. Dokumenty nieobecne w nowym pliku zostają w bazie.
+
+## Opinie i znane narracje dezinformacyjne
+
+- Ekstrakcja nie odrzuca narracji propagandowych jako „opinii”. Twierdzenie jest zawsze po polsku, a zapytania obejmują też język oryginału i angielski (baza EUvsDisinfo jest po angielsku).
+- Twierdzenie `checkable=false` (opinia) jest szukane tylko w źródłach `factcheck`. Brak trafień daje `unverifiable` bez wywołania LLM. Jeśli model nie rozpozna udokumentowanej narracji, wynik to zwykłe `unverifiable` bez cytatów.
+- `known_disinformation` (pole w `ClaimResult` i w API) oznacza, że twierdzenie powtarza narrację opisaną w bazie jako dezinformacja. Kod ustawia je tylko wtedy, gdy wśród zachowanych cytatów jest obalenie ze źródła `factcheck` z rolą `contradicts`. Wtedy etykiety `supports` na fragmentach tych źródeł zamieniają się w `context` (cytat narracji jej nie potwierdza), więc `true` spada do `insufficient`. Do wyniku trafia notatka „Znana narracja dezinformacyjna udokumentowana przez: …” z wydawcą z bazy.
+- Werdykt pozostaje ze zwykłego zbioru: `false`, gdy obalenie przeczy treści, `misleading` przy manipulacji, a `unverifiable` z flagą dla czystej oceny. `REQUIRED_ROLES` obowiązują jak zawsze.
 
 ## Konwencje SQL
 

@@ -15,7 +15,8 @@
     {"source_id": "portal", "publisher": "Portal Regionalny Przykładowo (dane testowe)", "publishing_domain": "portal-przykladowo.test", "source_type": "secondary", "citation_url": "https://portal-przykladowo.test", "terms_url": "https://portal-przykladowo.test/regulamin", "refresh_policy": "daily", "last_success_at": "2026-11-21T05:00:00Z", "last_error": null},
     {"source_id": "rso", "publisher": "Regionalny System Ostrzegania (dane testowe)", "publishing_domain": "gov.test", "source_type": "structured", "citation_url": "https://www.gov.test/api/data/proxy/rso", "terms_url": "https://www.gov.test/regulamin", "refresh_policy": "every 10 min", "last_success_at": "2026-11-21T10:50:00Z", "last_error": null},
     {"source_id": "imgw_synop", "publisher": "IMGW-PIB pomiary synoptyczne (dane testowe)", "publishing_domain": "imgw.test", "source_type": "structured", "citation_url": "https://danepubliczne.imgw.test/api/data/synop", "terms_url": "https://imgw.test/regulamin", "refresh_policy": "hourly", "last_success_at": "2026-11-21T10:05:00Z", "last_error": null},
-    {"source_id": "gios", "publisher": "GIOŚ jakość powietrza (dane testowe)", "publishing_domain": "gios.test", "source_type": "structured", "citation_url": "https://api.gios.test/pjp-api/v1/rest/aqindex/getIndex", "terms_url": "https://gios.test/regulamin", "refresh_policy": "hourly", "last_success_at": "2026-11-21T10:20:00Z", "last_error": null}
+    {"source_id": "gios", "publisher": "GIOŚ jakość powietrza (dane testowe)", "publishing_domain": "gios.test", "source_type": "structured", "citation_url": "https://api.gios.test/pjp-api/v1/rest/aqindex/getIndex", "terms_url": "https://gios.test/regulamin", "refresh_policy": "hourly", "last_success_at": "2026-11-21T10:20:00Z", "last_error": null},
+    {"source_id": "euvsdisinfo", "publisher": "EUvsDisinfo (dane testowe)", "publishing_domain": "euvsdisinfo.test", "source_type": "factcheck", "citation_url": "https://euvsdisinfo.test/disinformation-cases/", "terms_url": "https://euvsdisinfo.test/terms", "refresh_policy": "every 2 h (MCP)", "last_success_at": "2026-11-21T08:00:00Z", "last_error": null}
   ],
   "evidence": [
     {
@@ -284,6 +285,16 @@
       "published_at": "2026-11-21T10:20:00Z", "observed_at": "2026-11-21T10:20:00Z",
       "areas": ["Kielce", "województwo świętokrzyskie"],
       "fields": {"issuer": "GIOŚ", "station": "Kielce, ul. Testowa", "station_id": "731", "index": "zły", "pollutants": {"PM10": "zły", "PM2.5": "umiarkowany", "NO2": "dobry"}}
+    },
+    {
+      "source_id": "euvsdisinfo", "upstream_id": "https://euvsdisinfo.test/report/aggression-against-russia-moral-obligation/", "kind": "factcheck",
+      "title": "Aggression against Russia has become a moral obligation for Europe",
+      "citation_url": "https://euvsdisinfo.test/report/aggression-against-russia-moral-obligation/",
+      "published_at": "2026-11-16T00:00:00Z",
+      "sections": [
+        {"heading": "Claim", "text": "European governments needed a new dangerous outsider after the decline of the Ottoman Empire and assigned this role to Russia. Since Russia had become the dangerous outsider, aggression against it has become a moral obligation for Europe."},
+        {"heading": "Fact Check", "text": "This is a recurring pro-Kremlin disinformation narrative that portrays European hostility towards Russia as a manufactured need for an external enemy. The historical record contradicts it: after 1815 Russia was a founding member of the Holy Alliance and a key participant in the Concert of Europe. Its later image followed its own policies, such as crushing the Polish uprising of 1830-1831. Disinformation narrative, test data."}
+      ]
     }
   ]
 }

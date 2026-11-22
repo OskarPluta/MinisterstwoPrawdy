@@ -23,6 +23,10 @@ from .timeutil import WARSAW, parse_ts
 ARTICLE_KINDS = {"komunikat": "article", "ostrzezenie": "article", "informacja": "article", "raport": "report"}
 STRUCTURED_SOURCE_TYPES = {"ostrzezenie_meteo", "ostrzezenie_hydro", "ostrzezenie_rso", "pomiar_synop",
                            "pomiar_powietrza"}
+# Fact-check verdicts and disinformation cases (Google Fact Check, EUvsDisinfo): source type "factcheck",
+# which verify.py searches for opinion-shaped claims and uses to mark known disinformation narratives.
+# Only the source row changes, so existing records keep their content hash (no re-embedding).
+FACTCHECK_DOC_TYPES = {"weryfikacja"}
 # Crawl-run statuses that mean the source was reached successfully (statuses: backend/crawler/README.md);
 # `not_modified` is a healthy run that found nothing new.
 SUCCESS_STATUSES = {"ok", "not_modified"}
@@ -254,6 +258,12 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _source_type(doc_type: str | None) -> str:
+    if doc_type in STRUCTURED_SOURCE_TYPES:
+        return "structured"
+    return "factcheck" if doc_type in FACTCHECK_DOC_TYPES else "official"
+
+
 def convert(documents: Path, crawl_log: Path | None = None) -> dict[str, Any]:
     docs = _read_jsonl(documents)
     runs: dict[str, dict[str, Any]] = {}
@@ -275,7 +285,7 @@ def convert(documents: Path, crawl_log: Path | None = None) -> dict[str, Any]:
             "source_id": sid,
             "publisher": doc.get("institution") or sid,
             "publishing_domain": _publishing_domain(host),
-            "source_type": "structured" if doc.get("doc_type") in STRUCTURED_SOURCE_TYPES else "official",
+            "source_type": _source_type(doc.get("doc_type")),
             "citation_url": listing,
             "terms_url": None,
             "refresh_policy": None,

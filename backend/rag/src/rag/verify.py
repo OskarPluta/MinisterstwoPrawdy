@@ -15,7 +15,7 @@ from urllib.parse import quote, urlparse
 
 from .db import corpus_version, record_check
 from .llm import LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape
-from .search import Hit, Retriever
+from .search import Filters, Hit, Retriever
 from .timeutil import WARSAW, fmt_local, parse_ts, utcnow_iso
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,9 @@ VERDICT_PL = {
 }
 # Roles a verdict needs among the kept citations; anything else is downgraded to insufficient.
 REQUIRED_ROLES = {"true": {"supports"}, "false": {"contradicts"}, "misleading": {"supports", "contradicts"}}
+# Fact-check / disinformation databases (EUvsDisinfo cases, fact-check verdicts). Opinion-shaped
+# claims are searched only here, and only a debunk from here can mark a known narrative.
+DISINFO_SOURCE_TYPES = {"factcheck"}
 STALE_AFTER = timedelta(hours=48)
 TIMED_KINDS = {"warning_meteo", "warning_hydro", "alert"}  # alert: komunikaty RSO
 
@@ -44,6 +47,7 @@ MSG_TOO_LONG = (
     "Wklej fragment z twierdzeniem, które chcesz sprawdzić."
 )
 NOTE_INJECTION = "Jedno ze źródeł zawierało instrukcję skierowaną do systemu; została zignorowana."
+MSG_OPINION = "To opinia lub ocena, a nie twierdzenie o faktach, więc nie da się jej zweryfikować źródłami."
 
 # Instruction-like text aimed at AI systems. Matching passages are flagged to the model and
 # reported to the user whether or not the model notices them.
@@ -84,6 +88,9 @@ class ClaimResult:
     invented_ids: list[str] = field(default_factory=list)
     downgraded_from: str | None = None
     conflict: bool = False
+    # The claim repeats a narrative a fact-check database documents as disinformation
+    # (set only when a debunk from DISINFO_SOURCE_TYPES is cited as `contradicts`).
+    known_disinformation: bool = False
     error: str | None = None  # internal detail, not shown to the user
 
 
@@ -140,11 +147,20 @@ def build_evidence_xml(hits: list[Hit]) -> str:
     return "\n\n".join(blocks)
 
 
+def is_disinfo_db(h: Hit) -> bool:
+    return h.meta["source_type"] in DISINFO_SOURCE_TYPES
+
+
 def _enforce(
     raw: ClaimVerdict, shortlist: dict[str, Hit]
-) -> tuple[str, list[PassageLabel], list[str], str | None]:
+) -> tuple[str, list[PassageLabel], list[str], str | None, bool]:
     """Drop citations outside the shortlist and downgrade verdicts the remaining
-    citations cannot carry. Returns (verdict, kept_labels, invented_ids, downgraded_from)."""
+    citations cannot carry. Returns (verdict, kept_labels, invented_ids, downgraded_from,
+    known_disinformation).
+
+    known_disinformation needs a debunk from a fact-check database among the kept citations
+    (role `contradicts`). When it holds, that database's passages cannot also `support` the
+    claim (they quote the narrative, they do not confirm it), so such labels become context."""
     kept: list[PassageLabel] = []
     invented: list[str] = []
     for lab in raw.passages:
@@ -152,10 +168,27 @@ def _enforce(
             invented.append(lab.passage_id)
         elif all(k.passage_id != lab.passage_id for k in kept):
             kept.append(lab)
+    known = raw.known_disinformation and any(
+        lab.role == "contradicts" and is_disinfo_db(shortlist[lab.passage_id]) for lab in kept
+    )
+    if known:
+        kept = [
+            PassageLabel(passage_id=lab.passage_id, role="context")
+            if lab.role == "supports" and is_disinfo_db(shortlist[lab.passage_id]) else lab
+            for lab in kept
+        ]
     needed = REQUIRED_ROLES.get(raw.verdict)
     if needed and not needed & {lab.role for lab in kept}:
-        return "insufficient", kept, invented, raw.verdict
-    return raw.verdict, kept, invented, None
+        return "insufficient", kept, invented, raw.verdict, known
+    return raw.verdict, kept, invented, None, known
+
+
+def _disinfo_note(cited: list[Hit]) -> str:
+    publishers = ", ".join(dict.fromkeys(h.meta["publisher"] for h in cited if is_disinfo_db(h)))
+    return (
+        f"Znana narracja dezinformacyjna udokumentowana przez: {publishers}. "
+        "Szczegóły w cytowanym źródle."
+    )
 
 
 def _notes(claim: Claim, cited: list[Hit], shortlist: list[Hit], now: datetime) -> list[str]:
@@ -247,16 +280,17 @@ class Verifier:
         self.workers = workers
 
     def retrieve(self, claim: Claim) -> list[Hit]:
+        """Checkable claims search the whole corpus. Opinion-shaped claims (checkable=false)
+        search only fact-check databases: an opinion cannot be confirmed by official facts,
+        but it may repeat a narrative documented there as disinformation."""
         queries = list(dict.fromkeys([claim.text, *claim.search_queries]))
-        return self.retriever.hybrid(queries, shortlist=self.shortlist)
+        filters = None if claim.checkable else Filters(source_types=DISINFO_SOURCE_TYPES)
+        return self.retriever.hybrid(queries, filters=filters, shortlist=self.shortlist)
 
     def check_claim(self, claim: Claim, now: datetime, hits: list[Hit] | None = None) -> ClaimResult:
-        if not claim.checkable:
-            return ClaimResult(
-                claim.text, "unverifiable", VERDICT_PL["unverifiable"],
-                "To opinia lub ocena, a nie twierdzenie o faktach, więc nie da się jej zweryfikować źródłami.",
-            )
         hits = self.retrieve(claim) if hits is None else hits
+        if not claim.checkable and not hits:
+            return ClaimResult(claim.text, "unverifiable", VERDICT_PL["unverifiable"], MSG_OPINION)
         if not hits:
             return ClaimResult(
                 claim.text, "insufficient", VERDICT_PL["insufficient"],
@@ -265,7 +299,14 @@ class Verifier:
             )
         by_id = {pid(h): h for h in hits}
         raw = self.llm.verify_claim(claim, build_evidence_xml(hits), now)
-        verdict, kept, invented, downgraded = _enforce(raw, by_id)
+        verdict, kept, invented, downgraded, known = _enforce(raw, by_id)
+        if not claim.checkable and not known and verdict in ("insufficient", "unverifiable"):
+            # An opinion with no documented narrative behind it: the fact-check passages it was
+            # shown are unrelated, so they are not listed.
+            return ClaimResult(
+                claim.text, "unverifiable", VERDICT_PL["unverifiable"], MSG_OPINION,
+                shortlist_ids=list(by_id), invented_ids=invented,
+            )
 
         # Supporting/contradicting evidence first, then context.
         kept.sort(key=lambda lab: lab.role == "context")
@@ -280,6 +321,8 @@ class Verifier:
                 + explanation
             )
         notes = _notes(claim, cited, hits, now)
+        if known:
+            notes.insert(0, _disinfo_note(cited))
         if raw.injection_noticed or any(looks_like_instructions(h.meta["search_text"]) for h in hits):
             notes.append(NOTE_INJECTION)
         return ClaimResult(
@@ -287,6 +330,7 @@ class Verifier:
             explanation=explanation, citations=citations, notes=notes,
             shortlist_ids=list(by_id), invented_ids=invented, downgraded_from=downgraded,
             conflict=raw.conflict or {"supports", "contradicts"} <= roles,
+            known_disinformation=known,
         )
 
     def _check_isolated(self, claim: Claim, hits: list[Hit], now: datetime) -> ClaimResult:
@@ -318,7 +362,7 @@ class Verifier:
         if len(ext.claims) > MAX_CLAIMS:
             res.message = f"Sprawdzam pierwsze {MAX_CLAIMS} z {len(ext.claims)} twierdzeń."
         # Retrieval shares one database connection, so it runs here; LLM calls run in parallel.
-        shortlists = [self.retrieve(c) if c.checkable else [] for c in claims]
+        shortlists = [self.retrieve(c) for c in claims]
         with ThreadPoolExecutor(max_workers=max(1, min(self.workers, len(claims)))) as pool:
             res.claims = list(pool.map(lambda c, h: self._check_isolated(c, h, now), claims, shortlists))
         failed = [c for c in res.claims if c.verdict == "error"]
@@ -380,6 +424,8 @@ def render_markdown(res: CheckResult) -> str:
     for c in res.claims:
         out.append(f"**Twierdzenie:** {_model_text(c.claim)}")
         out.append(f"**Ocena:** {c.verdict_pl}")
+        if c.known_disinformation:
+            out.append("**Znana narracja dezinformacyjna**")
         out.append(_model_text(c.explanation))
         if c.conflict:
             out.append("_Źródła podają różne informacje; szczegóły w cytatach poniżej._")
