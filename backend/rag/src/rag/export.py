@@ -40,7 +40,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from .database import query
+from database import query
+
 from .timeutil import WARSAW, parse_ts, utcnow_iso
 from .verify import VERDICT_PL, mask
 

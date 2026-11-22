@@ -64,7 +64,7 @@ UPDATE sources SET enabled = %(enabled)s, admin_publisher = %(admin_publisher)s,
 WHERE source_id = %(source_id)s;
 
 -- name: status_rows
--- Alert rules (backend/admin notifier): fetch status of every source.
+-- Alert rules (admin-backend notifier): fetch status of every source.
 SELECT source_id, COALESCE(admin_publisher, publisher) AS publisher, enabled,
        last_success_at, last_error
 FROM sources;

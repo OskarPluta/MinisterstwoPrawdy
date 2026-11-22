@@ -20,7 +20,7 @@ tekst ─► Verifier: ekstrakcja (LLM) → search (+obszar/okres) → werdykt (
 
 - Crawler i RAG łączy wyłącznie katalog z plikami. Crawler nie zna bazy, a RAG nie importuje kodu crawlera.
 - Kroki są uruchamiane ręcznie. Nie ma harmonogramu, który po crawlu sam odświeża bazę.
-- Panel administracyjny (`backend/admin` + `admin-frontend/`) to osobne procesy na 127.0.0.1:8001 i :3001, z tą samą bazą. Nie weryfikuje wiadomości: czyta log `checks` (tylko zamaskowany tekst), koszty i alerty, a zmienia źródła (`sources.enabled`, nadpisania `admin_*`), wycofuje dokumenty i zarządza domenami weryfikatorów. Każda zmiana źródeł podbija `corpus_version`, więc działające API przeładowuje indeks bez restartu. Alerty zapisuje każdy proces (API, bot, CLI) przy nieudanym sprawdzeniu, a wątek powiadomień panelu wysyła je na Discord (webhook). Publiczny frontend przekazuje tylko `/api/*`, więc tras panelu nie da się z niego wywołać.
+- Panel administracyjny (`admin-backend/` + `admin-frontend/`) to osobne procesy na 127.0.0.1:8001 i :3001, z tą samą bazą. Nie weryfikuje wiadomości: czyta log `checks` (tylko zamaskowany tekst), koszty i alerty, a zmienia źródła (`sources.enabled`, nadpisania `admin_*`), wycofuje dokumenty i zarządza domenami weryfikatorów. Każda zmiana źródeł podbija `corpus_version`, więc działające API przeładowuje indeks bez restartu. Alerty zapisuje każdy proces (API, bot, CLI) przy nieudanym sprawdzeniu, a wątek powiadomień panelu wysyła je na Discord (webhook). Publiczny frontend przekazuje tylko `/api/*`, więc tras panelu nie da się z niego wywołać.
 - Interfejsy: CLI (`rag verify`), WWW (`backend/api` + `frontend/`) oraz Discord (`backend/discord_bot`). Wszystkie wołają ten sam `rag.verify.Verifier`, więc wynik merytoryczny jest wspólny. Materiał (linki, pliki) odczytuje `intake.Intake` w API (bot korzysta z niego, gdy przekazuje zapytania przez `DISCORD_API_URL`); `rag` nie zależy od `intake`. API i bot trzymają jedno połączenie z bazą pod blokadą, więc sprawdzenia idą po kolei. To wystarcza na demo, ale nie na ruch.
 
 ## Kontrakt crawler → rag
@@ -53,7 +53,7 @@ Rodzaje rekordów:
 
 ## Model danych (PostgreSQL)
 
-Źródło prawdy: [`schema.sql`](../backend/rag/src/rag/database/schema.sql). DDL jest idempotentny i wykonuje się przy każdym połączeniu.
+Źródło prawdy: [`schema.sql`](../database/src/database/schema.sql) (pakiet `database`, zapytania obok w `queries/`). DDL jest idempotentny i wykonuje się przy każdym połączeniu.
 
 - **`sources`**: katalog źródeł z licencją (`license`, `terms_url`, `attribution`, `processed_notice`; schemat v2) i stan ostatniego pobrania (`last_success_at`, `last_error`).
 - **`evidence`**: wersjonowane rekordy. Tożsamość to `(source_id, upstream_id)`. Nowa treść (hasz kanonicznego JSON pól treści, bez `fetched_at`) daje wersję `n+1`, a poprzednia dostaje `is_current = false`. Ta sama treść co bieżąca daje `unchanged`, a treść równa starszej wersji daje `known_version`.

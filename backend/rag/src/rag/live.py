@@ -56,7 +56,8 @@ from urllib.parse import urlencode, urljoin, urlsplit
 
 import numpy as np
 
-from .database import query
+from database import query
+
 from .db import Connection, trusted_domains
 from .embed import Embedder, _fold
 from .ingest import ingest_corpus

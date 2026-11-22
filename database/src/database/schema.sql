@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS sources (
     refresh_policy     TEXT,
     last_success_at    TEXT,
     last_error         TEXT,
-    -- Admin panel (backend/admin): never written by ingest, so a reload keeps them.
+    -- Admin panel (admin-backend): never written by ingest, so a reload keeps them.
     -- A disabled source drops out of search; admin_* override the ingested catalog fields.
     enabled            BOOLEAN NOT NULL DEFAULT TRUE,
     admin_publisher    TEXT,

@@ -1,6 +1,6 @@
 # admin-frontend
 
-Panel administracyjny **Copernicus**: React + TypeScript serwowane przez [Bun](https://bun.sh), w tym samym systemie projektowym Ministerstwo Prawdy co publiczny [`frontend/`](../frontend/). Backend: [`backend/admin`](../backend/admin/README.md).
+Panel administracyjny **Copernicus**: React + TypeScript serwowane przez [Bun](https://bun.sh), w tym samym systemie projektowym Ministerstwo Prawdy co publiczny [`frontend/`](../frontend/). Backend: [`admin-backend`](../admin-backend/README.md).
 
 ```bash
 cd admin-frontend
@@ -32,4 +32,4 @@ Zmienne: `ADMIN_API_URL` (domyślnie `http://127.0.0.1:8001`), `ADMIN_FRONTEND_P
 - **Jedna kopia Reacta.** Pliki z `../frontend` szukałyby `react` w `frontend/node_modules`, więc powstałyby dwie kopie i hooki by się zepsuły. Wtyczka [`dedupe-react.ts`](dedupe-react.ts) kieruje każdy import `react`/`react-dom` do kopii panelu. Serwer deweloperski bierze ją z [`bunfig.toml`](bunfig.toml), a `bun run build` z [`build.ts`](build.ts).
 - **Komponenty panelu** ([`src/ui.tsx`](src/ui.tsx)): `DataTable` (na `.mp-table`, na telefonie karty), `Select`, `TextArea`, `Checkbox`, `Badge`, `StatTiles`, `ConfirmDialog` (natywny `<dialog>`), `StackedBars` (SVG bez biblioteki) i `useAsync`.
 - **Zasady z publicznego frontu.** Tekst użytkownika i modelu jest renderowany jako zwykły tekst, nigdy jako HTML ani Markdown, a linki pochodzą tylko z `citation.url` i adresów dokumentów w bazie. „Brak dowodów” nigdy nie jest czerwony: na czerwono są tylko błędy techniczne. Czas jest pokazywany w strefie Europe/Warsaw.
-- **API.** Klient jest w [`src/api.ts`](src/api.ts). Każde żądanie wysyła ciasteczko sesji i nagłówek `X-Requested-With: admin-panel`, a odpowiedź 401 przełącza na ekran logowania. Typy odwzorowują JSON z `backend/admin/src/admin/app.py`, więc zmieniaj je razem.
+- **API.** Klient jest w [`src/api.ts`](src/api.ts). Każde żądanie wysyła ciasteczko sesji i nagłówek `X-Requested-With: admin-panel`, a odpowiedź 401 przełącza na ekran logowania. Typy odwzorowują JSON z `admin-backend/src/admin/app.py`, więc zmieniaj je razem.

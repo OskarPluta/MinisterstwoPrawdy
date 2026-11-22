@@ -1,4 +1,4 @@
-// Admin API client (backend/admin/src/admin/app.py). Types mirror its JSON; change them together.
+// Admin API client (admin-backend/src/admin/app.py). Types mirror its JSON; change them together.
 // Every request carries the session cookie (same origin) and the panel's CSRF header.
 
 export type Group = "success" | "no_result" | "degraded" | "failure";

@@ -3,10 +3,23 @@ import index from "./src/index.html";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:8000";
 const PORT = Number(process.env.FRONTEND_PORT ?? 3000);
+const DEV = process.env.NODE_ENV !== "production";
+
+// TEMPORARY: admin panel port and password for the strip in src/DevAdminLink.tsx (remove together). Read from the
+// environment at runtime, so the password is never in the source or the bundle; answered only in dev mode, only
+// to loopback clients and only when ADMIN_PASSWORD is set.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const ADMIN_FRONTEND_PORT = Number(process.env.ADMIN_FRONTEND_PORT ?? 3001);
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
 const server = Bun.serve({
   port: PORT,
   routes: {
+    "/dev/admin-link": (req, srv) => {
+      const ip = srv.requestIP(req)?.address ?? "";
+      if (!DEV || !ADMIN_PASSWORD || !LOOPBACK.has(ip)) return new Response("Not Found", { status: 404 });
+      return Response.json({ port: ADMIN_FRONTEND_PORT, password: ADMIN_PASSWORD }, { headers: { "Cache-Control": "no-store" } });
+    },
     "/api/*": (req, srv) => {
       const url = new URL(req.url);
       const fwd = new Request(new URL(url.pathname + url.search, API_URL), req);
@@ -31,7 +44,7 @@ const server = Bun.serve({
     },
     "/*": index,
   },
-  development: process.env.NODE_ENV !== "production" && { hmr: true, console: true },
+  development: DEV && { hmr: true, console: true },
 });
 
 console.log(`frontend: ${server.url} (API → ${API_URL})`);

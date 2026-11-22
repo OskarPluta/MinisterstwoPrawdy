@@ -1,4 +1,4 @@
-"""Database operations of the admin panel (backend/admin). SQL is in database/queries/.
+"""Database operations of the admin panel (admin-backend). SQL is in database/queries/.
 
 Nothing here deletes evidence: disabling a source and withdrawing a record only take them
 out of search (and bump the corpus version, so running retrievers reload). The check log
@@ -12,7 +12,8 @@ import re
 from typing import Any
 from urllib.parse import urlsplit
 
-from .database import query
+from database import query
+
 from .db import Connection, _bump_corpus_version, upsert_source
 from .embed import _fold
 from .timeutil import utcnow_iso
@@ -138,7 +139,7 @@ def create_source(
     note: str | None = None,
 ) -> dict[str, Any]:
     """A source added by hand in the admin panel (`admin-<...>`); its records come from links
-    the admin adds (backend/admin/links.py), checked against `domain` like any ingest."""
+    the admin adds (admin-backend links.py), checked against `domain` like any ingest."""
     if not _SOURCE_ID.match(source_id):
         raise ValueError("source_id: małe litery, cyfry, '.', '_' i '-'")
     if source_type not in SOURCE_TYPES:

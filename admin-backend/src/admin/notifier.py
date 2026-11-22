@@ -26,9 +26,9 @@ from typing import Any
 
 import httpx
 
+from database import query
 from rag import admin_db
 from rag.alerts import raise_alert
-from rag.database import query
 from rag.db import Connection
 from rag.outcomes import FAILURE_OUTCOMES
 from rag.timeutil import parse_ts

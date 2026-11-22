@@ -35,9 +35,9 @@ from unittest.mock import patch
 from urllib.parse import urlparse
 
 from crawler.fetcher import HttpError
+from database import query
 from rag import live as live_mod
 from rag.config import load_env
-from rag.database import query
 from rag.db import Connection, scratch_db
 from rag.embed import DEFAULT_EMBEDDER, get_embedder
 from rag.evaluation import load_cases

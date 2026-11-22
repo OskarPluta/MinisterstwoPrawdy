@@ -4,9 +4,15 @@
 @import "./design/components.css";
 @import "./design/extra.css";
 
-/* Page composition. One left-aligned column: h1 → lead → message box → InfoSection. Tokens only. */
+/* Page composition. One reading column: h1 → lead → message box → InfoSection. Tokens only.
+   On reading pages (.app-narrow) the column starts at the header's left edge and ends where a centered column of
+   --measure would end: 50cqi (half of <main>'s content width) + half of --measure. Every max-width: var(--measure)
+   inside <main> picks it up. --app-half-measure is resolved on :root, so redefining --measure here is not circular.
+   Wide pages (tables) keep the full container. */
+:root { --app-half-measure: calc(var(--measure) / 2); }
 html { background: var(--surface); }
 .app-main { padding-bottom: var(--space-6); }
+.app-main.app-narrow { container-type: inline-size; --measure: calc(50cqi + var(--app-half-measure)); }
 .app-main:focus { outline: none; }
 .app-h1 { margin: var(--space-7) 0 var(--space-4); font-size: 40px; line-height: 48px; font-weight: 700; max-width: var(--measure); }
 .mp-crumbs + .app-h1 { margin-top: var(--space-5); }
@@ -64,3 +70,9 @@ html { background: var(--surface); }
 .app-tone-text-danger { color: var(--danger); }
 .app-tone-text-warning { color: var(--warning); }
 .app-tone-text-info { color: var(--info); }
+
+/* TEMPORARY: local-only strip with the admin panel link and password (DevAdminLink.tsx). Remove together. */
+.app-devbar { background: var(--warning-tint); border-bottom: 1px solid var(--border); color: var(--ink); font-size: 14px; line-height: 20px; }
+.app-devbar .mp-container { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.app-devbar-tag { font-weight: 700; }
+.app-devbar code { padding: 0 var(--space-1); border: 1px solid var(--border); background: var(--surface); font-family: ui-monospace, monospace; user-select: all; }

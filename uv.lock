@@ -17,6 +17,7 @@ members = [
     "admin",
     "api",
     "crawler",
+    "database",
     "discord-bot",
     "intake",
     "prawdowid",
@@ -26,9 +27,10 @@ members = [
 [[package]]
 name = "admin"
 version = "0.1.0"
-source = { editable = "backend/admin" }
+source = { editable = "admin-backend" }
 dependencies = [
     { name = "crawler" },
+    { name = "database" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "intake" },
@@ -39,6 +41,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "crawler", editable = "backend/crawler" },
+    { name = "database", editable = "database" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "intake", editable = "backend/intake" },
@@ -595,6 +598,11 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "trafilatura", specifier = ">=1.12" },
 ]
+
+[[package]]
+name = "database"
+version = "0.1.0"
+source = { editable = "database" }
 
 [[package]]
 name = "dateparser"
@@ -2025,6 +2033,7 @@ dependencies = [
     { name = "admin" },
     { name = "api" },
     { name = "crawler" },
+    { name = "database" },
     { name = "discord-bot" },
     { name = "intake" },
     { name = "rag" },
@@ -2038,9 +2047,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "admin", editable = "backend/admin" },
+    { name = "admin", editable = "admin-backend" },
     { name = "api", editable = "backend/api" },
     { name = "crawler", editable = "backend/crawler" },
+    { name = "database", editable = "database" },
     { name = "discord-bot", editable = "backend/discord_bot" },
     { name = "intake", editable = "backend/intake" },
     { name = "rag", editable = "backend/rag" },
@@ -2594,6 +2604,7 @@ source = { editable = "backend/rag" }
 dependencies = [
     { name = "anthropic" },
     { name = "crawler" },
+    { name = "database" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "openai" },
@@ -2611,6 +2622,7 @@ dependencies = [
 requires-dist = [
     { name = "anthropic", specifier = ">=1.0" },
     { name = "crawler", editable = "backend/crawler" },
+    { name = "database", editable = "database" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=3.57.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },

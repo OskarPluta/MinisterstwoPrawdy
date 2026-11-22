@@ -1,13 +1,13 @@
 # admin
 
-API panelu administracyjnego Prawdowida. To **osobny proces** niż publiczne API (`backend/api`), z tą samą bazą PostgreSQL. Interfejs jest w [`admin-frontend/`](../../admin-frontend/).
+API panelu administracyjnego Prawdowida. To **osobny proces** niż publiczne API (`backend/api`), z tą samą bazą PostgreSQL. Interfejs jest w [`admin-frontend/`](../admin-frontend/).
 
 ```bash
 uv run admin            # 127.0.0.1:8001, dokumentacja: /admin/api/docs
-uv run pytest backend/admin
+uv run pytest admin-backend
 ```
 
-Wymagane w `.env`: `ADMIN_PASSWORD` (co najmniej 12 znaków) i `ADMIN_SECRET` (co najmniej 32 znaki, podpisuje ciasteczko sesji). Bez nich proces nie startuje. [`.env.example`](../../.env.example) ma wartości deweloperskie, więc po `cp .env.example .env` panel działa od razu; zmień obie, zanim panel będzie dostępny dla kogokolwiek poza Tobą. Pozostałe zmienne (`ADMIN_ALERT_*`, `ADMIN_PUBLIC_URL`, `ADMIN_COOKIE_SECURE`) opisuje [`.env.example`](../../.env.example). Do dodawania linków potrzebny jest `INTAKE_CONTACT` (albo `CRAWLER_CONTACT`), a embedder musi być ten sam co w imporcie (`PRAWDOWID_EMBEDDER`).
+Wymagane w `.env`: `ADMIN_PASSWORD` (co najmniej 12 znaków) i `ADMIN_SECRET` (co najmniej 32 znaki, podpisuje ciasteczko sesji). Bez nich proces nie startuje. [`.env.example`](../.env.example) ma wartości deweloperskie, więc po `cp .env.example .env` panel działa od razu; zmień obie, zanim panel będzie dostępny dla kogokolwiek poza Tobą. Pozostałe zmienne (`ADMIN_ALERT_*`, `ADMIN_PUBLIC_URL`, `ADMIN_COOKIE_SECURE`) opisuje [`.env.example`](../.env.example). Do dodawania linków potrzebny jest `INTAKE_CONTACT` (albo `CRAWLER_CONTACT`), a embedder musi być ten sam co w imporcie (`PRAWDOWID_EMBEDDER`).
 
 ## Co robi
 

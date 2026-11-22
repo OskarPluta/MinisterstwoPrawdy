@@ -85,7 +85,7 @@ def fetch_record(fetcher: Any, source: dict[str, Any], url: str) -> dict[str, An
 
 def store_record(conn: Connection, record: dict[str, Any], embedder: Embedder | None) -> dict[str, Any]:
     """Ingest the record (no catalog change: the source already exists)."""
-    from rag.database import query
+    from database import query
 
     actions = ingest_corpus(conn, {"sources": [], "evidence": [record]}, embedder)
     if actions.get("invalid"):

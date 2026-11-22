@@ -1,0 +1,14 @@
+[project]
+name = "database"
+version = "0.1.0"
+description = "Prawdowid: PostgreSQL schema and named SQL queries (no Python dependencies)"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Ships the .sql files in src/database/ too (hatch includes non-Python files in the package).
+[tool.hatch.build.targets.wheel]
+packages = ["src/database"]

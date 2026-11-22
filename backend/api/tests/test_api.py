@@ -402,7 +402,7 @@ def test_unlogged_check_returns_no_check_id(client):
     body = client.post("/api/verify", json=QUESTION).json()
     assert body["status"] == "ok" and body["check_id"] == ""
 
-# ---- check log for the admin panel (backend/admin) ------------------------------------------
+# ---- check log for the admin panel (admin-backend) ------------------------------------------
 
 
 def _last_check(client, q: str | None = None) -> dict[str, Any]:
