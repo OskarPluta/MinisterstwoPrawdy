@@ -21,6 +21,7 @@ from rag.verify import (
     CheckResult,
     Citation,
     ClaimResult,
+    Strength,
     _md,
     _model_text,
     _safe_url,
@@ -56,6 +57,7 @@ VERDICT_VIEW: dict[str, tuple[int, str]] = {
 
 KNOWN_NARRATIVE_OPINION = (COLOR_WARNING, "Ta opinia powtarza znaną narrację dezinformacyjną")
 KNOWN_NARRATIVE_LABEL = "Znana narracja dezinformacyjna"
+STRENGTH_LABEL = "Siła dowodów"
 CONFLICT_MSG = "Źródła podają różne informacje. Szczegóły znajdziesz w cytatach poniżej."
 INJECTION_MSG = (
     "Twoja wiadomość zawierała polecenia skierowane do systemu. "
@@ -80,6 +82,16 @@ def _truncate(text: str, limit: int) -> str:
     if len(cut) < limit // 2:
         cut = text[: limit - 1]
     return cut.rstrip() + "…"
+
+
+def _strength_from_dict(raw: Any) -> Strength | None:
+    if not isinstance(raw, Mapping):
+        return None
+    return Strength(
+        level=str(raw.get("level", "")),
+        level_pl=str(raw.get("level_pl", "")),
+        reasons=[str(r) for r in raw.get("reasons", ())],
+    )
 
 
 def check_result_from_dict(data: Mapping[str, Any]) -> CheckResult:
@@ -113,6 +125,7 @@ def check_result_from_dict(data: Mapping[str, Any]) -> CheckResult:
                 downgraded_from=raw_c.get("downgraded_from"),
                 conflict=bool(raw_c.get("conflict", False)),
                 known_disinformation=bool(raw_c.get("known_disinformation", False)),
+                strength=_strength_from_dict(raw_c.get("strength")),
                 error=raw_c.get("error"),
             )
         )
@@ -158,6 +171,12 @@ def _build_claim_description(claim: ClaimResult, max_chars: int) -> str:
     if claim.conflict:
         parts.append("")
         parts.append(f"_{CONFLICT_MSG}_")
+
+    # Computed by code (assess_strength), not by the model; neutral, not a verdict colour.
+    if claim.strength:
+        parts.append("")
+        parts.append(f"**{STRENGTH_LABEL}:** {_md(claim.strength.level_pl)}")
+        parts.extend(f"• {_md(r)}" for r in claim.strength.reasons)
 
     if claim.notes:
         parts.append("")

@@ -277,6 +277,11 @@ def test_format_check_result_accepts_api_dict_payload():
                 "notes": [],
                 "conflict": False,
                 "known_disinformation": False,
+                "strength": {
+                    "level": "moderate",
+                    "level_pl": "umiarkowana",
+                    "reasons": ["1 niezależne źródło", "źródło pierwotne (urząd)"],
+                },
                 "citations": [
                     {
                         "n": 1,
@@ -297,6 +302,9 @@ def test_format_check_result_accepts_api_dict_payload():
     desc = out.embeds[0].description or ""
     assert "[Ostrzeżenie hydrologiczne](https://imgw.test/1)" in desc
     assert "Dane ze źródła: Stopień 2." in desc
+    assert "**Siła dowodów:** umiarkowana" in desc
+    assert "• 1 niezależne źródło" in desc
+    assert out.embeds[0].color.value == COLOR_SUCCESS  # strength never changes the verdict colour
 
 
 def test_format_sources_embed():
