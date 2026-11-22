@@ -11,10 +11,12 @@ from datetime import datetime, timedelta
 from .adapters import ADAPTERS, Ctx, SourceBlocked, Stats
 from .config import Config
 from .fetcher import Blocked, Fetcher, RobotsBlocked, RobotsUnavailable, Throttled
+from .mcp import run_mcp_tool
 from .storage import Store, iso, now_utc, parse_iso
 
 log = logging.getLogger(__name__)
 STOP = threading.Event()
+ADAPTERS = {**ADAPTERS, "mcp_tool": run_mcp_tool}
 HISTORY_LEN = 10
 
 

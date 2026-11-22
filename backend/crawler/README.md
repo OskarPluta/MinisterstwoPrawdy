@@ -1,7 +1,7 @@
 # FaktBot (crawler)
 
 Okresowo pobiera komunikaty i ostrzeżenia instytucji państwowych i zapisuje je jako zwykły tekst z metadanymi i pełną historią wersji.
-Wynikiem są wyłącznie pliki w `data/crawl/`: crawler nie zna bazy ani RAG, a dane do bazy ładuje `rag ingest`.
+Źródła są w `sources.yaml` i w `sources.d/*.yaml` (wczytywane alfabetycznie, nazwy unikalne we wszystkich plikach). Wynikiem są wyłącznie pliki w `data/crawl/`: crawler nie zna bazy ani RAG, a dane do bazy ładuje `rag ingest`.
 Źródła opisuje deklaratywnie [`sources.yaml`](sources.yaml), więc nowe źródło nie wymaga zmian w kodzie.
 
 ## Uruchamianie
@@ -9,7 +9,7 @@ Wynikiem są wyłącznie pliki w `data/crawl/`: crawler nie zna bazy ani RAG, a 
 ```bash
 uv run playwright install chromium         # raz; przeglądarka do renderowania stron
 export CRAWLER_CONTACT=zespol@example.pl   # obowiązkowy mail w User-Agencie; crawler nie czyta .env
-set -a; . ./.env; set +a                   # klucze API źródeł (np. GOOGLE_FACTCHECK_API_KEY dla factcheck-*)
+set -a; . ./.env; set +a                   # klucze API źródeł (GOOGLE_FACTCHECK_API_KEY, EUVSDISINFO_API_KEY)
 uv run crawler once --max-items 5          # jeden przebieg, maks. 5 nowych pozycji na źródło
 uv run crawler once --source rcb           # tylko wybrane źródła (opcja powtarzalna, działa też dla wyłączonych)
 uv run crawler run                         # pętla: każde źródło co interval_minutes
@@ -33,6 +33,7 @@ uv run crawler status                      # tabela statusów i alarmów (bez si
 | `robots.py` | Parser robots.txt (RFC 9309) |
 | `extract.py` | Treść, tytuł, data (formaty polskie, strefa Europe/Warsaw), RSS/Atom, sitemapy, załączniki |
 | `storage.py` | Zapis plików (dopisywanie z fsync, zapisy atomowe) |
+| `mcp.py` | Adapter `mcp_tool`: JSON-RPC przez `Fetcher.http_send`, parser rekordów EUvsDisinfo z Markdown |
 
 ## Typy adapterów
 
@@ -45,6 +46,7 @@ Wybieraj w tej kolejności, od najlepszego. **Jeśli źródło ma API** (udokume
 | `sitemap` | Brak kanału, jest sitemap.xml | Ponownie sprawdza adres, gdy wzrośnie jego `lastmod`. |
 | `html_list` | Lista aktualności z datami | Heurystyka bierze linki, przy których stoi data, w kafelku z jednym linkiem, i pomija `nav`/`header`/`footer`. Gdy nie wystarcza, ustaw `link_selector`. |
 | `static_page` | Pojedyncza strona, której zmiany śledzimy | Pobierana co przebieg. Data tylko z metadanych strony. |
+| `mcp_tool` | Narzędzie serwera MCP (EUvsDisinfo) | Plik `mcp.py`, sekcja niżej. |
 
 ## Dodanie źródła
 
@@ -83,6 +85,15 @@ Dodatkowe klucze `json_api` (przykłady: źródła `rso-*` i `gios-indeks-powiet
 
 Przy `page_template`, `next_token_path` lub `detail_url` zapytania są bezwarunkowe, bo 304 dla pierwszej strony nic nie mówi o reszcie.
 Endpointy aplikacji JS najłatwiej znaleźć w narzędziach deweloperskich przeglądarki (zakładka Sieć, filtr Fetch/XHR).
+
+### `mcp_tool` (EUvsDisinfo)
+
+Źródła `euvsdisinfo-cases` (~19 900 spraw dezinformacji) i `euvsdisinfo-articles` (~12 000 artykułów) są w [`sources.d/euvsdisinfo.yaml`](sources.d/euvsdisinfo.yaml). Wymagają `EUVSDISINFO_API_KEY` w środowisku (klucz z formularza na euvsdisinfo.eu). Klucz idzie nagłówkiem `Authorization`, więc nie trafia do danych.
+
+- Serwer zwraca Markdown (`**Case N: tytuł**`, pola `**Claim:**`, `**Fact Check:**`, `**Source URL:**`…). Adresem dokumentu jest `Source URL`, a treścią są pola w liniach `Etykieta: wartość`.
+- Klucze: `endpoint`, `tool`, `headers`, `page_size` (maks. 100), `max_pages` (zwykły przebieg czyta od najnowszych do strony bez zmian), `backfill_pages_per_run`.
+- Archiwum jest dociągane kursorem `backfill_offset` w `state.json`, aż do `Has next page: No` (`backfill_done`). Przy 20 stronach na przebieg całe archiwum schodzi w ok. 10 przebiegach (`once --source euvsdisinfo-cases`).
+- Test `tests/test_mcp.py` używa zapisanych prawdziwych odpowiedzi serwera (`tests/fixtures/euvsdisinfo_*.sse`).
 
 Lista kluczy jest w nagłówku `sources.yaml`, a wartości domyślne w `config.py`. Profil `x-govpl` to kotwica YAML; klucze wpisane w źródle nadpisują profil (łączenie płytkie).
 Uwaga: nieznane klucze (literówki) są po cichu ignorowane. Bez `id_field`/`id_template` każda zmiana rekordu `json_api` daje nowy dokument zamiast wersji.

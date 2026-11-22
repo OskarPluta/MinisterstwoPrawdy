@@ -1,6 +1,7 @@
 # FaktBot – konfiguracja źródeł. Nowe źródło = nowy wpis, bez zmian w kodzie.
 #
-# Typy: rss | html_list | sitemap | json_api | static_page
+# Typy: rss | html_list | sitemap | json_api | static_page | mcp_tool (EUvsDisinfo, klucze w README)
+# Dodatkowe źródła: sources.d/*.yaml.
 # Wspólne pola: name, type, institution, url/urls, interval_minutes, max_items_per_run, recheck_hours,
 #   doc_type, region, silence_alert_hours, enabled
 # rss: fetch_full (domyślnie true – pobiera pełny artykuł; false – zapisuje opis z kanału)
