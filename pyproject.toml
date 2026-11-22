@@ -4,7 +4,7 @@ name = "prawdowid"
 version = "0.1.0"
 description = "Prawdowid: evidence-backed claim verification (workspace root)"
 requires-python = ">=3.10"
-dependencies = ["api", "crawler", "discord-bot", "intake", "rag"]
+dependencies = ["admin", "api", "crawler", "discord-bot", "intake", "rag"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "httpx>=0.27"]
@@ -13,6 +13,7 @@ dev = ["pytest>=8.0", "httpx>=0.27"]
 members = ["backend/*"]
 
 [tool.uv.sources]
+admin = { workspace = true }
 api = { workspace = true }
 crawler = { workspace = true }
 discord-bot = { workspace = true }
@@ -28,7 +29,7 @@ explicit = true
 
 [tool.pytest.ini_options]
 # backend/crawler/tests is a package (__init__.py), so its conftest does not clash with backend/rag/tests/conftest.py
-testpaths = ["backend/rag/tests", "backend/crawler/tests", "backend/intake/tests", "backend/api/tests", "backend/discord_bot/tests"]
+testpaths = ["backend/rag/tests", "backend/crawler/tests", "backend/intake/tests", "backend/api/tests", "backend/discord_bot/tests", "backend/admin/tests"]
 
 [tool.ty.environment]
 extra-paths = ["backend/rag/tests", "scripts"]  # tests import conftest and scripts/eval_verify.py

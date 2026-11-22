@@ -89,7 +89,7 @@ def _factcheck_503(fetcher: Any, budget: Any, claim_text: str, queries: list[str
 
 def run_once(conn: Connection, emb: Any, llm: Any, case: dict, now: datetime, live: bool) -> tuple[CheckResult, int]:
     simulate = case.get("simulate")
-    v = Verifier(Retriever(conn, emb), llm, live=live or simulate == "factcheck_api_failure")
+    v = Verifier(Retriever(conn, emb), llm, live=live or simulate == "factcheck_api_failure", channel="eval")
     t0 = time.monotonic()
     if simulate == "factcheck_api_failure":
         failing = functools.partial(live_mod.live_pass, sources={"factcheck": _factcheck_503},

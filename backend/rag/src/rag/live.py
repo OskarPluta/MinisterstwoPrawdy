@@ -35,6 +35,7 @@ similarity to the claim) plus the first-pass local passages. Links still come on
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -56,11 +57,12 @@ from urllib.parse import urlencode, urljoin, urlsplit
 import numpy as np
 
 from .database import query
-from .db import Connection
+from .db import Connection, trusted_domains
 from .embed import Embedder, _fold
 from .ingest import ingest_corpus
 from .search import STOPWORDS, Hit, passage_meta, query_tokens
 from .timeutil import WARSAW, parse_ts, utcnow_iso
+from .trusted import DEFAULT_TRUSTED_FACTCHECK_DOMAINS
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -97,18 +99,9 @@ GOVPL_PROFILE = {
     "drop_selectors": [".metrics", ".metric-history", ".gallery", ".main-photo"],
 }
 
-# Fact-checkers whose ClaimReview we accept (IFCN/EFCSN signatories and the Polish desks the crawler
-# already uses). A review on any other domain is dropped. Subdomains match (factcheck.afp.com).
-TRUSTED_FACTCHECK_DOMAINS = (
-    "demagog.org.pl", "sprawdzam.afp.com", "fakenews.pl", "oko.press", "konkret24.tvn24.pl",
-    "pravda.org.pl", "afp.com", "reuters.com", "apnews.com", "fullfact.org", "correctiv.org",
-    "politifact.com", "factcheck.org", "leadstories.com", "snopes.com", "maldita.es", "newtral.es",
-    "euvsdisinfo.eu", "stopfake.org", "demagog.cz", "demagog.sk", "dpa-factchecking.com",
-    "faktisk.no", "healthfeedback.org", "sciencefeedback.co", "climatefeedback.org", "africacheck.org",
-    "chequeado.com", "aosfatos.org", "teyit.org", "factly.in", "boomlive.in", "lemonde.fr",
-    "liberation.fr", "bbc.co.uk", "bbc.com", "usatoday.com", "washingtonpost.com", "voxukraine.org",
-    "lrt.lt", "delfi.lt", "re-baltica.lv", "propastop.org", "mythdetector.com", "factcheck.ge",
-)
+# Fact-checkers whose ClaimReview we accept: the `trusted_domains` table (admin panel), seeded
+# from DEFAULT_TRUSTED_FACTCHECK_DOMAINS. A review on any other domain is dropped. Subdomains match.
+TRUSTED_FACTCHECK_DOMAINS = DEFAULT_TRUSTED_FACTCHECK_DOMAINS
 
 LABELS = {"factcheck": "Google Fact Check", "euvsdisinfo": "EUvsDisinfo", "govpl": "gov.pl"}
 
@@ -318,7 +311,8 @@ def _err(e: BaseException) -> str:
 # ---------------------------------------------------------------------------------------
 
 
-def factcheck_records(data: dict[str, Any], fetched_at: str) -> tuple[list[dict], list[dict]]:
+def factcheck_records(data: dict[str, Any], fetched_at: str,
+                      domains: tuple[str, ...] | set[str] = TRUSTED_FACTCHECK_DOMAINS) -> tuple[list[dict], list[dict]]:
     """claims:search JSON -> (sources, records); one record per review on a trusted domain."""
     sources: dict[str, dict] = {}
     records: list[dict] = []
@@ -326,7 +320,7 @@ def factcheck_records(data: dict[str, Any], fetched_at: str) -> tuple[list[dict]
         for rv in c.get("claimReview") or []:
             url = (rv.get("url") or "").strip()
             host = (urlsplit(url).hostname or "").lower()
-            if not _host_ok(url, TRUSTED_FACTCHECK_DOMAINS):
+            if not _host_ok(url, domains):
                 continue
             domain = host.removeprefix("www.")
             sid = f"live-factcheck-{_slug(domain)}"
@@ -363,7 +357,8 @@ def _short_query(q: str, n: int | None = None) -> str:
     return " ".join(words[: n or FC_QUERY_WORDS])
 
 
-def search_factcheck(fetcher: Any, budget: _Budget, claim_text: str, queries: list[str]) -> SourceRun:
+def search_factcheck(fetcher: Any, budget: _Budget, claim_text: str, queries: list[str],
+                     domains: tuple[str, ...] | set[str] = TRUSTED_FACTCHECK_DOMAINS) -> SourceRun:
     run = budget.run
     key = os.environ.get("GOOGLE_FACTCHECK_API_KEY")
     if not key:
@@ -381,7 +376,7 @@ def search_factcheck(fetcher: Any, budget: _Budget, claim_text: str, queries: li
         budget.spend()
         resp = fetcher.http_get(f"{FC_ENDPOINT}?{urlencode(params)}", conditional=False,
                                 accept="application/json", private={"X-Goog-Api-Key": key})
-        srcs, recs = factcheck_records(json.loads(resp.text), utcnow_iso())
+        srcs, recs = factcheck_records(json.loads(resp.text), utcnow_iso(), domains)
         for s in srcs:
             if s["source_id"] not in {x["source_id"] for x in run.sources}:
                 run.sources.append(s)
@@ -670,7 +665,11 @@ def live_lookup(
     src = SOURCES if sources is None else sources
     queries = [q for q in dict.fromkeys(query_variants) if q and q.strip()]
     pool = ThreadPoolExecutor(max_workers=max(1, len(src)), thread_name_prefix="live")
-    src = {k: (functools.partial(fn, embedder=embedder) if fn is search_govpl else fn) for k, fn in src.items()}
+    # The database is read here, in the calling thread; the source functions get plain values.
+    domains = tuple(trusted_domains(conn))
+    src = {k: (functools.partial(fn, embedder=embedder) if fn is search_govpl
+               else functools.partial(fn, domains=domains) if fn is search_factcheck else fn)
+           for k, fn in src.items()}
     futures = {k: pool.submit(_run_source, k, fn, deadline, claim_text, queries, fetcher_factory)
                for k, fn in src.items()}
     wait_futures(list(futures.values()), timeout=budget_s + 2)
@@ -845,8 +844,10 @@ def live_pass(verifier: Verifier, claims: list[Claim], results: list[ClaimResult
         rechecks[i] = live_shortlist(conn, embedder, queries, ids, local, size=verifier.shortlist)
     if rechecks:
         with ThreadPoolExecutor(max_workers=max(1, min(verifier.workers, len(rechecks)))) as pool:
-            redone = dict(zip(rechecks, pool.map(
-                lambda i: verifier._check_isolated(claims[i], rechecks[i], now), list(rechecks))))
+            # copy_context: the per-check usage meter (rag/llm.py) must see these LLM calls.
+            futures = {i: pool.submit(contextvars.copy_context().run, verifier._check_isolated,
+                                      claims[i], rechecks[i], now) for i in rechecks}
+            redone = {i: f.result() for i, f in futures.items()}
         for i, r in redone.items():
             if _accept_recheck(claims[i], results[i], r):
                 out[i] = r

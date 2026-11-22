@@ -1,0 +1,23 @@
+[project]
+name = "admin"
+version = "0.1.0"
+description = "Prawdowid: admin panel API (check history, costs, failures, alerts, sources)"
+requires-python = ">=3.10"
+dependencies = [
+    "crawler",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "intake",
+    "rag",
+    "uvicorn>=0.30",
+]
+
+[project.scripts]
+admin = "admin.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/admin"]

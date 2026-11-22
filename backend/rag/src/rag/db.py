@@ -28,7 +28,7 @@ from .database import query, schema
 from .embed import _fold
 from .timeutil import parse_ts, utcnow_iso
 
-SCHEMA_VERSION = 4  # v4: reprint_signatures (rag/reprints.py)
+SCHEMA_VERSION = 5  # v4: reprint_signatures (rag/reprints.py); v5: admin panel (backend/admin)
 
 Connection = psycopg.Connection[dict[str, Any]]
 
@@ -56,7 +56,7 @@ def connect(url: str | None = None, *, db_schema: str | None = None) -> Connecti
             conn.execute(query("meta.set_search_path"), {"schema": db_schema})
         with conn.transaction():
             conn.execute(query("meta.schema_lock"))
-            found = SCHEMA_VERSION  # a new database gets the current schema.sql as is
+            found: int | None = None  # None: a new database gets the current schema.sql as is
             if _one(conn.execute(query("meta.has_meta")))["present"]:
                 row = conn.execute(query("meta.get_schema_version")).fetchone()
                 found = int(row["value"]) if row else 0
@@ -64,23 +64,57 @@ def connect(url: str | None = None, *, db_schema: str | None = None) -> Connecti
                     raise RuntimeError(
                         f"database schema v{found} is newer than this code (v{SCHEMA_VERSION})"
                     )
+            # Columns added to existing tables come before schema.sql, whose indexes may refer
+            # to them; the other steps come after it.
+            if found is not None and 1 <= found < 5:
+                conn.execute(query("migrate.v5_columns"))
             conn.execute(schema())  # static DDL from schema.sql
             # Upgrade steps for databases created by an older version (found < version <= SCHEMA_VERSION).
-            if found < 2:
+            if found is not None and found < 2:
                 conn.execute(query("meta.migrate_v2"))
-            if found < 3:
+            if found is not None and found < 3:
                 conn.execute(query("meta.migrate_v3"))
-            if found < 4:
+            if found is not None and found < 4:
                 # v4 adds reprint_signatures (created by schema.sql above); detect reprints
                 # among the records already stored.
                 from .reprints import refresh
 
                 refresh(conn)
+            if found is None or found < 5:
+                _seed_trusted_domains(conn)
+            if found is not None and found < 5:
+                _backfill_check_outcomes(conn)
             conn.execute(query("meta.set_schema_version"), {"version": str(SCHEMA_VERSION)})
     except BaseException:
         conn.close()
         raise
     return conn
+
+
+def _seed_trusted_domains(conn: Connection) -> None:
+    """Once per database (schema v5): later the admin panel owns the list, deletions included."""
+    from .trusted import DEFAULT_TRUSTED_FACTCHECK_DOMAINS
+
+    at = utcnow_iso()
+    for d in DEFAULT_TRUSTED_FACTCHECK_DOMAINS:
+        conn.execute(query("trusted_domains.seed"), {"domain": d, "at": at})
+
+
+def _backfill_check_outcomes(conn: Connection) -> None:
+    """Schema v5: derive outcome, error type, tokens and cost of checks logged before v5."""
+    from .outcomes import classify, usage_columns
+
+    for row in conn.execute(query("migrate.checks_without_outcome")).fetchall():
+        try:
+            payload = json.loads(row["result_json"])
+        except ValueError:
+            payload = {"status": row["status"]}
+        payload.setdefault("status", row["status"])
+        outcome, error_type = classify(payload)
+        conn.execute(query("checks.set_derived"), {
+            "check_id": row["check_id"], "outcome": outcome, "error_type": error_type,
+            **usage_columns(payload, row["model"]),
+        })
 
 
 @contextmanager
@@ -125,8 +159,13 @@ def source_domains(conn: Connection) -> dict[str, str]:
 
 
 def list_sources(conn: Connection) -> list[dict[str, Any]]:
-    """Source catalog with fetch status and the number of current records."""
+    """Source catalog with fetch status and the number of current records (admin overrides applied)."""
     return list(conn.execute(query("sources.list")))
+
+
+def trusted_domains(conn: Connection) -> list[str]:
+    """Enabled fact-check domains for live lookup (table `trusted_domains`, admin panel)."""
+    return [r["domain"] for r in conn.execute(query("trusted_domains.enabled"))]
 
 
 # Fields that define the content of an evidence record. Fetch time is excluded so
@@ -155,7 +194,7 @@ class PassageIn:
 
 @dataclass
 class UpsertResult:
-    action: Literal["inserted", "new_version", "unchanged", "known_version"]
+    action: Literal["inserted", "new_version", "unchanged", "known_version", "withdrawn"]
     evidence_id: int
     version: int
 
@@ -174,7 +213,7 @@ def find_by_hash(conn: Connection, record: dict[str, Any], h: str) -> UpsertResu
     ).fetchone()
     if row is None:
         return None
-    action = "unchanged" if row["is_current"] else "known_version"
+    action = "unchanged" if row["is_current"] else "withdrawn" if row["withdrawn_at"] else "known_version"
     return UpsertResult(action, row["evidence_id"], row["version"])
 
 
@@ -192,6 +231,11 @@ def upsert_evidence(
     h = content_hash(record)
     identity = {"source_id": record["source_id"], "upstream_id": record["upstream_id"]}
     with conn.transaction():
+        # An identity withdrawn in the admin panel stays out, whatever its content now is (and
+        # a fresh version 1 would clash with the kept rows).
+        withdrawn = conn.execute(query("evidence.is_withdrawn"), identity).fetchone()
+        if withdrawn is not None:
+            return UpsertResult("withdrawn", withdrawn["evidence_id"], withdrawn["version"])
         found = find_by_hash(conn, record, h)
         if found is not None:
             return found
@@ -261,8 +305,15 @@ def corpus_totals(conn: Connection) -> dict[str, Any]:
     return dict(conn.execute(query("meta.corpus_totals")).fetchone() or {})
 
 
+# Columns of a `checks` row a caller may leave out (rows written before schema v5 had none).
+_CHECK_OPTIONAL = (
+    "channel", "outcome", "error_type", "llm_calls", "input_tokens", "output_tokens", "cost",
+    "cost_currency",
+)
+
+
 def record_check(conn: Connection, row: dict[str, Any]) -> None:
-    conn.execute(query("checks.insert"), row)
+    conn.execute(query("checks.insert"), {**dict.fromkeys(_CHECK_OPTIONAL), **row})
 
 
 def checks_stats(conn: Connection) -> dict[str, Any]:
@@ -278,6 +329,7 @@ def checks_stats(conn: Connection) -> dict[str, Any]:
     input_tokens = 0
     output_tokens = 0
     cost_usd = 0.0
+    cost_by_currency: Counter[str] = Counter()
 
     for row in rows:
         status = row["status"]
@@ -313,6 +365,10 @@ def checks_stats(conn: Connection) -> dict[str, Any]:
             output_tokens += int(usage.get("output_tokens") or 0)
             if usage.get("cost_usd") is not None:
                 cost_usd += float(usage["cost_usd"])
+            if usage.get("cost") is not None and usage.get("currency"):
+                cost_by_currency[str(usage["currency"])] += float(usage["cost"])
+            elif usage.get("cost_usd") is not None:
+                cost_by_currency["USD"] += float(usage["cost_usd"])
 
     total_claims = sum(by_verdict.values())
     insufficient_claims = by_verdict.get("insufficient", 0)
@@ -335,6 +391,7 @@ def checks_stats(conn: Connection) -> dict[str, Any]:
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "cost_usd": round(cost_usd, 6),
+            "cost_by_currency": {k: round(v, 6) for k, v in sorted(cost_by_currency.items())},
         },
     }
 

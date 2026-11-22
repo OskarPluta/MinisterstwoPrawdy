@@ -22,7 +22,14 @@ CREATE TABLE IF NOT EXISTS sources (
     citation_url       TEXT,
     refresh_policy     TEXT,
     last_success_at    TEXT,
-    last_error         TEXT
+    last_error         TEXT,
+    -- Admin panel (backend/admin): never written by ingest, so a reload keeps them.
+    -- A disabled source drops out of search; admin_* override the ingested catalog fields.
+    enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+    admin_publisher    TEXT,
+    admin_source_type  TEXT,
+    admin_note         TEXT,
+    admin_updated_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS evidence (
@@ -45,6 +52,9 @@ CREATE TABLE IF NOT EXISTS evidence (
     status          TEXT,
     syndicated_from TEXT,
     fields_json     TEXT NOT NULL DEFAULT '{}',
+    -- Withdrawn by an admin: out of search, and ingest never brings the identity back.
+    withdrawn_at    TEXT,
+    withdrawn_note  TEXT,
     UNIQUE (source_id, upstream_id, version)
 );
 CREATE INDEX IF NOT EXISTS evidence_identity ON evidence(source_id, upstream_id, is_current);
@@ -96,7 +106,66 @@ CREATE TABLE IF NOT EXISTS checks (
     embedding_model TEXT,
     duration_ms     INTEGER,
     share_id        TEXT UNIQUE,
-    shared_at       TEXT
+    shared_at       TEXT,
+    -- Derived by code at record time (rag/outcomes.py); copies of what result_json holds,
+    -- kept as columns so the admin panel can filter and sum without parsing every row.
+    channel         TEXT,     -- web | discord | cli | eval
+    outcome         TEXT,     -- rag.outcomes.OUTCOMES
+    error_type      TEXT,     -- exception class name of the failure, if any
+    llm_calls       INTEGER,
+    input_tokens    INTEGER,
+    output_tokens   INTEGER,
+    cost            DOUBLE PRECISION,
+    cost_currency   TEXT
+);
+CREATE INDEX IF NOT EXISTS checks_created ON checks(created_at);
+CREATE INDEX IF NOT EXISTS checks_outcome ON checks(outcome, created_at);
+
+-- Manual categorisation by an admin; the check log row itself is never edited. Deleting the
+-- check (retention, /usun, purge) deletes its review too.
+CREATE TABLE IF NOT EXISTS check_reviews (
+    check_id    TEXT PRIMARY KEY REFERENCES checks(check_id) ON DELETE CASCADE,
+    label       TEXT NOT NULL,
+    note        TEXT,
+    reviewed_at TEXT NOT NULL
+);
+
+-- Processing problems for the admin (rag/alerts.py). One open alert per fingerprint:
+-- repeats raise `count`. Messages never contain the user's text.
+CREATE TABLE IF NOT EXISTS alerts (
+    alert_id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    created_at      TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    severity        TEXT NOT NULL,   -- error | warning
+    fingerprint     TEXT NOT NULL,
+    check_id        TEXT,            -- latest check that raised it
+    message         TEXT NOT NULL,
+    count           INTEGER NOT NULL DEFAULT 1,
+    notified_at     TEXT,
+    notified_count  INTEGER NOT NULL DEFAULT 0,
+    acknowledged_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS alerts_open_fingerprint ON alerts(fingerprint) WHERE acknowledged_at IS NULL;
+CREATE INDEX IF NOT EXISTS alerts_fingerprint ON alerts(fingerprint);
+
+-- Fact-check domains whose reviews live lookup accepts (rag/live.py). Seeded once from
+-- DEFAULT_TRUSTED_FACTCHECK_DOMAINS; the admin panel adds and removes rows.
+CREATE TABLE IF NOT EXISTS trusted_domains (
+    domain    TEXT PRIMARY KEY,
+    kind      TEXT NOT NULL DEFAULT 'factcheck',
+    enabled   BOOLEAN NOT NULL DEFAULT TRUE,
+    note      TEXT,
+    added_at  TEXT NOT NULL
+);
+
+-- Every change made in the admin panel.
+CREATE TABLE IF NOT EXISTS admin_audit (
+    audit_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    at           TEXT NOT NULL,
+    action       TEXT NOT NULL,
+    target       TEXT,
+    details_json TEXT NOT NULL DEFAULT '{}'
 );
 
 INSERT INTO meta (key, value) VALUES ('corpus_version', '0') ON CONFLICT (key) DO NOTHING;

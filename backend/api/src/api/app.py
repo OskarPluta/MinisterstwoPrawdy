@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -54,15 +54,16 @@ from rag.db import (
 from rag import export as export_mod
 from rag.ratelimit import RateLimiter
 from rag.embed import DEFAULT_EMBEDDER, Embedder, get_embedder
+from rag.llm import usage_meter
 from rag.search import Retriever
 from rag.timeutil import WARSAW, parse_ts
-from rag.verify import MSG_OUTAGE, CheckResult, Verifier, checks_retention_days
+from rag.verify import MSG_OUTAGE, CheckResult, Verifier, checks_retention_days, record_failure
 
 log = logging.getLogger(__name__)
 
 # Fields that are internal diagnostics and never reach the user.
-_INTERNAL_RESULT = ("error", "usage")
-_INTERNAL_CLAIM = ("error", "shortlist_ids", "invented_ids", "live")  # live: lookup log, the note says it to the user
+_INTERNAL_RESULT = ("error", "error_type", "usage")
+_INTERNAL_CLAIM = ("error", "error_type", "shortlist_ids", "invented_ids", "live")  # live: lookup log, the note says it to the user
 _INTERNAL_INPUT = ("meta",)
 # check_id is a UUID4 (rag/verify.py); anything else is rejected before touching the database.
 CHECK_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -91,6 +92,9 @@ def admin_token_from_env() -> str | None:
                     MIN_ADMIN_TOKEN_CHARS)
         return None
     return token or None
+
+# Channel recorded in the checks log: the Discord bot in HTTP mode sends X-Prawdowid-Channel.
+CHANNELS = {"web", "discord"}
 
 
 class VerifyRequest(BaseModel):
@@ -138,7 +142,7 @@ class Services:
 
     def verifier(self) -> Verifier:
         if self._verifier is None:
-            self._verifier = Verifier(Retriever(self.conn, self.embedder), self.llm_factory())
+            self._verifier = Verifier(Retriever(self.conn, self.embedder), self.llm_factory(), channel="web")
         return self._verifier
 
 
@@ -192,7 +196,18 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
             raise HTTPException(422, "now: oczekiwano czasu w formacie ISO 8601")
         return now
 
-    def run_check(request: Request, text: str, now: datetime | None, files: list[Upload]) -> dict[str, Any]:
+    def record_failed(text: str, e: BaseException, outcome: str, channel: str) -> None:
+        """Log a check that never reached the Verifier (admin panel + alert); never raises."""
+        s = svc()
+        try:
+            with s.lock:
+                record_failure(s.conn, text, e, outcome=outcome, channel=channel)
+        except Exception as err:  # noqa: BLE001 - e.g. the database itself is down
+            log.error("cannot log failed check: %r", err)
+
+    def run_check(
+        request: Request, text: str, now: datetime | None, files: list[Upload], channel: str,
+    ) -> dict[str, Any]:
         s = svc()
         limit(s.limiter, request)
         with s.lock:
@@ -200,14 +215,26 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
                 verifier = s.verifier()
             except (Exception, SystemExit) as e:  # make_llm exits when no API key is set
                 log.error("cannot create LLM client: %s", e)
-                raise HTTPException(503, MSG_OUTAGE) from None
-            domains = {src["publishing_domain"] for src in list_sources(s.conn)}
-        # Network and OCR without the database lock; the LLM client is thread-safe.
-        attachments: list[Attachment] = s.intake.collect(
-            text, files, transcriber=verifier.llm, known_domains=lambda: domains,
-        )
-        with s.lock:
-            res = verifier.verify(text, now, attachments)
+                verifier = None
+                failure: BaseException = e
+            else:
+                domains = {src["publishing_domain"] for src in list_sources(s.conn)}
+        if verifier is None:
+            record_failed(text, failure, "config_error", channel)
+            raise HTTPException(503, MSG_OUTAGE) from None
+        try:
+            # One meter for the whole check: OCR during intake counts too (rag/llm.py).
+            with usage_meter():
+                # Network and OCR without the database lock; the LLM client is thread-safe.
+                attachments: list[Attachment] = s.intake.collect(
+                    text, files, transcriber=verifier.llm, known_domains=lambda: domains,
+                )
+                with s.lock:
+                    res = verifier.verify(text, now, attachments, channel=channel)
+        except Exception as e:  # noqa: BLE001 - logged for the admin, the user sees an outage
+            log.exception("check failed outside the verifier")
+            record_failed(text, e, "internal_error", channel)
+            raise HTTPException(500, MSG_OUTAGE) from None
         if res.error:
             log.warning("check %s: %s", res.check_id, res.error)
         out = public_result(res)
@@ -307,13 +334,20 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
             "X-Content-Type-Options": "nosniff",
         })
 
+    def channel_of(value: str | None) -> str:
+        return value if value in CHANNELS else "web"
+
     @app.post("/api/verify")
-    def verify(req: VerifyRequest, request: Request) -> dict[str, Any]:
-        return run_check(request, req.text, parse_now(req.now), [])
+    def verify(
+        req: VerifyRequest, request: Request,
+        x_prawdowid_channel: str | None = Header(None, include_in_schema=False),
+    ) -> dict[str, Any]:
+        return run_check(request, req.text, parse_now(req.now), [], channel_of(x_prawdowid_channel))
 
     @app.post("/api/verify/upload")
     def verify_upload(
         request: Request, text: str = Form(""), now: str | None = Form(None), files: list[UploadFile] = File(default=[]),
+        x_prawdowid_channel: str | None = Header(None, include_in_schema=False),
     ) -> dict[str, Any]:
         if len(text) > MAX_REQUEST_CHARS:
             raise HTTPException(422, "text: wiadomość jest za długa")
@@ -330,7 +364,7 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
             if not data:
                 raise HTTPException(422, "Jeden z plików jest pusty.")
             uploads.append(Upload(f.filename or "plik", data))
-        return run_check(request, text, parse_now(now), uploads)
+        return run_check(request, text, parse_now(now), uploads, channel_of(x_prawdowid_channel))
 
     @app.get("/api/sources")
     def sources() -> dict[str, Any]:

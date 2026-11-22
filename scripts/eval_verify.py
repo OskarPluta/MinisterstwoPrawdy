@@ -60,7 +60,7 @@ def run(conn: Connection, args: argparse.Namespace) -> None:
 
     llm = make_llm(args.provider, args.model)
     print(f"provider model: {llm.model}")
-    v = Verifier(Retriever(conn, emb), llm, live=False)  # evaluates the fixed corpus; no live lookup (rag/live.py)
+    v = Verifier(Retriever(conn, emb), llm, live=False, channel="eval")  # evaluates the fixed corpus; no live lookup (rag/live.py)
     rows, latencies = [], []
     for i, c in enumerate(cases):
         res = v.verify(c["input"], now)

@@ -14,13 +14,18 @@ function subscribe(cb: () => void) {
 }
 
 export function navigate(path: string) {
-  if (path === window.location.pathname + window.location.hash) return;
+  if (path === window.location.pathname + window.location.search + window.location.hash) return;
   window.history.pushState(null, "", path);
   window.dispatchEvent(new Event(EVENT));
 }
 
 export function usePath(): string {
   return useSyncExternalStore(subscribe, () => window.location.pathname);
+}
+
+/** The query string ("?id=…"), for pages that keep state in the address (admin panel). */
+export function useSearch(): string {
+  return useSyncExternalStore(subscribe, () => window.location.search);
 }
 
 /** Intercepts plain left clicks on same-origin links so they navigate without a page load. */
@@ -31,11 +36,11 @@ export function useLinkInterception() {
       const a = (e.target as Element | null)?.closest?.("a");
       if (!a || a.target || a.hasAttribute("download")) return;
       const url = new URL(a.href, window.location.href);
-      if (url.origin !== window.location.origin || url.pathname.startsWith("/api/")) return;
+      if (url.origin !== window.location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/admin/api/")) return;
       // In-page anchors (skip link, #section) keep their native behaviour.
-      if (url.pathname === window.location.pathname && url.hash) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search && url.hash) return;
       e.preventDefault();
-      navigate(url.pathname + url.hash);
+      navigate(url.pathname + url.search + url.hash);
     }
     document.addEventListener("click", onClick);
     return () => document.removeEventListener("click", onClick);

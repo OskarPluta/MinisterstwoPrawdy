@@ -401,3 +401,70 @@ def test_unlogged_check_returns_no_check_id(client):
     client.app.state.svc.verifier().record = False
     body = client.post("/api/verify", json=QUESTION).json()
     assert body["status"] == "ok" and body["check_id"] == ""
+
+# ---- check log for the admin panel (backend/admin) ------------------------------------------
+
+
+def _last_check(client, q: str | None = None) -> dict[str, Any]:
+    """The logged check whose masked input contains `q` (checks of one second have no order)."""
+    from rag.admin_db import checks_page, get_check
+
+    page, _ = checks_page(client.app.state.svc.conn, limit=1, q=q)
+    row = get_check(client.app.state.svc.conn, page[0]["check_id"])
+    assert row is not None
+    return row
+
+
+def test_channel_header_is_logged(client):
+    client.post("/api/verify", json={"text": "Czy na Wiśle jest ostrzeżenie? (1)"})
+    assert _last_check(client, "(1)")["channel"] == "web"
+    client.post("/api/verify", json={"text": "Czy na Wiśle jest ostrzeżenie? (2)"},
+                headers={"X-Prawdowid-Channel": "discord"})
+    assert _last_check(client, "(2)")["channel"] == "discord"
+    client.post("/api/verify", json={"text": "x (3)"}, headers={"X-Prawdowid-Channel": "<script>"})
+    assert _last_check(client, "(3)")["channel"] == "web"
+
+
+def test_missing_llm_is_logged_with_alert(client):
+    from rag.alerts import list_alerts
+
+    def no_key() -> Any:
+        raise SystemExit("PCSS_API_KEY is not set")
+
+    conn = client.app.state.svc.conn
+    client.app.state.svc = Services(conn=conn, embedder=HashEmbedder(), llm_factory=no_key, owns_conn=False)
+    assert client.post("/api/verify", json={"text": "Mój PESEL 90010112345"}).status_code == 503
+    row = _last_check(client)
+    assert row["outcome"] == "config_error" and row["error_type"] == "SystemExit"
+    assert "90010112345" not in row["input_masked"]
+    assert list_alerts(conn, open_only=True)[0]["fingerprint"] == "check:config_error:SystemExit"
+
+
+def test_unexpected_exception_is_a_logged_500(client, monkeypatch):
+    def boom(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("intake crashed")
+
+    monkeypatch.setattr(client.app.state.svc.intake, "collect", boom)
+    r = client.post("/api/verify", json={"text": "Czy na Wiśle jest ostrzeżenie?"})
+    assert r.status_code == 500 and r.json()["detail"] == MSG_OUTAGE
+    row = _last_check(client)
+    assert row["outcome"] == "internal_error" and row["error_type"] == "RuntimeError"
+
+
+class OcrMeteredLLM(FakeLLM):
+    def transcribe_image(self, data: bytes, mime: str) -> ImageTranscript:
+        self.usage.add("transcribe", 800, 50)
+        return super().transcribe_image(data, mime)
+
+
+def test_ocr_tokens_count_for_their_own_check(client):
+    conn = client.app.state.svc.conn
+    client.app.state.svc = Services(conn=conn, embedder=HashEmbedder(), llm_factory=OcrMeteredLLM, owns_conn=False)
+    r = client.post("/api/verify/upload", data={"text": "", "now": "2026-11-21T12:00:00"},
+                    files=[("files", ("zrzut.png", _png(), "image/png"))])
+    assert r.status_code == 200
+    row = _last_check(client)
+    calls = [c["call"] for c in row["result"]["usage"]["by_call"]]
+    assert calls[0] == "transcribe" and "extract" in calls
+    assert row["input_tokens"] == 800 + 500 + 1500 * calls.count("verify")
+    assert row["cost_currency"] == "USD"
