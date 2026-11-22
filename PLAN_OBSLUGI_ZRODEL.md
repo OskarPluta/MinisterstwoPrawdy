@@ -119,7 +119,7 @@ Niezależnie od źródła (RAG czy Live), każdy pobrany materiał jest normaliz
 | **Regionalny System Ostrzegania (RSO)** | `komunikaty.tvp.pl/komunikatyxml/wszystkie/wszystkie/0?_format=xml` | **Live Query (cache 15 min) + opcjonalny sync RAG** | Pobieranie aktywnych komunikatów z otwartego endpointu XML (region, kategoria, treść, ważność). | Odpytywane przez router przy pytaniach o bieżące alerty i zagrożenia. |
 | **Portale `gov.pl`** (RCB raport dobowy, MSWiA, KPRM, KGPSP, MON, GIS, MI, Wody Polskie) | `gov.pl/web/{rcb,mswia,premier,kgpsp,obrona-narodowa,gis,infrastruktura,wody-polskie}` | **RAG (cykliczny sync)** | Wspólny parser HTML dla szablonu `gov.pl`, pobierający bieżące aktualności i ostrzeżenia wraz z datą publikacji i linkiem. | Dla komunikatów z ostatnich godzin — fallback przez wyszukiwarkę `site:gov.pl`. |
 | **CERT Polska (NASK)** | `moje.cert.pl/komunikaty/` | **RAG (cykliczny sync)** | Cykliczne pobieranie komunikatów bezpieczeństwa (phishing, oszustwa, alerty cyber) do RAG. | Uzupełnienie o kontekst cyberbezpieczeństwa i fałszywych kampanii. |
-| **Policja / Policja Mazowiecka** | `policja.pl/pol/aktualnosci`, `mazowiecka.policja.gov.pl` | **RAG (cykliczny sync)** | Cykliczne pobieranie aktualności i ostrzeżeń (np. oszustwa, komunikaty kryzysowe) do RAG. | Dodatkowe oficjalne źródło służb. |
+| **Policja / Policja Mazowiecka** | `policja.pl/pol/aktualnosci`, `*.policja.gov.pl` (np. `mazowiecka.policja.gov.pl`, `bochnia.policja.gov.pl`) | **RAG (cykliczny sync)** | Cykliczne pobieranie aktualności i ostrzeżeń (np. oszustwa, komunikaty kryzysowe) do RAG. | Dodatkowe oficjalne źródło służb. |
 
 ---
 
@@ -138,7 +138,10 @@ Niezależnie od źródła (RAG czy Live), każdy pobrany materiał jest normaliz
 
 | Źródło | Domena / Endpoint | Tryb | Sposób pobrania i obsługi | Fallback / Ograniczenia |
 | :--- | :--- | :--- | :--- | :--- |
-| **ISAP / Sejm ELI** | `api.sejm.gov.pl/eli/` | **Live Query (warunkowe)** | Otwarte REST API JSON odpytywane przez router przy pytaniach o akty prawne i przepisy. | Zbyt duża baza, aby indeksować całość w lokalnym RAG. |
+| **ISAP / Sejm ELI** | `api.sejm.gov.pl/eli/` | **Live Query (warunkowe)** | Otwarte REST API JSON odpytywane przez router przy pytaniach o akty prawne i przepisy. W odpowiedzi cytujemy czytelny adres ISAP (`isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=` + pole `address` z API, np. `WDU20220000655`) lub `…/text.pdf`, a nie surowy endpoint JSON. | Zbyt duża baza, aby indeksować całość w lokalnym RAG. `isap.sejm.gov.pl` blokuje boty (Incapsula), więc dane bierzemy wyłącznie z API. |
+| **EUR-Lex** | `eur-lex.europa.eu` (SPARQL / CELLAR) | **Live Query (warunkowe)** | Akty i orzeczenia UE po numerze CELEX/ELI (np. rozporządzenie 261/2004 o prawach pasażerów). Punkt odniesienia z sekcji 7 zadania. | Cytujemy adres ELI/CELEX w wersji PL. |
+| **Komisja Europejska / Your Europe** | `europa.eu/youreurope`, `economy-finance.ec.europa.eu`, `european-union.europa.eu` | **RAG (cykliczny sync)** | Prawa obywatela UE (np. odszkodowania lotnicze) i prognozy gospodarcze KE. | Prognozy KE są okresowe, więc zapisujemy datę publikacji. |
+| **Urząd Lotnictwa Cywilnego** | `ulc.gov.pl`, `pasazerlotniczy.ulc.gov.pl` | **RAG (jednorazowy ingest)** | Materiały ULC o prawach pasażerów (PDF). | Strona HTML blokuje boty (Incapsula); indeksujemy publiczne PDF-y. |
 | **dane.gov.pl** | `api.dane.gov.pl` | **Live Query (warunkowe)** | Wyszukiwanie zbiorów danych publicznych po słowach kluczowych. | Używane jako źródło pierwotne przy pytaniach statystycznych i rejestrowych. |
 
 ---
@@ -147,7 +150,7 @@ Niezależnie od źródła (RAG czy Live), każdy pobrany materiał jest normaliz
 
 | Źródło / Narzędzie | Zakres domen | Tryb | Sposób pobrania i obsługi | Fallback / Ograniczenia |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tavily API** lub **Brave Search API** | Ściśle ograniczony do domen z `sources_registry.json` (`demagog.org.pl`, `odyseusz.gov.pl`, `gov.pl`, `pap.pl`, `cert.pl`, `policja.pl`, `konkret24.tvn24.pl`, `sprawdzam.afp.com`) | **Live Query (warunkowe)** | Zwraca fragmenty treści bezpośrednio z indeksu wyszukiwarki (`include_domains` / `extra_snippets`), bez konieczności scrapowania strony źródłowej. | Legalnie omija problem braku treści w Google Fact Check API przy blokadzie Cloudflare (Demagog) i łapie bieżące wydarzenia (Odyseusz, PAP). Przy braku wystarczających detali w snippetach model komunikuje ograniczenie zamiast zgadywać. |
+| **Tavily API** lub **Brave Search API** | Ściśle ograniczony do domen z `sources_registry.json` (`demagog.org.pl`, `odyseusz.msz.gov.pl`, `gov.pl` wraz z podportalami, np. `gov.pl/web/finanse`, `gov.pl/web/wielkabrytania`, `gov.pl/web/gddkia`, `gov.pl/web/paa`, `pap.pl`, `cert.pl`, `policja.pl` i `*.policja.gov.pl` (komendy wojewódzkie i powiatowe, np. `bochnia.policja.gov.pl`), `konkret24.tvn24.pl`, `sprawdzam.afp.com`, `europa.eu`, `ulc.gov.pl`, `zus.pl`, `gov.uk` (tylko jako link 1-hop z komunikatu placówki RP)) | **Live Query (warunkowe)** | Zwraca fragmenty treści bezpośrednio z indeksu wyszukiwarki (`include_domains` / `extra_snippets`), bez konieczności scrapowania strony źródłowej. | Legalnie omija problem braku treści w Google Fact Check API przy blokadzie Cloudflare (Demagog) i łapie bieżące wydarzenia (Odyseusz, PAP). Przy braku wystarczających detali w snippetach model komunikuje ograniczenie zamiast zgadywać. |
 
 ---
 

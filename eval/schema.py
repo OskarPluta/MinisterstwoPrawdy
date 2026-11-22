@@ -6,7 +6,8 @@ and runtime execution traces.
 
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from urllib.parse import urlparse
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class OriginEnum(str, Enum):
@@ -18,6 +19,8 @@ class SystemStatusEnum(str, Enum):
     VERDICT_RENDERED = "VERDICT_RENDERED"
     TECHNICAL_ERROR = "TECHNICAL_ERROR"
     CLARIFICATION_NEEDED = "CLARIFICATION_NEEDED"
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"  # request is not a fact-check (advice, writing a text, etc.)
+    UNABLE_TO_VERIFY = "UNABLE_TO_VERIFY"  # source unreachable without bypassing protections (paywall, login wall)
 
 
 class VerdictEnum(str, Enum):
@@ -39,10 +42,34 @@ class ChannelEnum(str, Enum):
     secondary_channel = "secondary_channel"
 
 
+ABSTAIN_VERDICTS = {"BRAK_WYSTARCZAJACYCH_DOWODOW", "NIE_PODLEGA_WERYFIKACJI"}
+_LOCAL_HOST_MARKERS = ("localhost", "127.0.0.1", "0.0.0.0")
+
+
+def _host_matches(url: str, domain: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    domain = domain.lower()
+    return host == domain or host.endswith("." + domain)
+
+
+class ClaimExpectation(BaseModel):
+    """Expected verdict for one claim in a multi-claim query."""
+
+    claim: str = Field(..., description="Canonical wording of the single claim")
+    primary_verdict: "VerdictEnum"
+    acceptable_verdicts: list["VerdictEnum"] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class TestCaseInput(BaseModel):
     __test__ = False
     query: str = Field(..., description="Query / claim entered by user")
-    attachment_url: Optional[str] = Field(default=None, description="Optional URL entered by user")
+    attachment_url: Optional[str] = Field(
+        default=None,
+        description="Optional URL entered by user. Must look like a real public URL (neutral slug); "
+        "the runner maps it to a local file via environment_overrides.mock_untrusted_url_fixture",
+    )
     attachment_image_path: Optional[str] = Field(
         default=None, description="Path to image fixture relative to repo root"
     )
@@ -57,7 +84,8 @@ class EnvironmentOverrides(BaseModel):
     )
     mock_untrusted_url_fixture: Optional[str] = Field(
         default=None,
-        description="Path to mock HTML page fixture relative to repo root",
+        description="Path to mock HTML page fixture relative to repo root; served in place of input.attachment_url "
+        "(and any URL in input.query) so the system never sees the local path",
     )
     mock_trusted_api_fixture: Optional[str] = Field(
         default=None,
@@ -82,7 +110,17 @@ class DeterministicInvariants(BaseModel):
     )
     abstention_expected: bool = Field(
         default=False,
-        description="True if system must abstain (BRAK_WYSTARCZAJACYCH_DOWODOW or NIE_PODLEGA_WERYFIKACJI)",
+        description="True if system must abstain (BRAK_WYSTARCZAJACYCH_DOWODOW or NIE_PODLEGA_WERYFIKACJI). "
+        "Must equal primary_verdict in ABSTAIN_VERDICTS whenever primary_verdict is set",
+    )
+    verdict_subject_claim: Optional[str] = Field(
+        default=None,
+        description="The base claim the verdict refers to when the query is a meta-question "
+        "(e.g. 'Did Demagog check X?' -> verdict is about X, not about whether Demagog checked it)",
+    )
+    expected_claims: list[ClaimExpectation] = Field(
+        default_factory=list,
+        description="Per-claim expected verdicts for multi-claim queries (empty for single-claim cases)",
     )
     min_citations_count: int = Field(
         default=1,
@@ -90,11 +128,17 @@ class DeterministicInvariants(BaseModel):
     )
     required_domains_any_of: list[str] = Field(
         default_factory=list,
-        description="At least one of these domains must be cited",
+        description="At least one of these domains must be cited. Every listed domain must have at least one "
+        "matching URL in required_urls_any_of (when that list is non-empty)",
+    )
+    required_domains_all_of: list[str] = Field(
+        default_factory=list,
+        description="Each of these domains must be cited (independent-source requirement, e.g. FIMI context + substantive rebuttal)",
     )
     required_urls_any_of: list[str] = Field(
         default_factory=list,
-        description="At least one of these exact URLs must be cited",
+        description="At least one of these exact URLs must be cited. Prefer human-readable pages over raw API endpoints; "
+        "list equivalent HTML and API URLs together when both are acceptable",
     )
     requires_live_url_verification: bool = Field(
         default=False,
@@ -108,9 +152,15 @@ class DeterministicInvariants(BaseModel):
         default=False,
         description="True if prompt injection attempt must be detected and logged",
     )
-    expected_fimi_warning_only: bool = Field(
+    expected_fimi_context_warning: bool = Field(
         default=False,
-        description="True if FIMI warning must be displayed without determining verdict solely on domain",
+        description="True if a FIMI context warning must be displayed; the verdict itself must never rest solely on "
+        "the domain or the incident catalogue",
+    )
+    pii_must_be_masked: list[str] = Field(
+        default_factory=list,
+        description="Literal personal-data substrings from the query that must not appear in the persisted trace, "
+        "logs or moderation ticket (SystemExecutionTrace.persisted_query and related fields)",
     )
     expected_moderation_ticket_action: TicketActionEnum = Field(
         default=TicketActionEnum.NONE,
@@ -118,6 +168,24 @@ class DeterministicInvariants(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_consistency(self) -> "DeterministicInvariants":
+        if self.primary_verdict is not None:
+            if self.acceptable_verdicts and self.primary_verdict not in self.acceptable_verdicts:
+                raise ValueError("primary_verdict must be included in acceptable_verdicts")
+            if self.abstention_expected != (self.primary_verdict.value in ABSTAIN_VERDICTS):
+                raise ValueError("abstention_expected must be True iff primary_verdict is an abstention verdict")
+        if self.required_urls_any_of:
+            for domain in [*self.required_domains_any_of, *self.required_domains_all_of]:
+                if not any(_host_matches(u, domain) for u in self.required_urls_any_of):
+                    raise ValueError(f"domain {domain!r} has no matching URL in required_urls_any_of")
+        if len(self.required_domains_all_of) > self.min_citations_count:
+            raise ValueError("min_citations_count must be >= len(required_domains_all_of)")
+        for c in self.expected_claims:
+            if c.acceptable_verdicts and c.primary_verdict not in c.acceptable_verdicts:
+                raise ValueError(f"claim {c.claim!r}: primary_verdict not in acceptable_verdicts")
+        return self
 
 
 class LLMJudgeRubric(BaseModel):
@@ -141,7 +209,11 @@ class LLMJudgeRubric(BaseModel):
 class TestCase(BaseModel):
     __test__ = False
     id: str = Field(..., description="Unique test case identifier (e.g. TC-A1-01)")
-    scenario: str = Field(..., description="Scenario code: A1, A2, B, C, D, E, F, G, H, I, J")
+    scenario: str = Field(
+        ...,
+        description="Scenario code: A1, A2, B, C, D, E, F, G, H, I, J (MSZ section 6); "
+        "extensions: K (PII masking), L (out of scope / unable to verify), M (multi-claim)",
+    )
     scenario_name: str = Field(..., description="Human readable scenario title")
     origin: OriginEnum = Field(..., description="organizer_seed or extended_real")
     subsystems_tested: list[str] = Field(
@@ -155,12 +227,33 @@ class TestCase(BaseModel):
         default=None,
         description="Group ID for deduplication pairs (e.g. GRP-PCIM-DIESEL)",
     )
+    reference_datetime: Optional[str] = Field(
+        default=None,
+        description="ISO 8601 'now' for the case; the runner passes it to the system so relative time words "
+        "('dziś', 'ostatnio') are interpreted against a frozen moment. Required when a snapshot fixture is used",
+    )
+    counts_toward_verdict_metrics: bool = Field(
+        default=True,
+        description="False for cases that duplicate another case's query (e.g. scenario G cross-channel checks); "
+        "they are scored only for consistency, not counted again in macro-F1 / abstention",
+    )
     input: TestCaseInput
     environment_overrides: EnvironmentOverrides = Field(default_factory=EnvironmentOverrides)
     deterministic_invariants: DeterministicInvariants
     llm_judge_rubric: LLMJudgeRubric
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_input(self) -> "TestCase":
+        for text in (self.input.query, self.input.attachment_url or ""):
+            if any(m in text for m in _LOCAL_HOST_MARKERS):
+                raise ValueError("input must not expose local fixture URLs; use a realistic URL + mock_untrusted_url_fixture")
+        if self.environment_overrides.mock_trusted_api_fixture and not self.reference_datetime:
+            raise ValueError("reference_datetime is required when mock_trusted_api_fixture (a frozen snapshot) is used")
+        if self.deterministic_invariants.expected_system_status.value != "VERDICT_RENDERED" and self.deterministic_invariants.primary_verdict:
+            raise ValueError("primary_verdict must be null unless expected_system_status is VERDICT_RENDERED")
+        return self
 
 
 # --- Runtime / Execution Models ---
@@ -194,6 +287,11 @@ class Citation(BaseModel):
     is_1hop_link: bool = False
 
 
+class ClaimVerdict(BaseModel):
+    claim: str
+    verdict: VerdictEnum
+
+
 class SystemExecutionTrace(BaseModel):
     test_case_id: str
     channel: ChannelEnum = ChannelEnum.web
@@ -206,6 +304,10 @@ class SystemExecutionTrace(BaseModel):
     estimated_cost_usd: float = 0.0
     prompt_injection_detected: bool = False
     fimi_warning_displayed: bool = False
+    claim_verdicts: list["ClaimVerdict"] = Field(default_factory=list)
+    persisted_query: Optional[str] = Field(
+        default=None, description="Query text as stored in logs/trace after PII masking"
+    )
     moderation_ticket_created: bool = False
     moderation_ticket_id: Optional[str] = None
     moderation_ticket_group_id: Optional[str] = None

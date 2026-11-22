@@ -105,3 +105,28 @@ Zestaw testowy wymaga w `required_urls_any_of` i `required_domains_any_of` źró
 - `gov.uk` (`TC-A2-02` jako 1-hop link z komunikatu ambasady),
 - podportale `gov.pl/web/finanse` (`TC-C-05`), `gov.pl/web/wielkabrytania` (`TC-A2-02`), `gov.pl/web/gddkia` (`TC-C-03`), `gov.pl/web/paa` (`TC-F-03`),
 - `bochnia.policja.gov.pl` (subdomena powiatowa Policji w `TC-A1-05`, podczas gdy plan wymienia `policja.pl` i `mazowiecka.policja.gov.pl`).
+
+---
+
+## 5. Status poprawek (22.11.2026)
+
+Walidator schematu (`eval/schema.py`) wymusza teraz zgodność `abstention_expected` z werdyktem, obecność `primary_verdict` w `acceptable_verdicts`, pokrycie każdej domeny z `required_domains_any_of`/`required_domains_all_of` przez URL oraz brak adresów `localhost` w `input`.
+
+| Punkt | Status |
+| :--- | :--- |
+| 2.1 | Naprawione: abstencja w `TC-A2-01`, `TC-C-05`, `TC-G-02`; snapshot Odyseusza (`a201_msz_wlochy_snapshot.html`) + `reference_datetime`; rubryka zgodna z `acceptable_verdicts`. |
+| 2.2 | Naprawione: URL-e ULC i EUR-Lex (`TC-C-02`), czytelne adresy ISAP i `text.pdf` obok API Sejmu (`TC-A1-03`, `TC-B-04`, `TC-C-04`), domeny RSO i Włoch dopasowane do URL-i. |
+| 2.3 | Naprawione: data na zrzucie `TC-F-03`; werdykt `BRAK_WYSTARCZAJACYCH_DOWODOW` (`FALSZYWE` tylko przy danych z dnia zdarzenia). |
+| 2.4 | Naprawione: `required_domains_all_of` w `TC-C-05`, `TC-I-02`, `TC-I-03`. |
+| 2.5 | Naprawione: kryterium `TC-A1-01` nie wymaga obchodzenia Incapsuli. |
+| 2.6 | Naprawione: `verdict_subject_claim` w `TC-F-01`, `TC-J-01a`, `TC-J-01b`. |
+| 3.1 | Naprawione: neutralne URL-e w 8 przypadkach, plik lokalny tylko w `mock_untrusted_url_fixture`. |
+| 3.2 | Naprawione: usunięte spoilery; `i01b` to hard-negative z 16.09.2024 (stan klęski żywiołowej, KPRM). |
+| 3.3 | Naprawione: host `sputnik.by` w `TC-I-02`/`TC-I-04`; pole przemianowane na `expected_fimi_context_warning`. |
+| 3.4 | Naprawione: `TC-E-02` (ETA do Wielkiej Brytanii, wstrzyknięcie w JSON-LD i komentarzu) i `TC-E-03` (poradnik RCB, jailbreak w zapytaniu) mają nowe tematy; nowe `TC-E-05` (atak prawda→fałsz) i `TC-E-06` (wyciek promptu); `TC-E-04` z niskokontrastowym atakiem. Scenariusz E ma 6 przypadków, temat Wrocławia pojawia się w 8 z 65. |
+| 3.5 | Naprawione: potoczne zapytania w przypadkach `extended_real`, usunięty dopisek z `tc_f02`. |
+| 3.6 | Naprawione: `counts_toward_verdict_metrics=false` dla duplikatów G; `TC-D-03`/`TC-D-04` tylko `NIE_PODLEGA_WERYFIKACJI`; nowe `TC-D-07`, `TC-D-08`. |
+| 4.1 | Naprawione: scenariusze K (PII, `TC-K-01..03`), L (`OUT_OF_SCOPE`/`UNABLE_TO_VERIFY`, `TC-L-01..04`), M (wiele twierdzeń, `TC-M-01..02`), awaria moderacji `TC-H-03`, autentyczna sprzeczność szacunków `TC-C-06` (pochód 4 czerwca 2023: organizatorzy i ratusz kontra nieoficjalne dane policji), stary komunikat z nową datą `TC-F-04`, nieczytelny obraz `TC-F-05`. |
+| 4.2 | Naprawione w `PLAN_OBSLUGI_ZRODEL.md`. |
+
+Dodatkowo walidator wymaga `reference_datetime` przy snapshotach `mock_trusted_api_fixture` i pustego `primary_verdict` przy statusach innych niż `VERDICT_RENDERED`. Linki EUvsDisinfo (403), EUR-Lex (202) i european-union.europa.eu (429) blokują automatyczne zapytania – ich treść potwierdzono przez wyszukiwarkę.
