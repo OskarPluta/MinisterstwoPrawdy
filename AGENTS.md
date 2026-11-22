@@ -10,6 +10,7 @@ Wskazówki dla agentów i nowych osób w zespole. Ogólny obraz: [`README.md`](R
 | `backend/rag/` | Pakiet `rag`: konwersja danych crawlera, ingest do PostgreSQL, wyszukiwanie, LLM, weryfikacja. Cały SQL jest w `src/rag/database/`. |
 | `backend/rag/tests/fixtures/` | Sztuczny korpus (domena `.test`) i przypadki ewaluacyjne. |
 | `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `sources`). Tylko adaptuje HTTP do `rag.verify.Verifier`, bez własnej logiki. |
+| `backend/discord_bot/` | Pakiet `discord-bot`: kanał Discord (`/sprawdz`, `/zrodla`, wzmianki, DM). Adaptuje Discord do `rag.verify.Verifier` (lub `DISCORD_API_URL`), bez własnej logiki. |
 | `frontend/` | Interfejs WWW: Bun + React + TS. `server.ts` serwuje `src/index.html` i przekazuje `/api/*` do `API_URL`. Własne zależności (`bun install`), poza workspace uv. |
 | `scripts/` | `eval_retrieval.py` (bezpłatna), `eval_verify.py` (płatna, woła LLM). |
 | `data/snapshot/` | Zamrożony zrzut crawla w git. Nie nadpisuj go przypadkiem przebiegiem crawlera. |
@@ -24,6 +25,7 @@ uv run pytest                    # wszystkie testy; DB z TEST_DATABASE_URL lub D
 uv run rag --help                # ingest | reembed | stats | search | verify
 uv run crawler --help            # once | run | status
 uv run api                       # API na 127.0.0.1:8000 (to samo `.env` co rag)
+uv run discord-bot --help        # kanał Discord (wymaga DISCORD_BOT_TOKEN w `.env`)
 
 cd frontend && bun install       # zależności frontu
 bun run dev | typecheck | build  # w frontend/
