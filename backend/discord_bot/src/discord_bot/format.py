@@ -11,11 +11,15 @@ Preserves Prawdowid presentation invariants:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import discord
+
+from rag.timeutil import WARSAW, parse_ts
 
 from rag.verify import (
     ROLE_PL,
@@ -64,6 +68,23 @@ INJECTION_MSG = (
     "Twoja wiadomość zawierała polecenia skierowane do systemu. "
     "Zignorowaliśmy je i sprawdziliśmy tylko twierdzenia."
 )
+
+# Share and delete of the check log (same keys as the web channel, backend/api/src/api/app.py).
+# check_id (UUID4) deletes the check, so it is only ever sent privately to the requester.
+CHECK_ID_RX = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+SHARE_PATH_RX = re.compile(r"^/wynik/[A-Za-z0-9_-]{16}$")
+
+MSG_BAD_ID = "To nie jest prawidłowy identyfikator sprawdzenia. Skopiuj go z prywatnej wiadomości bota."
+MSG_SHARE_OFF = "Udostępnianie wyników jest wyłączone na tym serwerze (bot nie zna adresu strony z wynikami)."
+MSG_DELETED = "Usunęliśmy zapis tego sprawdzenia. Link do wyniku, jeśli był, przestał działać."
+MSG_ALREADY_DELETED = "Zapis tego sprawdzenia został już usunięty."
+MSG_UNSHARED = "Wyłączyliśmy udostępnianie. Link do wyniku przestał działać."
+MSG_NOT_REQUESTER = "Tego przycisku może użyć tylko osoba, która zleciła sprawdzenie."
+MSG_CONFIRM_DELETE = "Na pewno usunąć zapis tego sprawdzenia? Tego nie da się cofnąć."
+# Same wording as the API's 404 responses.
+MSG_NOT_FOUND_SHARE = "Nie ma zapisu tego sprawdzenia, więc nie można go udostępnić."
+MSG_NOT_FOUND_UNSHARE = "Nie ma zapisu tego sprawdzenia."
+MSG_NOT_FOUND_DELETE = "Nie ma zapisu o tym identyfikatorze (mógł już zostać usunięty)."
 
 
 @dataclass(frozen=True)
@@ -301,3 +322,49 @@ def format_sources_embed(totals: Mapping[str, Any], sources: list[Mapping[str, A
     )
     embed.set_footer(text="Prawdowid · Audyt źródeł")
     return embed
+
+
+def parse_check_id(raw: str | None) -> str | None:
+    """A check_id typed or pasted by a person, normalised; None when it is not a UUID4-shaped id."""
+    value = (raw or "").strip().strip("`").strip().lower()
+    return value if CHECK_ID_RX.match(value) else None
+
+
+def public_base_url(raw: str | None) -> str | None:
+    """The frontend's public base URL (PRAWDOWID_PUBLIC_URL), or None when unset or not http(s)."""
+    value = (raw or "").strip().rstrip("/")
+    if not value:
+        return None
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.netloc or parts.query or parts.fragment:
+        return None
+    return value
+
+
+def share_url(base: str | None, path: str | None) -> str | None:
+    """Public read-only page of a share: <base>/wynik/<share_id>. None when either part is unusable."""
+    if not base or not path or not SHARE_PATH_RX.match(path):
+        return None
+    return base + path
+
+
+def format_share_link(url: str, expires_at: str | None) -> str:
+    """'Link do wyniku (tylko do odczytu, działa do DD.MM.RRRR): <url>' (date in Europe/Warsaw)."""
+    until = parse_ts(expires_at)
+    if until is None:
+        return f"Link do wyniku (tylko do odczytu): {url}"
+    return f"Link do wyniku (tylko do odczytu, działa do {until.astimezone(WARSAW):%d.%m.%Y}): {url}"
+
+
+def format_private_note(check_id: str, *, shareable: bool, sharing_enabled: bool) -> str:
+    """The message only the requester sees: the deletion key and what to do with it."""
+    lines = [
+        f"Identyfikator Twojego sprawdzenia: `{check_id}`",
+        f"Zapis usuniesz przyciskiem poniżej albo poleceniem `/usun identyfikator:{check_id}`.",
+        "Nie pokazuj identyfikatora innym: kto go zna, może usunąć zapis.",
+    ]
+    if shareable and sharing_enabled:
+        lines.append("Link do wyniku (tylko do odczytu) utworzysz przyciskiem albo poleceniem `/udostepnij`.")
+    elif shareable:
+        lines.append(MSG_SHARE_OFF)
+    return "\n".join(lines)
