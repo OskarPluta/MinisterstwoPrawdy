@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   ACCEPTED_FILES,
   ApiError,
@@ -11,8 +11,8 @@ import {
   verifyUpload,
   type CheckResult,
 } from "../api";
-import { Button, InfoSection, Notice, ServiceSteps } from "../design/components";
-import { FilePicker, MaterialList, TextArea } from "../design/extra";
+import { Icon, InfoSection, Notice } from "../design/components";
+import { Composer, MaterialList } from "../design/extra";
 import { RESULT_HEADING_ID, ResultView, STATUS_NOTICE } from "../result";
 
 type State =
@@ -44,9 +44,7 @@ function CheckForm() {
   const [fieldError, setFieldError] = useState<string>();
   const [fileError, setFileError] = useState<string>();
   const [state, setState] = useState<State>({ kind: "idle" });
-  const formRef = useRef<HTMLFormElement>(null);
   const fieldId = "tresc";
-  const filesId = "pliki";
 
   function addFiles(added: File[]) {
     if (added.length === 0) return;
@@ -66,21 +64,7 @@ function CheckForm() {
   function removeFile(i: number) {
     setFiles(files.filter((_, j) => j !== i));
     setFileError(undefined);
-  }
-
-  /** Ctrl+V of a screenshot. Text from Word or a web page also carries a picture of itself: keep only the text then. */
-  function onPaste(e: ClipboardEvent) {
-    const pasted = Array.from(e.clipboardData.files);
-    if (pasted.length && !e.clipboardData.types.includes("text/plain")) {
-      e.preventDefault();
-      addFiles(pasted);
-    }
-  }
-
-  function onDrop(e: DragEvent) {
-    if (!e.dataTransfer.files.length) return;
-    e.preventDefault();
-    addFiles(Array.from(e.dataTransfer.files));
+    document.getElementById(fieldId)?.focus(); // the removed chip's button is gone; keep focus in the box
   }
 
   const shown = state.kind === "done" && state.res.status === "ok" && state.res.claims.length > 0 ? state.res : null;
@@ -116,6 +100,7 @@ function CheckForm() {
   function reset() {
     setText("");
     setFiles([]);
+    setFieldError(undefined);
     setFileError(undefined);
     setState({ kind: "idle" });
     // Wait for the form to render again, then put the cursor back in the field.
@@ -142,57 +127,38 @@ function CheckForm() {
   }
 
   const loading = state.kind === "loading";
+  const slow = files.length > 0 || /https?:\/\/|www\./i.test(text);
   return (
-    <form
-      ref={formRef}
-      className="app-check"
-      onSubmit={submit}
-      onPaste={onPaste}
-      onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
-      onDrop={onDrop}
-      noValidate
-      aria-busy={loading}
-      aria-labelledby="sprawdz-t"
-    >
-      <h2 id="sprawdz-t" className="app-check-title">
-        Sprawdź wiadomość
-      </h2>
+    <form className="app-check" onSubmit={submit} noValidate aria-busy={loading} aria-label="Sprawdź wiadomość">
       {notice}
-      <TextArea
+      <Composer
         id={fieldId}
-        label="Treść wiadomości"
-        hint="Wklej tekst z komunikatora, SMS-a albo posta. Możesz też wkleić link do strony albo filmu w serwisie YouTube."
+        label="Treść wiadomości do sprawdzenia"
+        placeholder="Wklej wiadomość, link albo zrzut ekranu…"
+        hint={`Enter wysyła, Shift+Enter to nowa linia. Możesz dodać do ${MAX_FILES} zdjęć lub plików PDF.`}
         value={text}
-        onChange={(e) => setText(e.target.value)}
-        error={fieldError}
+        onChange={(v) => {
+          setText(v);
+          if (fieldError) setFieldError(undefined);
+        }}
+        error={fieldError ?? fileError}
         maxChars={MAX_INPUT_CHARS}
-        rows={6}
-      />
-      <FilePicker
-        id={filesId}
-        label="Zdjęcie, zrzut ekranu lub PDF (nieobowiązkowo)"
-        hint={`Najwyżej ${MAX_FILES} pliki. Zrzut ekranu możesz też wkleić skrótem Ctrl+V.`}
-        error={fileError}
         files={files}
         accept={ACCEPTED_FILES}
         canAdd={files.length < MAX_FILES}
-        onAdd={addFiles}
-        onRemove={removeFile}
+        onAddFiles={addFiles}
+        onRemoveFile={removeFile}
+        busy={loading}
+        submitLabel="Sprawdź"
       />
-      <div aria-live="polite">
+      <div aria-live="polite" className="app-progress">
         {loading && (
-          <Notice tone="info" title="Sprawdzam">
-            <p>
-              {files.length || /https?:\/\/|www\./i.test(text)
-                ? "Odczytujemy materiał i sprawdzamy go. To może potrwać do minuty. Nie zamykaj tej strony."
-                : "To może potrwać do 30 sekund. Nie zamykaj tej strony."}
-            </p>
-          </Notice>
+          <p>
+            <Icon name="loader" size={18} className="mp-spin" />
+            {slow ? "Odczytujemy materiał. To może potrwać do minuty." : "To może potrwać do 30 sekund."}
+          </p>
         )}
       </div>
-      <Button type="submit" size="lg" aria-disabled={loading || undefined}>
-        Sprawdź
-      </Button>
     </form>
   );
 }
@@ -202,21 +168,8 @@ export function CheckPage() {
     <>
       <h1 className="app-h1">Sprawdź informację</h1>
       <p className="app-lead">
-        Wklej wiadomość, link albo dodaj zrzut ekranu, który chcesz sprawdzić. Porównamy go z komunikatami instytucji publicznych i
-        pokażemy źródła. Sprawdzenie trwa zwykle do 30 sekund.
+        Wklej wiadomość, link albo zrzut ekranu. Porównamy go z komunikatami instytucji publicznych i pokażemy źródła.
       </p>
-      <ul className="app-links">
-        <li>
-          <a className="mp-link" href="/jak-to-dziala">
-            Jak sprawdzamy informacje
-          </a>
-        </li>
-        <li>
-          <a className="mp-link" href="/zrodla">
-            Z jakich źródeł korzystamy
-          </a>
-        </li>
-      </ul>
 
       <CheckForm />
 
@@ -227,39 +180,7 @@ export function CheckPage() {
           <li>komunikaty służb i urzędów,</li>
           <li>informacje o zdarzeniach w Twojej okolicy.</li>
         </ul>
-        <p>
-          Możesz wkleić tekst, link do strony albo filmu w serwisie YouTube, a także dodać zdjęcie, zrzut ekranu lub plik PDF. Odczytamy
-          z nich tekst i powiemy, czego nie udało się odczytać.
-        </p>
-        <p>Nie oceniamy opinii. Jeśli wiadomość zawiera tylko opinię, powiemy Ci o tym.</p>
-      </InfoSection>
-
-      <InfoSection title="Co zrobisz" id="kroki">
-        <ServiceSteps
-          steps={[
-            "Wklej treść wiadomości lub link w polu powyżej albo dodaj zrzut ekranu.",
-            "Kliknij „Sprawdź”.",
-            "Przeczytaj ocenę każdego twierdzenia z wiadomości.",
-            "Otwórz źródła i sprawdź je sam.",
-          ]}
-        />
-        <Notice>
-          <p>Wynik nie jest dokumentem urzędowym. Jeśli brakuje dowodów, nie wydajemy oceny.</p>
-        </Notice>
-      </InfoSection>
-
-      <InfoSection title="Ile zapłacisz" id="koszt">
-        <p>Usługa jest bezpłatna.</p>
-      </InfoSection>
-
-      <InfoSection title="Na jakiej podstawie" id="podstawa">
-        <p>
-          Korzystamy tylko z oficjalnych komunikatów instytucji publicznych.{" "}
-          <a className="mp-link" href="/zrodla">
-            Zobacz listę źródeł
-          </a>
-          .
-        </p>
+        <p>Nie oceniamy opinii. Jeśli brakuje dowodów, nie wydajemy oceny.</p>
       </InfoSection>
     </>
   );

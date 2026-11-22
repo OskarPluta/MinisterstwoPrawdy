@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { PageMeta, SiteFooter, SiteHeader } from "./design/components";
+import { SiteFooter, SiteHeader } from "./design/components";
 import { CheckPage } from "./pages/CheckPage";
 import { HowPage } from "./pages/HowPage";
 import { SourcesPage } from "./pages/SourcesPage";
@@ -56,9 +56,6 @@ export function App() {
       />
       <main id="main" className="mp-container app-main" tabIndex={-1}>
         <Page />
-        <div className="app-measure">
-          <PageMeta updated="21.11.2026" publishedBy={["Departament Weryfikacji Informacji"]} />
-        </div>
       </main>
       <SiteFooter
         name="Copernicus"

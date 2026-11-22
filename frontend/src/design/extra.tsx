@@ -1,44 +1,18 @@
 // Components the product needs that the design system does not ship. Built from the same tokens
-// and rules: square shapes, 1px hairlines, status always as icon + word, no coloured left border.
-import { useEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
+// and rules: 1px hairlines, status always as icon + word, no coloured left border.
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
 import type { Citation, InputSummary, Role, Source } from "../api";
 import { formatDate } from "../api";
-import { Button, cx, FieldMessages, Icon, useFieldIds, type IconName } from "./components";
-
-/** Multi-line TextField: same label, hint and error wiring, plus a character counter. */
-export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  label: string;
-  hint?: string;
-  error?: string;
-  /** Shows "n / max znaków" under the field; does not block typing (validate on submit). */
-  maxChars?: number;
-}
-export function TextArea({ label, hint, error, maxChars, className, id, value, ...rest }: TextAreaProps) {
-  const { fid, hintId, errId, describedBy } = useFieldIds(id, hint, error);
-  const count = typeof value === "string" ? value.length : 0;
-  const counterId = `${fid}-count`;
-  return (
-    <div className={cx("mp-field", error && "mp-field-invalid", className)}>
-      <label className="mp-field-label" htmlFor={fid}>
-        {label}
-      </label>
-      <FieldMessages hint={hint} error={error} hintId={hintId} errId={errId} />
-      <textarea
-        className="mp-field-input mp-textarea"
-        id={fid}
-        value={value}
-        aria-describedby={[describedBy, maxChars ? counterId : null].filter(Boolean).join(" ") || undefined}
-        aria-invalid={error ? true : undefined}
-        {...rest}
-      />
-      {maxChars !== undefined && (
-        <span className={cx("mp-field-hint mp-counter", count > maxChars && "mp-counter-over")} id={counterId}>
-          {count.toLocaleString("pl-PL")} / {maxChars.toLocaleString("pl-PL")} znaków
-        </span>
-      )}
-    </div>
-  );
-}
+import { cx, Icon, type IconName } from "./components";
 
 const ROLE: Record<Role, { word: string; icon: IconName; cls: string }> = {
   supports: { word: "potwierdza", icon: "circle-check", cls: "mp-role-supports" },
@@ -180,71 +154,191 @@ function Thumb({ file }: { file: File }) {
     setSrc(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
-  if (!src) return <Icon name="file-text" size={28} className="mp-file-icon" />;
-  return <img className="mp-file-thumb" src={src} alt="" />;
+  if (!src)
+    return (
+      <span className="mp-chip-icon">
+        <Icon name="file-text" size={20} />
+      </span>
+    );
+  return <img className="mp-chip-thumb" src={src} alt="" onError={() => setSrc(undefined)} />;
 }
 
-export interface FilePickerProps {
+export interface ComposerProps {
   id: string;
+  /** Accessible name of the text box (visually hidden: the page heading says what to do). */
   label: string;
-  hint?: string;
+  placeholder: string;
+  /** Short help under the box. */
+  hint: string;
+  value: string;
+  onChange: (value: string) => void;
   error?: string;
+  /** The counter appears only near the limit; it does not block typing (validate on submit). */
+  maxChars: number;
   files: File[];
   accept: string;
-  /** Hidden when the limit is reached. */
+  /** The attach button is hidden when the file limit is reached. */
   canAdd: boolean;
-  onAdd: (files: File[]) => void;
-  onRemove: (index: number) => void;
+  onAddFiles: (files: File[]) => void;
+  onRemoveFile: (index: number) => void;
+  busy: boolean;
+  submitLabel: string;
 }
 
-/** File field: a secondary button opens the system picker; chosen files are listed with a remove button. */
-export function FilePicker({ id, label, hint, error, files, accept, canAdd, onAdd, onRemove }: FilePickerProps) {
-  const { fid, hintId, errId, describedBy } = useFieldIds(id, hint, error);
-  const input = useRef<HTMLInputElement>(null);
-  const labelId = `${fid}-label`;
+/** Message box: grows with the text, Enter submits the surrounding form (Shift+Enter is a new line).
+ *  Files can be attached with the button, pasted (Ctrl+V) or dropped onto the box. */
+export function Composer({
+  id,
+  label,
+  placeholder,
+  hint,
+  value,
+  onChange,
+  error,
+  maxChars,
+  files,
+  accept,
+  canAdd,
+  onAddFiles,
+  onRemoveFile,
+  busy,
+  submitLabel,
+}: ComposerProps) {
+  const area = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const hintId = `${id}-hint`;
+  const errId = `${id}-err`;
+  const countId = `${id}-count`;
+  const showCount = value.length > maxChars * 0.8;
+
+  // Height follows the content; CSS max-height caps it and the box scrolls from there.
+  const fit = useCallback(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+  useLayoutEffect(fit, [value, fit]);
+  useEffect(() => {
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [fit]);
+
+  function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // isComposing: Enter that confirms an IME candidate must not send.
+    if (e.key !== "Enter" || e.shiftKey || e.altKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
+  }
+
+  /** Ctrl+V of a screenshot. Text from Word or a web page also carries a picture of itself: keep only the text then. */
+  function onPaste(e: ClipboardEvent) {
+    const pasted = Array.from(e.clipboardData.files);
+    if (pasted.length && !e.clipboardData.types.includes("text/plain")) {
+      e.preventDefault();
+      onAddFiles(pasted);
+    }
+  }
+
+  function onDragOver(e: DragEvent) {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    setDragging(true);
+  }
+
+  function onDrop(e: DragEvent) {
+    setDragging(false);
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    onAddFiles(Array.from(e.dataTransfer.files));
+  }
+
   return (
-    <div className={cx("mp-field mp-files", error && "mp-field-invalid")} role="group" aria-labelledby={labelId}>
-      <span className="mp-field-label" id={labelId}>
-        {label}
-      </span>
-      <FieldMessages hint={hint} error={error} hintId={hintId} errId={errId} />
-      <input
-        ref={input}
-        id={fid}
-        type="file"
-        className="mp-sr"
-        tabIndex={-1}
-        aria-hidden="true"
-        multiple
-        accept={accept}
-        onChange={(e) => {
-          onAdd(Array.from(e.target.files ?? []));
-          e.target.value = ""; // the same file can be chosen again after removing it
+    <div className="mp-composer-wrap">
+      <div
+        className={cx("mp-composer", error && "mp-composer-invalid", dragging && "mp-composer-drag")}
+        onPaste={onPaste}
+        onDragOver={onDragOver}
+        onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setDragging(false)}
+        onDrop={onDrop}
+        // A click on the box's padding or bar puts the cursor in the text, like in a chat window.
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget || (e.target as Element).classList.contains("mp-composer-bar")) {
+            e.preventDefault();
+            area.current?.focus();
+          }
         }}
-      />
-      {files.length > 0 && (
-        <ul className="mp-files-list" aria-label="Dodane pliki">
-          {files.map((f, i) => (
-            <li key={`${f.name}-${f.size}-${i}`} className="mp-file">
-              <Thumb file={f} />
-              <span className="mp-file-name">
-                {f.name}
-                <span className="mp-file-size"> · {formatSize(f.size)}</span>
-              </span>
-              <Button variant="link" onClick={() => onRemove(i)} aria-label={`Usuń plik ${f.name}`}>
-                Usuń
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {canAdd && (
-        <div>
-          <Button variant="secondary" icon="file-text" iconPosition="start" onClick={() => input.current?.click()} aria-describedby={describedBy}>
-            {files.length ? "Dodaj kolejny plik" : "Dodaj zdjęcie lub plik PDF"}
-          </Button>
+      >
+        <label className="mp-sr" htmlFor={id}>
+          {label}
+        </label>
+        {files.length > 0 && (
+          <ul className="mp-chips" aria-label="Dodane pliki">
+            {files.map((f, i) => (
+              <li key={`${f.name}-${f.size}-${f.lastModified}`} className="mp-chip">
+                <Thumb file={f} />
+                <span className="mp-chip-name">{f.name}</span>
+                <span className="mp-chip-size">{formatSize(f.size)}</span>
+                <button type="button" className="mp-chip-x" onClick={() => onRemoveFile(i)} aria-label={`Usuń plik ${f.name}`}>
+                  <Icon name="x" size={18} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <textarea
+          ref={area}
+          id={id}
+          className="mp-composer-input"
+          rows={2}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          enterKeyHint="send"
+          aria-describedby={[hintId, error ? errId : null, showCount ? countId : null].filter(Boolean).join(" ")}
+          aria-invalid={error ? true : undefined}
+        />
+        <input
+          ref={picker}
+          type="file"
+          className="mp-sr"
+          tabIndex={-1}
+          aria-hidden="true"
+          multiple
+          accept={accept}
+          onChange={(e) => {
+            onAddFiles(Array.from(e.target.files ?? []));
+            e.target.value = ""; // the same file can be chosen again after removing it
+          }}
+        />
+        <div className="mp-composer-bar">
+          {canAdd && (
+            <button type="button" className="mp-composer-attach" onClick={() => picker.current?.click()}>
+              <Icon name="paperclip" size={20} />
+              <span>Dodaj plik</span>
+            </button>
+          )}
+          <span className={cx("mp-composer-count", value.length > maxChars && "mp-counter-over")} id={countId}>
+            {showCount && `${value.length.toLocaleString("pl-PL")} / ${maxChars.toLocaleString("pl-PL")}`}
+          </span>
+          <button type="submit" className="mp-btn mp-btn-primary mp-composer-send" aria-disabled={busy || undefined}>
+            <span>{submitLabel}</span>
+            <Icon name={busy ? "loader" : "arrow-right"} size={20} className={busy ? "mp-spin" : undefined} />
+          </button>
         </div>
+      </div>
+      {error && (
+        <p className="mp-field-error mp-composer-error" id={errId}>
+          <Icon name="circle-x" size={18} />
+          <span className="mp-sr">Błąd: </span>
+          {error}
+        </p>
       )}
+      <p className="mp-composer-hint" id={hintId}>
+        {hint}
+      </p>
     </div>
   );
 }
