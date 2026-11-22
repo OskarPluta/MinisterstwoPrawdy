@@ -274,6 +274,21 @@ def _host_ok(url: str, domains: tuple[str, ...] | set[str]) -> str | None:
     return None
 
 
+GOOGLE_FACTCHECK_HOST = urlsplit(FC_ENDPOINT).hostname or ""
+
+
+@functools.lru_cache(maxsize=None)
+def _terms_cached(host: str) -> tuple[tuple[str, Any], ...]:
+    from crawler.config import license_for_host
+
+    return tuple(license_for_host(host).items())
+
+
+def _terms(host: str) -> dict[str, Any]:
+    """Licence fields of a live source: the crawler's `licenses` rule for its host (sources.yaml)."""
+    return dict(_terms_cached(host))
+
+
 def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", _fold(s)).strip("-")
 
@@ -309,7 +324,7 @@ def factcheck_records(data: dict[str, Any], fetched_at: str) -> tuple[list[dict]
             pub = (rv.get("publisher") or {}).get("name") or domain
             sources.setdefault(sid, {
                 "source_id": sid, "publisher": pub, "publishing_domain": domain, "source_type": "factcheck",
-                "citation_url": f"https://{host}/", "terms_url": None,
+                "citation_url": f"https://{host}/", **_terms(GOOGLE_FACTCHECK_HOST),
                 "refresh_policy": "na żywo (Google Fact Check Tools)", "last_success_at": fetched_at,
                 "last_error": None,
             })
@@ -463,7 +478,7 @@ def search_euvsdisinfo(fetcher: Any, budget: _Budget, claim_text: str, queries: 
     if run.records:
         run.sources = [{
             "source_id": "live-euvsdisinfo", "publisher": EUVSD_PUBLISHER, "publishing_domain": "euvsdisinfo.eu",
-            "source_type": "factcheck", "citation_url": "https://euvsdisinfo.eu/", "terms_url": None,
+            "source_type": "factcheck", "citation_url": "https://euvsdisinfo.eu/", **_terms("euvsdisinfo.eu"),
             "refresh_policy": "na żywo (serwer MCP EUvsDisinfo, narzędzie search)",
             "last_success_at": utcnow_iso(), "last_error": None,
         }]
@@ -559,7 +574,7 @@ def search_govpl(fetcher: Any, budget: _Budget, claim_text: str, queries: list[s
         if sid not in {x["source_id"] for x in run.sources}:
             run.sources.append({
                 "source_id": sid, "publisher": govpl_publisher(page.text, unit), "publishing_domain": "gov.pl",
-                "source_type": "official", "citation_url": f"{GOVPL_BASE}/web/{unit}", "terms_url": None,
+                "source_type": "official", "citation_url": f"{GOVPL_BASE}/web/{unit}", **_terms("www.gov.pl"),
                 "refresh_policy": "na żywo (wyszukiwarka gov.pl)", "last_success_at": utcnow_iso(),
                 "last_error": None,
             })

@@ -4,6 +4,7 @@
     uv run crawler run                      # pętla ciągła wg interval_minutes
     uv run crawler once [--source NAZWA]    # jeden przebieg (wszystkie lub wybrane źródła)
     uv run crawler status                   # tabela stanu źródeł
+    uv run crawler forget                   # wycina z documents.jsonl treści z removed.yaml
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore", message=".*SOCKS support.*")
 
-from crawler.config import ConfigError, load_config
+from crawler.config import DEFAULT_CONFIG, ConfigError, load_config
 from crawler.runner import STOP, build_ctx, run_loop, run_once, status_report
 from crawler.storage import Store
 
@@ -54,8 +55,7 @@ def install_signal_handlers() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="FaktBot – crawler oficjalnych komunikatów")
-    # backend/crawler/sources.yaml (pakiet instalowany w trybie edytowalnym przez workspace uv)
-    ap.add_argument("--config", default=str(Path(__file__).resolve().parents[2] / "sources.yaml"))
+    ap.add_argument("--config", default=str(DEFAULT_CONFIG))
     ap.add_argument("--data-dir", default=None, help="nadpisuje settings.data_dir")
     ap.add_argument("-v", "--verbose", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     for p in (p_run, p_once):
         p.add_argument("--max-items", type=int, default=None, help="tymczasowo nadpisuje max_items_per_run")
     sub.add_parser("status", help="tabela stanu źródeł")
+    sub.add_parser("forget", help="usuwa z documents.jsonl treści z removed.yaml (procedura usunięcia)")
     args = ap.parse_args(argv)
 
     try:
@@ -98,7 +99,15 @@ def main(argv: list[str] | None = None) -> int:
         log.error("Inny proces crawlera już działa na %s", cfg.data_dir)
         return 3
 
-    store = Store(cfg.data_dir)
+    if args.cmd == "forget":
+        n = Store(cfg.data_dir).forget(cfg.removals)
+        log.info("removed.yaml: usunięto %d wersji (%d adresów) z %s", n["lines"], n["urls"],
+                 cfg.data_dir / "documents.jsonl")
+        print(f"Usunięto {n['lines']} wersji dokumentów ({n['urls']} adresów). "
+              "Teraz `uv run rag purge`, a dla data/snapshot także commit.")
+        return 0
+
+    store = Store(cfg.data_dir, removals=cfg.removals)
     try:
         ctx = build_ctx(cfg, store, args.max_items)
     except ConfigError as e:

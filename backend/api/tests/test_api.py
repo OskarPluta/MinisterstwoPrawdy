@@ -132,3 +132,25 @@ def test_sources(client):
     assert src and {"source_id", "publisher", "publishing_domain", "source_type",
                     "last_success_at", "last_error", "current_records"} <= set(src[0])
     assert all(s["publishing_domain"].endswith(".test") for s in src)
+
+
+def test_citation_carries_source_credit(client):
+    body = client.post("/api/verify", json={"text": "Czy na Wiśle w Sandomierzu jest ostrzeżenie?"}).json()
+    (cit,) = body["claims"][0]["citations"]
+    assert cit["is_verbatim"] is False
+    assert cit["attribution"] == ("Źródłem pochodzenia danych jest Instytut Testowy. "
+                                  "Dane Instytutu Testowego zostały przetworzone.")
+
+
+def test_sources_list_licences(client):
+    rows = {s["source_id"]: s for s in client.get("/api/sources").json()["sources"]}
+    assert rows["imgw_hydro"]["license"] == "Regulamin testowy IMGW"
+    assert "license" in rows["rcb"]
+
+
+def test_delete_check(client):
+    check_id = client.post("/api/verify", json={"text": "Czy na Wiśle w Sandomierzu jest ostrzeżenie?"}).json()["check_id"]
+    r = client.delete(f"/api/checks/{check_id}")
+    assert r.status_code == 200 and r.json() == {"deleted": True, "check_id": check_id}
+    assert client.delete(f"/api/checks/{check_id}").status_code == 404, "already deleted"
+    assert client.delete("/api/checks/nie-uuid").status_code == 422

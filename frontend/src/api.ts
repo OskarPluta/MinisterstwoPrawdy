@@ -18,6 +18,8 @@ export interface Citation {
   text: string;
   /** false: structured data rendered by a fixed template ("Dane ze źródła"), not a quote. */
   is_verbatim: boolean;
+  /** Credit required by the source's terms (e.g. IMGW), from the source catalog, never from the model. Plain text. */
+  attribution?: string | null;
 }
 
 export type StrengthLevel = "strong" | "moderate" | "weak" | "none";
@@ -62,6 +64,9 @@ export interface Source {
   source_type: "official" | "structured" | "factcheck" | string;
   citation_url: string | null;
   terms_url: string | null;
+  /** Licence or legal basis for storing the source (docs/DANE_I_LICENCJE.md). */
+  license: string | null;
+  attribution: string | null;
   /** UTC, ISO 8601. */
   last_success_at: string | null;
   last_error: string | null;
@@ -118,6 +123,11 @@ export function verify(text: string, now?: string): Promise<CheckResult> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(now ? { text, now } : { text }),
   });
+}
+
+/** Deletes the server-side log of one check (the check_id returned with the result is the only key). */
+export function deleteCheck(checkId: string): Promise<{ deleted: boolean; check_id: string }> {
+  return call("/api/checks/" + encodeURIComponent(checkId), { method: "DELETE" });
 }
 
 export function getSources(): Promise<SourcesResponse> {

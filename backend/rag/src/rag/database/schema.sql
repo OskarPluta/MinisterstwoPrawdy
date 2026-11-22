@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS sources (
     publishing_domain  TEXT NOT NULL,
     source_type        TEXT NOT NULL,
     terms_url          TEXT,
+    license            TEXT,  -- licence or legal basis (docs/DANE_I_LICENCJE.md)
+    attribution        TEXT,  -- source credit shown under every citation
+    processed_notice   TEXT,  -- extra credit under template-rendered data (IMGW terms)
     citation_url       TEXT,
     refresh_policy     TEXT,
     last_success_at    TEXT,
@@ -65,6 +68,7 @@ CREATE TABLE IF NOT EXISTS passages (
 CREATE INDEX IF NOT EXISTS passages_evidence ON passages(evidence_id);
 CREATE INDEX IF NOT EXISTS passages_fts ON passages USING GIN (fts);
 
+-- Check log. Kept for PRAWDOWID_CHECKS_RETENTION_DAYS (rag/verify.py), deletable by check_id.
 CREATE TABLE IF NOT EXISTS checks (
     check_id        TEXT PRIMARY KEY,
     created_at      TEXT NOT NULL,

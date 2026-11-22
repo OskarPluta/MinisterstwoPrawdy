@@ -43,7 +43,7 @@ SELECT p.passage_id, p.evidence_id, p.heading, p.search_text, p.excerpt, p.is_ve
        e.source_id, e.upstream_id, e.version, e.kind, e.title, e.citation_url, e.published_at,
        e.observed_at, e.valid_from, e.valid_to, e.areas_json, e.status, e.syndicated_from,
        e.fields_json, s.publisher, s.publishing_domain, s.source_type, s.last_success_at,
-       s.last_error
+       s.last_error, s.attribution, s.processed_notice
 FROM passages p
 JOIN evidence e USING (evidence_id)
 JOIN sources s USING (source_id)
@@ -55,3 +55,6 @@ SELECT passage_id, evidence_id, embedding, embedding_model
 FROM passages
 WHERE evidence_id = ANY(%(ids)s) AND fts IS NOT NULL
 ORDER BY evidence_id, ord;
+
+-- name: delete_by_evidence
+DELETE FROM passages WHERE evidence_id = ANY(%(ids)s);

@@ -292,6 +292,7 @@ def test_format_check_result_accepts_api_dict_payload():
                         "date_label": "2026-11-21",
                         "text": "Stopień 2.",
                         "is_verbatim": False,
+                        "attribution": "Źródłem pochodzenia danych jest IMGW-PIB. Dane zostały przetworzone.",
                     }
                 ],
             }
@@ -302,6 +303,7 @@ def test_format_check_result_accepts_api_dict_payload():
     desc = out.embeds[0].description or ""
     assert "[Ostrzeżenie hydrologiczne](https://imgw.test/1)" in desc
     assert "Dane ze źródła: Stopień 2." in desc
+    assert "_Źródłem pochodzenia danych jest IMGW-PIB. Dane zostały przetworzone._" in desc
     assert "**Siła dowodów:** umiarkowana" in desc
     assert "• 1 niezależne źródło" in desc
     assert out.embeds[0].color.value == COLOR_SUCCESS  # strength never changes the verdict colour

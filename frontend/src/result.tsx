@@ -1,7 +1,7 @@
 // CheckResult → UI. Model-written text (explanation, claim, message) is rendered as plain text only;
 // links come only from citation.url, which the backend takes from the database.
 import { useState, type ReactNode } from "react";
-import type { CheckResult, CheckStatus, ClaimResult, Strength, Verdict } from "./api";
+import { ApiError, deleteCheck, MSG_OUTAGE, type CheckResult, type CheckStatus, type ClaimResult, type Strength, type Verdict } from "./api";
 import { Button, Notice, StatusPanel, type Tone } from "./design/components";
 import { CitationList } from "./design/extra";
 
@@ -111,6 +111,7 @@ export function resultAsText(res: CheckResult): string {
         const role = { supports: "potwierdza", contradicts: "przeczy", context: "kontekst" }[s.role];
         out.push(`${s.n}. ${s.title} · ${s.publisher}, ${s.date_label} (${role})${s.url ? `\n   ${s.url}` : ""}`);
         out.push(s.is_verbatim ? `   „${s.text}”` : `   Dane ze źródła: ${s.text}`);
+        if (s.attribution) out.push(`   ${s.attribution}`);
       }
     }
     out.push("");
@@ -120,6 +121,18 @@ export function resultAsText(res: CheckResult): string {
 
 export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => void }) {
   const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
+  const [erase, setErase] = useState<{ kind: "idle" | "busy" | "done" } | { kind: "fail"; message: string }>({ kind: "idle" });
+
+  async function eraseLog() {
+    if (erase.kind === "busy" || erase.kind === "done") return;
+    setErase({ kind: "busy" });
+    try {
+      await deleteCheck(res.check_id);
+      setErase({ kind: "done" });
+    } catch (err) {
+      setErase({ kind: "fail", message: err instanceof ApiError ? err.message : MSG_OUTAGE });
+    }
+  }
 
   async function copy() {
     try {
@@ -153,6 +166,25 @@ export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => 
       <p className="app-copy-state" role="status">
         {copied === "ok" ? "Skopiowano wynik do schowka." : copied === "fail" ? "Nie udało się skopiować. Zaznacz tekst ręcznie." : ""}
       </p>
+      {res.check_id && (
+        <div className="app-erase">
+          <p>
+            Zapis tego sprawdzenia (z ukrytymi danymi osobowymi) przechowujemy 30 dni. Możesz go usunąć od razu.
+          </p>
+          <Button variant="secondary" onClick={eraseLog} aria-disabled={erase.kind === "busy" || erase.kind === "done" || undefined}>
+            Usuń zapis tego sprawdzenia
+          </Button>
+          <p className="app-copy-state" role="status">
+            {erase.kind === "done"
+              ? "Usunęliśmy zapis tego sprawdzenia z serwera. Wynik zostaje tylko na tej stronie."
+              : erase.kind === "busy"
+                ? "Usuwam zapis…"
+                : erase.kind === "fail"
+                  ? erase.message
+                  : ""}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

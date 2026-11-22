@@ -59,6 +59,25 @@ export function HowPage() {
           Zapisujemy wynik sprawdzenia, żeby poprawiać usługę. Zanim zapiszemy Twoją wiadomość, ukrywamy w niej adresy e-mail, numery
           telefonów, PESEL, numery dowodów i kont bankowych.
         </p>
+        <p>
+          Zapis przechowujemy 30 dni, a potem usuwamy go automatycznie. Pod wynikiem możesz usunąć go od razu przyciskiem „Usuń zapis
+          tego sprawdzenia”. Nikt poza osobą, która dostała wynik, nie zna jego identyfikatora, więc tylko ona może go usunąć.
+        </p>
+      </InfoSection>
+
+      <InfoSection title="Skąd mamy treści źródeł" id="licencje">
+        <p>
+          Przechowujemy komunikaty instytucji publicznych, dane pomiarowe i wyniki weryfikacji. Dla każdego źródła określiliśmy licencję
+          albo podstawę prawną. Znajdziesz je w kolumnie „Licencja” na stronie{" "}
+          <a className="mp-link" href="/zrodla">
+            Źródła
+          </a>
+          . Z serwisów fact-checkingowych zapisujemy tylko tezę, ocenę i link, bez treści artykułów.
+        </p>
+        <p>
+          Jeśli jesteś wydawcą i chcesz, żebyśmy usunęli Twoje materiały, napisz do zespołu. Usuwamy je z bazy, z archiwum i z zapisów
+          sprawdzeń, w których były cytowane, a adres trafia do rejestru usuniętych treści, więc nie wróci przy kolejnym pobraniu.
+        </p>
       </InfoSection>
 
       <InfoSection title="Deklaracja dostępności" id="dostepnosc">

@@ -1,4 +1,4 @@
-"""rag ingest | reembed | stats | search | verify"""
+"""rag ingest | reembed | stats | search | verify | purge | prune-checks | delete-check"""
 
 from __future__ import annotations
 
@@ -130,6 +130,62 @@ def verify(
         f"{'cost n/a' if cost is None else f'${cost:.4f}'}]",
         err=True,
     )
+
+
+@app.command()
+def purge(
+    url: list[str] = typer.Option([], "--url", help="Document URL to delete (repeatable)"),
+    source: list[str] = typer.Option([], "--source", help="Source id to delete with all records (repeatable)"),
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation"),
+):
+    """Procedure of removal: delete records, passages, vectors and related check logs.
+    Without --url/--source applies the register backend/crawler/removed.yaml."""
+    from .db import purge as db_purge
+    from .ingest import default_removals
+
+    urls, sources = list(url), list(source)
+    if not urls and not sources:
+        reg = default_removals()
+        urls, sources = sorted(reg.urls), sorted(reg.sources)
+        typer.echo(f"removed.yaml: {len(urls)} URLs, {len(sources)} sources")
+        if not urls and not sources:
+            return
+    elif not yes:
+        typer.echo("Hint: also add the entry to backend/crawler/removed.yaml, or the next ingest brings it back.")
+    if not yes and not typer.confirm(f"Delete {len(urls)} URLs and {len(sources)} sources from the database?"):
+        raise typer.Abort()
+    typer.echo(f"deleted: {db_purge(connect(db), urls=urls, sources=sources)}")
+
+
+@app.command("prune-checks")
+def prune_checks_cmd(
+    days: int | None = typer.Option(None, help="Keep this many days (default PRAWDOWID_CHECKS_RETENTION_DAYS or 30)"),
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+):
+    """Check log retention: delete checks older than the retention period (0 days = all)."""
+    from datetime import timedelta, timezone
+
+    from .db import prune_checks
+    from .verify import checks_retention_days
+
+    keep = checks_retention_days() if days is None else max(0, days)
+    n = prune_checks(connect(db), datetime.now(timezone.utc) - timedelta(days=keep))
+    typer.echo(f"deleted {n} checks older than {keep} days")
+
+
+@app.command("delete-check")
+def delete_check(
+    check_id: str,
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+):
+    """Delete one check log (the check_id returned to the user)."""
+    from .db import delete_checks
+
+    n = delete_checks(connect(db), [check_id])
+    typer.echo("deleted" if n else "not found")
+    if not n:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

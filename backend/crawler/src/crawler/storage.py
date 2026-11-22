@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .removals import Removals
+
 log = logging.getLogger(__name__)
 
 
@@ -78,8 +80,9 @@ def _append_line(path: Path, obj: dict) -> None:
 class Store:
     """Pliki danych w `data_dir`. documents.jsonl tylko dopisujemy (nowa treść = nowa wersja)."""
 
-    def __init__(self, data_dir: Path, readonly: bool = False):
+    def __init__(self, data_dir: Path, readonly: bool = False, removals: Removals | None = None):
         self.readonly = readonly  # tryb do odczytu (np. `status`) – nigdy nie zapisuje plików
+        self.removals = removals or Removals()  # removed.yaml: tych dokumentów nie zapisujemy
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.docs_path = self.dir / "documents.jsonl"
@@ -120,7 +123,11 @@ class Store:
     def save_document(self, *, url: str, source: str, institution: str, doc_type: str | None,
                       region: str | None, title: str | None, content: str, published_at: str | None,
                       fetch_method: str, extra: dict | None = None) -> str:
-        """Zwraca 'new' | 'updated' | 'unchanged'. Starych linii nigdy nie modyfikuje."""
+        """Zwraca 'new' | 'updated' | 'unchanged'. Starych linii nigdy nie modyfikuje.
+        Dokument z removed.yaml (adres albo całe źródło) nie jest zapisywany ('unchanged')."""
+        if self.removals.matches(url=url, source=source):
+            log.info("Pomijam %s: jest w removed.yaml", url)
+            return "unchanged"
         content_hash = sha256(content)
         cur = self.current.get(url)
         if cur and cur["content_hash"] == content_hash:
@@ -139,6 +146,58 @@ class Store:
         self.current[url] = {"version": version, "content_hash": content_hash, "id": doc_id}
         atomic_write_json(self.current_path, self.current)
         return "updated" if cur else "new"
+
+    def forget(self, removals: Removals) -> dict[str, int]:
+        """Procedura usunięcia: przepisuje documents.jsonl bez dokumentów z `removals` (jedyny
+        wyjątek od dopisywania; plik podmieniany atomowo) i czyści po nich indeks oraz stan."""
+        if self.readonly:
+            raise RuntimeError("Store otwarty tylko do odczytu")
+        if not removals or not self.docs_path.exists():
+            return {"lines": 0, "urls": 0}
+        kept: list[str] = []
+        gone: set[str] = set()
+        dropped = 0
+        with self.docs_path.open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    kept.append(line if line.endswith("\n") else line + "\n")
+                    continue
+                if removals.matches(url=d.get("url"), source=d.get("source")):
+                    dropped += 1
+                    gone.add(d["url"])
+                else:
+                    kept.append(line if line.endswith("\n") else line + "\n")
+        if not dropped:
+            return {"lines": 0, "urls": 0}
+        fd, tmp = tempfile.mkstemp(dir=self.dir, prefix=self.docs_path.name + ".", suffix=".tmp")
+        try:
+            os.fchmod(fd, 0o644)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.writelines(kept)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.docs_path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        for url in gone:
+            self.current.pop(url, None)
+            self.state["http_cache"].pop(url, None)
+            for st in self.state["sources"].values():
+                if isinstance(st.get("known"), dict):
+                    st["known"].pop(url, None)
+        for name in removals.sources:
+            self.state["sources"].pop(name, None)
+        atomic_write_json(self.current_path, self.current)
+        self.save_state()
+        return {"lines": dropped, "urls": len(gone)}
 
     # ---------- walidatory HTTP ----------
     def validators(self, url: str) -> dict:

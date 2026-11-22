@@ -21,10 +21,11 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
 from rag.config import load_env
-from rag.db import Connection, connect, corpus_totals, corpus_version, list_sources
+from rag.db import Connection, connect, corpus_totals, corpus_version, delete_checks, list_sources
 from rag.embed import DEFAULT_EMBEDDER, Embedder, get_embedder
 from rag.search import Retriever
 from rag.timeutil import WARSAW, parse_ts
@@ -35,6 +36,8 @@ log = logging.getLogger(__name__)
 # Fields that are internal diagnostics and never reach the user.
 _INTERNAL_RESULT = ("error",)
 _INTERNAL_CLAIM = ("error", "shortlist_ids", "invented_ids", "live")  # live: lookup log, the note says it to the user
+# check_id is a UUID4 (rag/verify.py); anything else is rejected before touching the database.
+CHECK_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 # Hard cap on the request body; the Verifier answers `too_long` above its own limit.
 MAX_REQUEST_CHARS = 50_000
 
@@ -114,6 +117,16 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
         if res.error:
             log.warning("check %s: %s", res.check_id, res.error)
         return public_result(res)
+
+    @app.delete("/api/checks/{check_id}")
+    def delete_check(check_id: str = PathParam(pattern=CHECK_ID_PATTERN)) -> dict[str, Any]:
+        """Delete the log of one check. The random check_id (UUID4) returned with the result is the
+        only key to it, so only whoever received the result can delete it."""
+        s = svc()
+        with s.lock:
+            if not delete_checks(s.conn, [check_id]):
+                raise HTTPException(404, "Nie ma zapisu o tym identyfikatorze (mógł już zostać usunięty).")
+        return {"deleted": True, "check_id": check_id}
 
     @app.get("/api/sources")
     def sources() -> dict[str, Any]:

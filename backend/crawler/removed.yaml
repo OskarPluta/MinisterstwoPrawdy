@@ -1,0 +1,16 @@
+# Rejestr usuniętych treści. Procedura: docs/DANE_I_LICENCJE.md#procedura-usunięcia
+#
+# Każdy wpis: dokładnie jedno z pól `url` (adres dokumentu, tak jak w documents.jsonl)
+# albo `source` (nazwa źródła z sources.yaml lub identyfikator źródła w bazie, np. live-govpl-mswia),
+# oraz `date` (RRRR-MM-DD) i `reason` (np. „wniosek wydawcy z 2026-11-20”, „brak licencji”).
+#
+# Po dopisaniu wpisu:
+#   uv run crawler forget                          # wycina wpisy z data/crawl/documents.jsonl
+#   uv run crawler --data-dir data/snapshot forget # to samo dla zrzutu w git (potem commit)
+#   uv run rag purge                               # kasuje rekordy, fragmenty i powiązane logi z bazy
+#
+# Przykład:
+#   - url: https://www.gov.pl/web/przyklad/komunikat
+#     date: 2026-11-22
+#     reason: wniosek wydawcy
+removed: []

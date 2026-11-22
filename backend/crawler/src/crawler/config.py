@@ -6,10 +6,15 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
 from . import __version__
+from .removals import REMOVALS_FILE, Removals, load_removals
+
+# backend/crawler/sources.yaml (pakiet instalowany w trybie edytowalnym przez workspace uv)
+DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "sources.yaml"
 
 ADAPTER_TYPES = {"rss", "html_list", "sitemap", "json_api", "static_page", "mcp_tool"}
 
@@ -53,6 +58,7 @@ class Config:
     settings: dict[str, Any]
     sources: list[dict[str, Any]]
     path: Path
+    removals: Removals = field(default_factory=Removals)
     data_dir: Path = field(init=False)
 
     def __post_init__(self) -> None:
@@ -83,8 +89,42 @@ class Config:
         return f"FaktBot/{__version__} (+{c})"
 
 
-def load_config(path: str | Path, data_dir: str | None = None) -> Config:
-    """Wczytuje i waliduje sources.yaml; `data_dir` nadpisuje settings.data_dir."""
+LICENSE_FIELDS = ("license", "terms_url", "processed_notice")
+
+
+def _host_matches(host: str, patterns: list[str]) -> bool:
+    return any(host == p or host.endswith("." + p) for p in patterns)
+
+
+def _apply_license(src: dict[str, Any], rules: list[dict[str, Any]]) -> None:
+    """Uzupełnia license / terms_url / processed_notice z pierwszej reguły `licenses`, której
+    `hosts` pasuje do hosta źródła. Pola wpisane w samym źródle mają pierwszeństwo."""
+    host = (urlparse(src["urls"][0]).hostname or "").lower()
+    for rule in rules:
+        if _host_matches(host, [h.lower() for h in rule.get("hosts") or []]):
+            for k in LICENSE_FIELDS:
+                if rule.get(k) and not src.get(k):
+                    src[k] = rule[k]
+            break
+    if not src.get("license"):
+        raise ConfigError(
+            f"{src['name']}: brak licencji ani podstawy prawnej (pole 'license' albo reguła w 'licenses' "
+            f"dla hosta {host}). Bez niej treści nie wolno archiwizować: docs/DANE_I_LICENCJE.md"
+        )
+
+
+def license_for_host(host: str, path: str | Path = DEFAULT_CONFIG) -> dict[str, Any]:
+    """Pola licencji z reguły `licenses` dla hosta (np. dla wyszukiwania na żywo w rag/live.py,
+    które nie ma własnych wpisów w sources.yaml). Brak reguły: wartości None."""
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    for rule in raw.get("licenses") or []:
+        if _host_matches(host.lower(), [h.lower() for h in rule.get("hosts") or []]):
+            return {k: rule.get(k) for k in LICENSE_FIELDS}
+    return dict.fromkeys(LICENSE_FIELDS)
+
+
+def load_config(path: str | Path = DEFAULT_CONFIG, data_dir: str | None = None) -> Config:
+    """Wczytuje i waliduje sources.yaml (i removed.yaml obok); `data_dir` nadpisuje settings.data_dir."""
     path = Path(path).resolve()
     if not path.exists():
         raise ConfigError(f"Nie znaleziono pliku konfiguracji {path}")
@@ -123,5 +163,10 @@ def load_config(path: str | Path, data_dir: str | None = None) -> Config:
         src["urls"] = list(urls)
         if not src.get("institution"):
             raise ConfigError(f"{name}: brak pola 'institution'")
+        _apply_license(src, list(raw.get("licenses") or []))
         sources.append(src)
-    return Config(settings=settings, sources=sources, path=path)
+    try:
+        removals = load_removals(path.parent / REMOVALS_FILE)
+    except ValueError as e:
+        raise ConfigError(str(e)) from None
+    return Config(settings=settings, sources=sources, path=path, removals=removals)

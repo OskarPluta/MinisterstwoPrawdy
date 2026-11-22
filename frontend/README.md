@@ -53,7 +53,8 @@ Mapowanie odpowiedzi API na widok (ton, tytuł, komunikaty) jest w [`result.tsx`
 | --- | --- |
 | `GET /api/health` | `{status, corpus_version}` |
 | `POST /api/verify` `{text, now?}` | `CheckResult` bez pól wewnętrznych (`error`, `shortlist_ids`, `invented_ids`). 503, gdy nie ma klucza LLM. |
-| `GET /api/sources` | `{totals, sources}`: katalog źródeł ze stanem pobrania i liczbą rekordów |
+| `DELETE /api/checks/{check_id}` | `{deleted, check_id}`; 404, gdy zapisu już nie ma. Przycisk „Usuń zapis tego sprawdzenia” pod wynikiem. |
+| `GET /api/sources` | `{totals, sources}`: katalog źródeł z licencją, stanem pobrania i liczbą rekordów |
 
 ## Znane braki
 

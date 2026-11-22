@@ -6,11 +6,11 @@ import json
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from .chunking import chunk_record, embedding_text
-from .crawler_import import convert
+from .crawler_import import convert, source_catalog
 from .database import query
 from .db import (
     Connection,
@@ -24,6 +24,9 @@ from .db import (
 )
 from .embed import Embedder
 
+if TYPE_CHECKING:
+    from crawler.removals import Removals
+
 log = logging.getLogger(__name__)
 
 BATCH_RECORDS = 256  # records chunked and embedded together (bounded memory, large E5 batches)
@@ -32,11 +35,26 @@ _REQUIRED = ("source_id", "upstream_id", "kind", "title", "citation_url")
 
 def load_corpus(path: str | Path) -> dict[str, Any]:
     """A crawler data directory (documents.jsonl, optional crawl_log.jsonl) is converted
-    in memory; any other path is read as a corpus JSON file."""
+    in memory, with licences from the crawler's sources.yaml; any other path is read as a
+    corpus JSON file."""
     path = Path(path)
     if path.is_dir():
-        return convert(path / "documents.jsonl", path / "crawl_log.jsonl")
+        return convert(path / "documents.jsonl", path / "crawl_log.jsonl", source_catalog())
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def default_removals() -> Removals:
+    """backend/crawler/removed.yaml (the register of removed content)."""
+    from crawler.config import DEFAULT_CONFIG
+    from crawler.removals import REMOVALS_FILE, load_removals
+
+    return load_removals(DEFAULT_CONFIG.parent / REMOVALS_FILE)
+
+
+def is_removed(record: dict[str, Any], removals: Removals) -> bool:
+    return any(
+        removals.matches(url=record.get(k)) for k in ("citation_url", "upstream_id")
+    ) or removals.matches(source=record.get("source_id"))
 
 
 def check_record(record: dict[str, Any], domains: dict[str, str]) -> None:
@@ -56,13 +74,18 @@ def check_record(record: dict[str, Any], domains: dict[str, str]) -> None:
 
 
 def ingest_corpus(
-    conn: Connection, corpus: dict[str, Any], embedder: Embedder | None
+    conn: Connection, corpus: dict[str, Any], embedder: Embedder | None,
+    removals: Removals | None = None,
 ) -> Counter[str]:
     """Upsert sources and evidence. Records are processed in file order, so a later
     entry with the same (source_id, upstream_id) acts as an amendment. Invalid records
-    are logged and counted as "invalid"; the rest of the file still loads."""
+    are logged and counted as "invalid"; the rest of the file still loads. Records and
+    sources in the register of removed content (`removals`, default removed.yaml) are
+    skipped and counted as "removed"."""
+    removals = default_removals() if removals is None else removals
     for src in corpus.get("sources", []):
-        upsert_source(conn, src)
+        if not removals.matches(source=src.get("source_id")):
+            upsert_source(conn, src)
     domains = source_domains(conn)
 
     stats: Counter[str] = Counter()
@@ -70,6 +93,9 @@ def ingest_corpus(
     for start in range(0, len(records), BATCH_RECORDS):
         pending: list[tuple[dict[str, Any], list[PassageIn]]] = []
         for record in records[start : start + BATCH_RECORDS]:
+            if is_removed(record, removals):
+                stats["removed"] += 1
+                continue
             try:
                 check_record(record, domains)
                 # Skip unchanged content before chunking and embedding it.

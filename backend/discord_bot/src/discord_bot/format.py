@@ -5,6 +5,7 @@ Preserves Prawdowid presentation invariants:
   via `rag.verify._model_text`.
 - Links come exclusively from `citation.url` (verified http/https URLs from the database).
 - Structured records (`is_verbatim=False`) are rendered as `Dane ze źródła: ...`.
+- The source credit (`Citation.attribution`, e.g. IMGW terms) stays under the citation header.
 - `insufficient` ("brak wystarczających dowodów") and `unverifiable` are never red.
 """
 
@@ -109,6 +110,7 @@ def check_result_from_dict(data: Mapping[str, Any]) -> CheckResult:
                 date_label=str(cit["date_label"]),
                 text=str(cit["text"]),
                 is_verbatim=bool(cit["is_verbatim"]),
+                attribution=str(cit["attribution"]) if cit.get("attribution") else None,
             )
             for cit in raw_c.get("citations", ())
         ]
@@ -150,7 +152,9 @@ def _format_citation_header(cit: Citation) -> str:
     safe_url = _safe_url(cit.url)
     title = f"[{_md(cit.title)}]({safe_url})" if safe_url else _md(cit.title)
     role_pl = ROLE_PL.get(cit.role, _md(cit.role))
-    return f"{cit.n}. {title} · {_md(cit.publisher)}, {_md(cit.date_label)} ({role_pl})"
+    head = f"{cit.n}. {title} · {_md(cit.publisher)}, {_md(cit.date_label)} ({role_pl})"
+    # Credit required by the source's terms; part of the header so it survives excerpt trimming.
+    return f"{head}\n_{_md(cit.attribution)}_" if cit.attribution else head
 
 
 def _format_citation_body(text: str, is_verbatim: bool) -> str:

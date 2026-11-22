@@ -54,6 +54,14 @@ Wzorcowy przykład wszystkich rodzajów rekordów: [`tests/fixtures/fake_corpus.
 - `strength` (pole w `ClaimResult` i w API) to siła podstawy werdyktu z jawnymi przesłankami w `reasons`. Liczy ją `assess_strength` z cytatów o roli wymaganej przez werdykt. Dwa niezależne źródła, w tym co najmniej jedno pierwotne (`official`, `structured`, `factcheck`), dają `strong`. Dwa źródła wtórne albo jedno pierwotne dają `moderate`, a jedno wtórne `weak`. Przedruk (`syndicated_from`) i kolejne teksty tego samego źródła liczą się jako jedno źródło. Ocena spada o poziom, gdy pomiar dotyczy innego okresu niż twierdzenie lub aktualizacja źródła się nie powiodła, i o kolejny, gdy jakieś źródło przeczy werdyktowi `true` albo `false`. `evidence_strength` z modelu (dopasowanie fragmentów do twierdzenia) może ją tylko obniżyć, ale nie poniżej `weak`. Bez werdyktu (`insufficient`, `unverifiable`) siła to `none`.
 - Werdykt pozostaje ze zwykłego zbioru: `false`, gdy obalenie przeczy treści, `misleading` przy manipulacji, a `unverifiable` z flagą dla czystej oceny. `REQUIRED_ROLES` obowiązują jak zawsze.
 
+## Licencje, usuwanie i retencja
+
+- `ingest` katalogu crawlera bierze `license`, `terms_url`, `attribution` i `processed_notice` źródła z `backend/crawler/sources.yaml` (`crawler_import.source_catalog`). Źródła `live-*` biorą je z reguły `licenses` dla swojego hosta. `Citation.attribution` pokazuje oznaczenie źródła pod cytatem, a pod danymi z szablonu dokłada `processed_notice`.
+- Rekordy i źródła z `backend/crawler/removed.yaml` są pomijane przy każdym `ingest_corpus` (licznik `removed`).
+- `rag purge` (bez argumentów stosuje `removed.yaml`, albo `--url`/`--source`) kasuje w jednej transakcji wszystkie wersje rekordów, ich fragmenty, wiersze źródeł i logi `checks` cytujące usunięte adresy.
+- Log `checks`: `Verifier` usuwa wpisy starsze niż `PRAWDOWID_CHECKS_RETENTION_DAYS` (domyślnie 30, `0` wyłącza log) najwyżej raz na godzinę. Ręcznie: `rag prune-checks`, `rag delete-check <id>`, w API `DELETE /api/checks/{id}`.
+- Opis dla jury i zespołu: [`docs/DANE_I_LICENCJE.md`](../../docs/DANE_I_LICENCJE.md).
+
 ## Konwencje SQL
 
 - Cały SQL jest w `database/`: `schema.sql` (DDL, idempotentny, wykonywany przy każdym połączeniu) i `queries/<grupa>.sql`.

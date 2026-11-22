@@ -75,7 +75,7 @@ Wybieraj w tej kolejności, od najlepszego. **Jeśli źródło ma API** (udokume
 4. Obejrzyj wynik w `/tmp/faktbot-proba/`. `found = 0` oznacza zły `path_prefix` albo heurystykę. Logo zamiast tytułu wymaga `title_selector`, a śmieci w treści `content_selector` lub `drop_selectors`.
 5. Ustaw `enabled: true`. Jeśli wprowadzasz nowy `doc_type`, zmapuj go w `rag/crawler_import.py`.
 
-Klucze, które zwykle mają znaczenie: `name`, `type`, `institution`, `url`/`urls`, `doc_type`, `region`, `interval_minutes`, `enabled`, selektory ekstrakcji, a dla `json_api` `records_path`, `id_field`/`id_template`, `title_template`, `date_fields`, `sort_lists` i `attribution`.
+Klucze, które zwykle mają znaczenie: `license` (wymagane, zwykle z reguły `licenses`), `name`, `type`, `institution`, `url`/`urls`, `doc_type`, `region`, `interval_minutes`, `enabled`, selektory ekstrakcji, a dla `json_api` `records_path`, `id_field`/`id_template`, `title_template`, `date_fields`, `sort_lists` i `attribution`.
 Dodatkowe klucze `json_api` (przykłady: źródła `rso-*` i `gios-indeks-powietrza`):
 
 | Klucz | Do czego |
@@ -134,7 +134,7 @@ Pozycja, która zawiodła 3 razy z rzędu, dostaje `failed` i nie jest już pobi
 
 | Plik | Zawartość | Dla RAG? |
 | --- | --- | --- |
-| `documents.jsonl` | Jedna linia = jedna **wersja** dokumentu. Tylko dopisywany. | **tak, źródło prawdy** |
+| `documents.jsonl` | Jedna linia = jedna **wersja** dokumentu. Tylko dopisywany (wyjątek: `crawler forget`). | **tak, źródło prawdy** |
 | `crawl_log.jsonl` | Jedna linia na przebieg źródła: `status`, liczniki, `message` | tak (stan źródeł) |
 | `current.json` | Indeks `url → bieżąca wersja` (odbudowywany z JSONL, gdy starszy) | nie |
 | `state.json` | Stan wewnętrzny: znane adresy, kolejka, walidatory, wycofania, `active_ids` | nie (wyjątek: `active_ids`) |
@@ -147,6 +147,12 @@ Rekord `documents.jsonl`: `id` (`<hash url>-v<n>`), `url` (klucz dokumentu), `so
 - Crawler nie wykrywa usunięć u źródła. Wyjątkiem są rekordy `json_api`: aktualne są tylko te z `state.json → sources.<nazwa>.active_ids`.
 - Załączniki (PDF) nie są pobierane. Treść kończy się wtedy listą „Komunikat opublikowany w załączniku:”.
 - Treść jest zapisywana bez maskowania danych osobowych.
+
+## Licencje i usuwanie treści
+
+- Każde źródło musi mieć `license`: pole w źródle albo regułę w `licenses` na początku `sources.yaml` (dopasowanie po hoście lub jego subdomenie, wygrywa pierwsza pasująca). Reguła może dodać `terms_url` i `processed_notice`. Źródło bez licencji zatrzymuje wczytanie konfiguracji. RAG przenosi te pola do tabeli `sources`.
+- [`removed.yaml`](removed.yaml) to rejestr usuniętych treści: `url` albo `source`, do tego `date` i `reason`. Crawler nie zapisuje takich dokumentów (licznik `unchanged`).
+- `uv run crawler forget` przepisuje `documents.jsonl` w katalogu danych bez wpisów z rejestru (atomowo, pod blokadą `.lock`) i czyści `current.json` i `state.json`. Dla zrzutu użyj `--data-dir data/snapshot`. Pełna procedura: [`docs/DANE_I_LICENCJE.md`](../../docs/DANE_I_LICENCJE.md#procedura-usunięcia).
 
 ## Testy
 
