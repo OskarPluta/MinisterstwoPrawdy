@@ -14,6 +14,7 @@ import numpy as np
 from .database import query as named_sql
 from .db import Connection, corpus_version
 from .embed import Embedder, _fold
+from .reprints import ARTICLE_KINDS
 from .timeutil import WARSAW, parse_ts
 
 RRF_K = 60
@@ -189,10 +190,13 @@ class Retriever:
         shortlist: int = 8,
         per_group: int = 2,
         mode: str = "hybrid",  # "hybrid" | "bm25" | "dense"
+        per_article: int = 1,
     ) -> list[Hit]:
         """Run BM25 and dense search for each query, fuse all lists with RRF, and
-        return a diverse shortlist (at most `per_group` passages per evidence /
-        syndication group)."""
+        return a diverse shortlist: at most `per_group` passages per evidence /
+        syndication group, and at most `per_article` per article or report (its second
+        passage rarely adds evidence and crowds out other sources; scripts/eval_retrieval.py
+        showed no loss at 1). An original and its reprint can still both appear."""
         if isinstance(queries, str):
             queries = [queries]
         lists: dict[str, list[int]] = {}
@@ -206,12 +210,16 @@ class Retriever:
 
         hits: list[Hit] = []
         per: dict[str, int] = {}
+        per_record: dict[int, int] = {}
         for pid, score, ranks in fused:
             m = meta[pid]
             group = m["syndicated_from"] or f"{m['source_id']}:{m['upstream_id']}"
             if per.get(group, 0) >= per_group:
                 continue
+            if m["kind"] in ARTICLE_KINDS and per_record.get(m["evidence_id"], 0) >= per_article:
+                continue
             per[group] = per.get(group, 0) + 1
+            per_record[m["evidence_id"]] = per_record.get(m["evidence_id"], 0) + 1
             hits.append(Hit(pid, m["evidence_id"], score, ranks, m))
             if len(hits) >= shortlist:
                 break

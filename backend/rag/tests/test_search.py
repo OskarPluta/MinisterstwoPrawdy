@@ -89,3 +89,12 @@ def test_retrieval_quality_floor(retriever, mode, floor_r3, floor_mrr):
     s = evaluate_retrieval(retriever, cases, mode)["summary"]["ALL"]
     assert s["recall@3"] >= floor_r3
     assert s["mrr"] >= floor_mrr
+
+
+def test_one_passage_per_article_by_default(retriever):
+    query = "nowy rozkład jazdy pociągów połączenia regionalne bilety"
+    hits = retriever.hybrid(query, shortlist=8)
+    mi = [h for h in hits if h.meta["upstream_id"] == "MI-2026-11-12-ROZKLAD-JAZDY"]
+    assert len(mi) == 1
+    wider = retriever.hybrid(query, shortlist=8, per_article=3)
+    assert len([h for h in wider if h.meta["upstream_id"] == "MI-2026-11-12-ROZKLAD-JAZDY"]) >= 2

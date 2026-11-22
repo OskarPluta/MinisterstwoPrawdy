@@ -1,9 +1,14 @@
 """Live lookup in trusted sources when the local corpus cannot settle a claim.
 
-When to look (rule): a checkable claim whose first-pass verdict is `insufficient` (no hits at
-all, or the model found nothing that settles it, or a verdict downgraded for lack of citations).
-One lookup per check (the first such claim's wording plus the other claims' first query); at most
-MAX_LIVE_CLAIMS claims are then re-checked on its results. `PRAWDOWID_LIVE=0` turns it off.
+When to look (rule, `live_sources`): a checkable claim whose first-pass verdict is `insufficient`
+(no hits at all, or the model found nothing that settles it, or a verdict downgraded for lack of
+citations): all sources. An opinion (checkable=false) whose first pass found no documented
+narrative (no `known_disinformation`): only the fact-check databases (OPINION_SOURCES, not gov.pl);
+its re-check replaces the first answer only when it sets the code-enforced known_disinformation
+flag, so an opinion never gets `true` and never a verdict without a cited debunk.
+One lookup per check (the first such claim's wording plus the other claims' first query; factual
+claims first); at most MAX_LIVE_CLAIMS claims are then re-checked on its results, each only on
+records of its own sources. `PRAWDOWID_LIVE=0` turns it off.
 
 Where to look (only these, all at once, within BUDGET_S seconds):
   - Google Fact Check Tools `claims:search` (ClaimReview of fact-checkers on TRUSTED_FACTCHECK_DOMAINS),
@@ -43,6 +48,7 @@ import math
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
 from dataclasses import dataclass, field
+from datetime import timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urljoin, urlsplit
@@ -54,7 +60,7 @@ from .db import Connection
 from .embed import Embedder, _fold
 from .ingest import ingest_corpus
 from .search import STOPWORDS, Hit, passage_meta, query_tokens
-from .timeutil import parse_ts, utcnow_iso
+from .timeutil import WARSAW, parse_ts, utcnow_iso
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -143,6 +149,7 @@ class SourceRun:
 class LiveResult:
     runs: list[SourceRun] = field(default_factory=list)
     evidence_ids: list[int] = field(default_factory=list)  # live records, new and already known
+    by_source: dict[str, list[int]] = field(default_factory=dict)  # the same ids per source key
     actions: Counter[str] = field(default_factory=Counter)
     reused: int = 0  # URLs already in the database under a crawler source
     duration_ms: int = 0
@@ -294,8 +301,10 @@ def _slug(s: str) -> str:
 
 
 def _utc(value: str | None) -> str | None:
-    dt = parse_ts(value)
-    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z") if dt else None
+    """ISO 8601 in UTC ("...Z"). A time without an offset is a source's local time (Europe/Warsaw:
+    gov.pl pages, Polish fact-checkers), so it is converted, not just labelled UTC."""
+    dt = parse_ts(value, naive_tz=WARSAW)
+    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z") if dt else None
 
 
 def _err(e: BaseException) -> str:
@@ -389,6 +398,7 @@ _EUVSD_ITEM = re.compile(r"^\*\*Item \d+: (.+?)\s*\*\*\s*$", re.M)
 _EUVSD_TYPE = re.compile(r"^\*\*Type:\s*(.+?)\s*\*\*\s*$", re.M)
 _EUVSD_URL = re.compile(r"^\*\*Source URL:\*\*\s*(\S+)\s*$", re.M)
 _EUVSD_INFO = re.compile(r"^\*\*Results Info:\*\*", re.M)
+_EUVSD_DATE = re.compile(r"^\*\*Date:\*\*[ \t]*(.+?)\s*$", re.M)
 
 
 def parse_euvsd_search(text: str) -> list[dict[str, str]]:
@@ -401,6 +411,9 @@ def parse_euvsd_search(text: str) -> list[dict[str, str]]:
         **Source URL:** https://euvsdisinfo.eu/...
         ---
         **Results Info:** ...
+
+    The recorded `search` answers carry no date; a `**Date:**` line (the format of the `cases` and
+    `articles` tools: 11/16/2026 or 2026-11-20 10:08:54, see crawler/mcp.py) is read when present.
     """
     info = _EUVSD_INFO.search(text)
     if info:
@@ -411,12 +424,14 @@ def parse_euvsd_search(text: str) -> list[dict[str, str]]:
         block = text[h.end(): nxt.start() if nxt else len(text)]
         typ = _EUVSD_TYPE.search(block)
         url = _EUVSD_URL.search(block)
+        date = _EUVSD_DATE.search(block)
         start = block.find("**Content:**")
-        end = url.start() if url else len(block)
+        end = min([m.start() for m in (url, date) if m and m.start() > start] or [len(block)])
         content = block[start + len("**Content:**"): end] if start >= 0 else ""
         content = re.sub(r"\n\s*-{3,}\s*$", "", content.strip()).strip()
         items.append({"title": h.group(1).strip(), "type": typ.group(1).strip() if typ else "",
-                      "content": content, "url": url.group(1).strip() if url else ""})
+                      "content": content, "url": url.group(1).strip() if url else "",
+                      "date": date.group(1).strip() if date else ""})
     return items
 
 
@@ -425,6 +440,8 @@ def _paragraphs(text: str) -> str:
 
 
 def euvsd_records(items: list[dict[str, str]], fetched_at: str) -> list[dict]:
+    from crawler.mcp import parse_date
+
     records = []
     for it in items:
         if not _host_ok(it["url"], EUVSD_HOSTS) or not it["content"]:
@@ -445,7 +462,8 @@ def euvsd_records(items: list[dict[str, str]], fetched_at: str) -> list[dict]:
             kind = "article"
         records.append({
             "source_id": "live-euvsdisinfo", "upstream_id": it["url"], "kind": kind, "title": it["title"],
-            "citation_url": it["url"], "published_at": None, "fetched_at": fetched_at, "sections": sections,
+            "citation_url": it["url"], "published_at": _utc(parse_date(it.get("date"))), "fetched_at": fetched_at,
+            "sections": sections,
         })
     return records
 
@@ -663,13 +681,17 @@ def live_lookup(
 
     # One record per URL; a URL the crawler already stored is reused instead of copied.
     records: list[dict] = []
-    seen: set[str] = set()
+    origin: dict[str, str] = {}  # normalised URL -> key of the source run that found it first
     for r in res.runs:
         for rec in r.records:
             n = _norm_url(rec["citation_url"])
-            if n not in seen:
-                seen.add(n)
+            if n not in origin:
+                origin[n] = r.key
                 records.append(rec)
+
+    def found(rec: dict, evidence_id: int) -> None:
+        res.evidence_ids.append(evidence_id)
+        res.by_source.setdefault(origin[_norm_url(rec["citation_url"])], []).append(evidence_id)
     if records:
         variants = []
         for rec in records:
@@ -681,7 +703,7 @@ def live_lookup(
         for rec in records:
             row = known.get(_norm_url(rec["citation_url"]))
             if row is not None and not row["source_id"].startswith("live-"):
-                res.evidence_ids.append(row["evidence_id"])
+                found(rec, row["evidence_id"])
                 res.reused += 1
             else:
                 fresh.append(rec)
@@ -694,8 +716,9 @@ def live_lookup(
             row = conn.execute(query("evidence.find_current"),
                                {"source_id": rec["source_id"], "upstream_id": rec["upstream_id"]}).fetchone()
             if row is not None:
-                res.evidence_ids.append(row["evidence_id"])
+                found(rec, row["evidence_id"])
     res.evidence_ids = list(dict.fromkeys(res.evidence_ids))
+    res.by_source = {k: list(dict.fromkeys(v)) for k, v in res.by_source.items()}
     res.duration_ms = int((time.monotonic() - t0) * 1000)
     log.info("live lookup: %s", json.dumps(res.to_log(), ensure_ascii=False))
     return res
@@ -745,45 +768,87 @@ def live_shortlist(
 # ---------------------------------------------------------------------------------------
 
 
+# Sources an opinion (checkable=false) is looked up in: only the fact-check databases. An opinion
+# has no factual core for gov.pl to confirm; the lookup can only find the narrative it repeats.
+OPINION_SOURCES = ("factcheck", "euvsdisinfo")
+
+
+def live_sources(claim: Claim, result: ClaimResult) -> tuple[str, ...]:
+    """Source keys (SOURCES) to look the claim up in; empty: no live lookup.
+
+    - checkable claim, first-pass verdict `insufficient`: every source;
+    - opinion whose first pass found no documented narrative (`unverifiable`/`insufficient` and no
+      `known_disinformation`, i.e. no cited fact-check `contradicts`): OPINION_SOURCES only."""
+    if claim.checkable:
+        return tuple(SOURCES) if result.verdict == "insufficient" else ()
+    if result.verdict in ("unverifiable", "insufficient") and not result.known_disinformation:
+        return OPINION_SOURCES
+    return ()
+
+
 def needs_live(claim: Claim, result: ClaimResult) -> bool:
-    """The trigger rule (see the module docstring)."""
-    return claim.checkable and result.verdict == "insufficient"
+    """The trigger rule (see the module docstring and `live_sources`)."""
+    return bool(live_sources(claim, result))
+
+
+def _accept_recheck(claim: Claim, first: ClaimResult, redone: ClaimResult) -> bool:
+    """Whether the re-check on live evidence replaces the first-pass answer. A factual claim takes
+    any answer but `error`. An opinion only changes when the code-enforced known_disinformation flag
+    is now set (a cited fact-check debunk); it never becomes `true`, and without the flag it keeps
+    its first answer, so live passages cannot turn an opinion into a verdict."""
+    if redone.verdict == "error":
+        return False
+    if claim.checkable:
+        return True
+    return redone.known_disinformation and not first.known_disinformation and redone.verdict != "true"
 
 
 def live_pass(verifier: Verifier, claims: list[Claim], results: list[ClaimResult],
               now: datetime, **lookup_kw: Any) -> list[ClaimResult]:
     """Second pass for claims the corpus could not settle: one live lookup per check (claims of
     one message are usually about one topic, and a lookup per claim would multiply the 3 s host
-    spacing), then a re-check of each such claim on the live evidence. A failed re-check keeps
-    the first-pass answer."""
-    todo = [i for i, (c, r) in enumerate(zip(claims, results)) if needs_live(c, r)][:MAX_LIVE_CLAIMS]
+    spacing), then a re-check of each such claim on the live evidence. Factual claims come first
+    (an opinion never takes their place within MAX_LIVE_CLAIMS); the lookup asks the union of the
+    claims' sources, and each claim is re-checked only on records from its own sources. A failed
+    re-check keeps the first-pass answer."""
+    wanted = {i: live_sources(c, r) for i, (c, r) in enumerate(zip(claims, results))}
+    todo = sorted((i for i, keys in wanted.items() if keys), key=lambda i: not claims[i].checkable)[:MAX_LIVE_CLAIMS]
     if not todo:
+        return results
+    pool_src: dict[str, SourceFn] = lookup_kw.pop("sources", None) or SOURCES
+    allowed = {i: set(pool_src) if claims[i].checkable else set(wanted[i]) for i in todo}
+    src = {k: fn for k, fn in pool_src.items() if any(k in allowed[i] for i in todo)}
+    if not src:
         return results
     conn, embedder = verifier.retriever.conn, verifier.retriever.embedder
     out = list(results)
     lead = claims[todo[0]]
     variants = [*lead.search_queries, *(claims[i].search_queries[0] for i in todo[1:] if claims[i].search_queries)]
     try:
-        lk = live_lookup(conn, embedder, lead.text, variants, **lookup_kw)
+        lk = live_lookup(conn, embedder, lead.text, variants, sources=src, **lookup_kw)
     except Exception as e:  # noqa: BLE001 - e.g. a database error while storing; keep the first answers
         log.warning("live lookup failed: %r", e)
         for i in todo:
             out[i].live = {"error": _err(e)}
         return out
     rechecks: dict[int, list[Hit]] = {}
-    if lk.evidence_ids:
-        for i in todo:
-            c = claims[i]
-            local_ids = [int(p[1:]) for p in results[i].shortlist_ids if p[1:].isdigit()]
-            meta = passage_meta(conn, local_ids)
-            local = [Hit(p, meta[p]["evidence_id"], 0.0, {}, meta[p]) for p in local_ids if p in meta]
-            queries = list(dict.fromkeys([c.text, *c.search_queries]))
-            rechecks[i] = live_shortlist(conn, embedder, queries, lk.evidence_ids, local, size=verifier.shortlist)
+    for i in todo:
+        mine = {e for k in allowed[i] for e in lk.by_source.get(k, [])}
+        ids = [e for e in lk.evidence_ids if e in mine]  # the lookup's order
+        if not ids:
+            continue
+        c = claims[i]
+        local_ids = [int(p[1:]) for p in results[i].shortlist_ids if p[1:].isdigit()]
+        meta = passage_meta(conn, local_ids)
+        local = [Hit(p, meta[p]["evidence_id"], 0.0, {}, meta[p]) for p in local_ids if p in meta]
+        queries = list(dict.fromkeys([c.text, *c.search_queries]))
+        rechecks[i] = live_shortlist(conn, embedder, queries, ids, local, size=verifier.shortlist)
+    if rechecks:
         with ThreadPoolExecutor(max_workers=max(1, min(verifier.workers, len(rechecks)))) as pool:
             redone = dict(zip(rechecks, pool.map(
                 lambda i: verifier._check_isolated(claims[i], rechecks[i], now), list(rechecks))))
         for i, r in redone.items():
-            if r.verdict != "error":
+            if _accept_recheck(claims[i], results[i], r):
                 out[i] = r
     note, logged = lk.note(), lk.to_log()
     for i in todo:

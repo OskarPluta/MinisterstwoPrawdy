@@ -279,6 +279,20 @@ def test_verifier_answers_from_live_evidence(retriever, replay_sources):
     assert logged["claims"][0]["live"]["sources"][0]["found"] == 2
 
 
+def test_checkable_unverifiable_is_looked_up_live(retriever, replay_sources):
+    """A factual claim the model calls "unverifiable" is treated as insufficient and looked up."""
+    rec = recorded("govpl")
+    c = claim(rec["claim"], rec["queries"])
+
+    def policy(cl, xml):
+        ids = [x.split('"')[0] for x in xml.split('id="')[1:] if "Stacja Sanitarno" in x.split(">")[0]]
+        return verdict("true", ((ids[0], "supports"),)) if ids else verdict("unverifiable")
+
+    cr = Verifier(retriever, FakeLLM([c], policy), record=False, live=True).verify(rec["claim"], NOW).claims[0]
+    assert replay_sources.seen and cr.live
+    assert cr.verdict == "true" and cr.citations[0].url.startswith("https://www.gov.pl/web/psse-")
+
+
 def test_live_disabled_by_env(retriever, replay_sources, monkeypatch):
     monkeypatch.setenv("PRAWDOWID_LIVE", "0")
     rec = recorded("govpl")

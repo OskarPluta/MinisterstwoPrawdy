@@ -13,6 +13,9 @@ DEFAULT_EMBEDDER = "e5"  # "hash" is for tests and offline runs only
 
 
 class Embedder(Protocol):
+    """May also define `count_tokens(text) -> int` (tokens of `text` embedded as a
+    passage); chunking then sizes passages exactly, otherwise it estimates."""
+
     name: str
 
     def embed_passages(self, texts: list[str]) -> np.ndarray: ...
@@ -36,8 +39,13 @@ class E5Embedder:
 
         self.name = model_name
         self._model = SentenceTransformer(model_name, device=device)
-        # e5-small accepts 512 tokens; passages are capped at ~300 words (≈ 450 tokens for Polish).
+        # e5-small reads 512 tokens; longer input is silently truncated. Chunking measures
+        # passages with count_tokens and keeps them at ~400 (chunking.MAX_TOKENS).
         self._model.max_seq_length = 512
+
+    def count_tokens(self, text: str) -> int:
+        """Tokens the model sees for `text` as a passage (prefix and special tokens included)."""
+        return len(self._model.tokenizer(f"passage: {text}", add_special_tokens=True, verbose=False)["input_ids"])
 
     def embed_passages(self, texts: list[str]) -> np.ndarray:
         vecs = self._model.encode(

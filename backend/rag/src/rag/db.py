@@ -28,7 +28,7 @@ from .database import query, schema
 from .embed import _fold
 from .timeutil import parse_ts, utcnow_iso
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4  # v4: reprint_signatures (rag/reprints.py)
 
 Connection = psycopg.Connection[dict[str, Any]]
 
@@ -70,6 +70,12 @@ def connect(url: str | None = None, *, db_schema: str | None = None) -> Connecti
                 conn.execute(query("meta.migrate_v2"))
             if found < 3:
                 conn.execute(query("meta.migrate_v3"))
+            if found < 4:
+                # v4 adds reprint_signatures (created by schema.sql above); detect reprints
+                # among the records already stored.
+                from .reprints import refresh
+
+                refresh(conn)
             conn.execute(query("meta.set_schema_version"), {"version": str(SCHEMA_VERSION)})
     except BaseException:
         conn.close()
@@ -383,6 +389,7 @@ def purge(conn: Connection, *, urls: Iterable[str] = (), sources: Iterable[str] 
         ids = [r["evidence_id"] for r in rows]
         if ids:
             out["passages"] = conn.execute(query("passages.delete_by_evidence"), {"ids": ids}).rowcount
+            conn.execute(query("reprints.delete_by_evidence"), {"ids": ids})
             out["evidence"] = conn.execute(query("evidence.delete"), {"ids": ids}).rowcount
         if params["sources"]:
             out["sources"] = conn.execute(query("sources.delete"), params).rowcount
@@ -390,4 +397,8 @@ def purge(conn: Connection, *, urls: Iterable[str] = (), sources: Iterable[str] 
             out["checks"] += conn.execute(query("checks.delete_citing"), {"url": url}).rowcount
         if ids or out["sources"]:
             _bump_corpus_version(conn)
+    if ids:
+        from .reprints import refresh
+
+        refresh(conn, recheck=True)  # reprints of a deleted original get a new one (or none)
     return out

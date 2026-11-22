@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from . import reprints
 from .chunking import chunk_record, embedding_text
 from .crawler_import import convert, source_catalog
 from .database import query
@@ -103,7 +104,7 @@ def ingest_corpus(
                 if found is not None:
                     stats[found.action] += 1
                     continue
-                pending.append((record, chunk_record(record)))
+                pending.append((record, chunk_record(record, getattr(embedder, "count_tokens", None))))
             except (KeyError, TypeError, ValueError) as e:
                 stats["invalid"] += 1
                 log.warning("skipped %s:%s: %s", record.get("source_id"), record.get("upstream_id"), e)
@@ -117,6 +118,9 @@ def ingest_corpus(
         model = embedder.name if embedder else None
         for record, ps in pending:
             stats[upsert_evidence(conn, record, ps, model).action] += 1
+    # Reprints of one text count as one source (rag/reprints.py); only new articles are compared.
+    if relinked := reprints.refresh(conn):
+        stats["reprint_links_changed"] = relinked
     return stats
 
 

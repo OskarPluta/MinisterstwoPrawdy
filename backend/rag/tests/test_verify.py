@@ -183,6 +183,43 @@ def test_opinion_without_any_factcheck_hit_skips_the_llm(new_db, embedder):
     assert cr.verdict == "unverifiable" and "opinia" in cr.explanation
 
 
+def test_checkable_claim_cannot_be_unverifiable(retriever):
+    """"unverifiable" is for opinions; a factual claim the passages do not settle is insufficient,
+    so it goes on to the live lookup like any other insufficient answer."""
+    from rag.live import needs_live
+
+    c = claim("PAP usunęła depeszę o wypowiedzi Jana Przykładowego", ["PAP depesza"])
+    v = Verifier(retriever, FakeLLM(), record=False, live=False)
+    target = _pid_for(v, c, "demagog:DEM-PAP-DEPESZA-2026")
+    v.llm = FakeLLM([c], lambda cl, xml: verdict("unverifiable", ((target, "context"),)))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "insufficient" and cr.downgraded_from == "unverifiable"
+    assert [x.role for x in cr.citations] == ["context"]
+    assert cr.explanation.startswith("To twierdzenie o faktach")
+    assert cr.strength and cr.strength.level == "none"
+    assert "dotyczy faktów" in cr.strength.reasons[0]
+    assert needs_live(c, cr)
+
+
+def test_checkable_unverifiable_triggers_live_pass(retriever, monkeypatch):
+    from rag import verify as verify_mod
+
+    seen: list[str] = []
+
+    def fake_live_pass(verifier, claims, results, now, **kw):
+        seen.extend(r.verdict for c, r in zip(claims, results) if c.checkable)
+        return results
+
+    monkeypatch.setattr(verify_mod.live_mod, "live_pass", fake_live_pass)
+    fact = claim("PAP usunęła depeszę o wypowiedzi Jana Przykładowego", ["PAP depesza"])
+    opinion = claim("Ten rząd jest najgorszy w historii", checkable=False)
+    llm = FakeLLM([fact, opinion], lambda cl, xml: verdict("unverifiable"))
+    res = Verifier(retriever, llm, record=False, live=True).verify("x", NOW)
+    assert seen == ["insufficient"]
+    assert [c.verdict for c in res.claims] == ["insufficient", "unverifiable"]
+    assert res.claims[1].downgraded_from is None
+
+
 # --- known disinformation narratives ------------------------------------------------------
 
 CASE = "euvsdisinfo:https://euvsdisinfo.test/report/aggression-against-russia-moral-obligation/"

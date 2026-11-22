@@ -75,8 +75,9 @@ bun run dev | typecheck | build | test  # w frontend/
 | zmienić prompty | `rag/llm.py` (`EXTRACT_SYSTEM`, `VERIFY_SYSTEM`, schematy Pydantic) | Wspólne dla PCSS, OpenAI i Anthropic. Sprawdź przez `eval_verify.py --only ...`. |
 | zmienić reguły werdyktu, siłę dowodów, notatki, render | `rag/verify.py` (`REQUIRED_ROLES`, `_enforce`, `assess_strength`, `PRIMARY_SOURCE_TYPES`, `_notes`, `render_markdown`, `VERDICT_PL`) | Testy: `test_verify.py`. |
 | zmienić wyszukiwanie lub fuzję | `rag/search.py` (`Retriever`, `fts_query`, `STOPWORDS`, `RRF_K`) | Porównaj wyniki przed i po: `scripts/eval_retrieval.py`. |
+| zmienić wykrywanie przedruków | `rag/reprints.py` (`JACCARD_MIN`, `CONTAINMENT_MIN`, `MIN_SHINGLES`, `SHINGLE_WORDS`) | Wynik w `reprint_signatures.reprint_of`, czytany jako `syndicated_from`, gdy rekord go nie podaje. Testy: `test_reprints.py`. |
 | zmienić wyszukiwanie na żywo | `rag/live.py` (`SOURCES`, `TRUSTED_FACTCHECK_DOMAINS`, `BUDGET_S`, `needs_live`) | Testy: `test_live.py` na nagranych odpowiedziach w `tests/fixtures/live/`. Nowe nagranie: prawdziwa odpowiedź, bez kluczy w pliku. |
-| zmienić podział na fragmenty | `rag/chunking.py` (`MAX_WORDS`, `split_section`) | Potem ponowny `ingest` na świeżej bazie. |
+| zmienić podział na fragmenty | `rag/chunking.py` (`MAX_TOKENS`, `split_section`, `estimate_tokens`) | Potem ponowny `ingest` na świeżej bazie. |
 | usunąć treść (wniosek wydawcy, brak licencji) | `backend/crawler/removed.yaml`, potem `crawler forget` i `rag purge` | Procedura: `docs/DANE_I_LICENCJE.md#procedura-usunięcia`. Testy: `test_db.py`, `test_crawler_offline.py`. |
 | zmienić schemat bazy | `rag/database/schema.sql`, `rag/db.py` (`SCHEMA_VERSION`, migracja) | Zapytania w `database/queries/`. |
 | dodać polecenie CLI | `rag/cli.py` (Typer) albo `crawler/cli.py` (argparse) | |

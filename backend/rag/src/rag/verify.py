@@ -182,11 +182,14 @@ def is_disinfo_db(h: Hit) -> bool:
 
 
 def _enforce(
-    raw: ClaimVerdict, shortlist: dict[str, Hit]
+    raw: ClaimVerdict, shortlist: dict[str, Hit], checkable: bool = False,
 ) -> tuple[str, list[PassageLabel], list[str], str | None, bool]:
     """Drop citations outside the shortlist and downgrade verdicts the remaining
     citations cannot carry. Returns (verdict, kept_labels, invented_ids, downgraded_from,
     known_disinformation).
+
+    `unverifiable` is reserved for opinions (checkable=false). For a factual claim it means the
+    passages did not settle it, so it becomes `insufficient` (and so triggers the live lookup).
 
     known_disinformation needs a debunk from a fact-check database among the kept citations
     (role `contradicts`). When it holds, that database's passages cannot also `support` the
@@ -207,6 +210,8 @@ def _enforce(
             if lab.role == "supports" and is_disinfo_db(shortlist[lab.passage_id]) else lab
             for lab in kept
         ]
+    if checkable and raw.verdict == "unverifiable":
+        return "insufficient", kept, invented, raw.verdict, known
     needed = REQUIRED_ROLES.get(raw.verdict)
     if needed and not needed & {lab.role for lab in kept}:
         return "insufficient", kept, invented, raw.verdict, known
@@ -289,7 +294,9 @@ def assess_strength(
     caps the result (it judges how well the passages match the claim) and is shown as such."""
     needed = REQUIRED_ROLES.get(verdict)
     if not needed:
-        if downgraded:
+        if downgraded == "unverifiable":
+            reason = "Twierdzenie dotyczy faktów, a znalezione źródła go nie rozstrzygają, dlatego nie ma werdyktu."
+        elif downgraded:
             reason = "Model nie wskazał źródeł, które potwierdzają jego ocenę, dlatego nie ma werdyktu."
         elif verdict == "unverifiable":
             reason = "To opinia lub ocena: źródła nie mogą jej potwierdzić ani obalić."
@@ -526,7 +533,7 @@ class Verifier:
             )
         by_id = {pid(h): h for h in hits}
         raw = self.llm.verify_claim(claim, build_evidence_xml(hits), now)
-        verdict, kept, invented, downgraded, known = _enforce(raw, by_id)
+        verdict, kept, invented, downgraded, known = _enforce(raw, by_id, claim.checkable)
         if not claim.checkable and not known and verdict in ("insufficient", "unverifiable"):
             # Without a cited debunk a fact-check passage next to an opinion is the narrative's own
             # quote or an unrelated case – listing it would read as support. Official context stays.
@@ -547,7 +554,12 @@ class Verifier:
         roles = {lab.role for lab in kept}
 
         explanation = raw.explanation_pl
-        if downgraded:
+        if downgraded == "unverifiable":
+            explanation = (
+                "To twierdzenie o faktach, a znalezione źródła go nie rozstrzygają, "
+                "dlatego nie wydaję werdyktu. " + explanation
+            )
+        elif downgraded:
             explanation = (
                 "Model nie wskazał źródeł, które potwierdzają tę ocenę, dlatego nie wydaję werdyktu. "
                 + explanation

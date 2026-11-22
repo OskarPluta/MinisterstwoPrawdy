@@ -1,32 +1,64 @@
 """Turn evidence records into searchable passages.
 
-Articles: split by section, then at paragraph boundaries (~150-300 words).
+Articles: split by section, then at paragraph / sentence boundaries so that the
+text actually embedded ("passage: " + title + heading + body) stays within
+~MAX_TOKENS tokens of the embedding model (e5 reads at most 512).
 Structured records: render a fixed Polish template from typed fields.
 """
 
 from __future__ import annotations
 
+import math
 import re
+from collections.abc import Callable
 from typing import Any
 
 from .db import PassageIn
 from .timeutil import fmt_local
 
-MAX_WORDS = 300
-MIN_TAIL_WORDS = 60  # a trailing chunk shorter than this is merged into the previous one
+TokenCounter = Callable[[str], int]
+
+MAX_TOKENS = 400  # target per passage, including the "passage: " prefix, title and heading
+MIN_TAIL_TOKENS = 100  # a trailing chunk shorter than this is merged into the previous one
+# A merged tail may overshoot MAX_TOKENS by MIN_TAIL_TOKENS (500), still below e5's 512.
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
-def _wc(s: str) -> int:
-    return len(s.split())
+def estimate_tokens(text: str) -> int:
+    """Offline, conservative stand-in for the e5 tokenizer (used with --embedder hash).
+
+    On the Polish snapshot e5 gives ~1.9 tokens per word (p90 2.25) and ~4.2 chars
+    per token (p10 3.5); taking the larger of both estimates rarely undercounts.
+    """
+    return 4 + max(math.ceil(len(text.split()) * 2.2), math.ceil(len(text) / 3.4))
 
 
-def _split_long_paragraph(par: str, max_words: int) -> list[str]:
+def _split_words(piece: str, fits: Callable[[str], bool]) -> list[str]:
+    """Last resort for one sentence that alone is over budget: cut between words."""
+    out: list[str] = []
+    buf: list[str] = []
+    for word in piece.split():
+        if buf and not fits(" ".join(buf + [word])):
+            out.append(" ".join(buf))
+            buf = []
+        buf.append(word)
+    if buf:
+        out.append(" ".join(buf))
+    return out
+
+
+def _split_long_paragraph(par: str, fits: Callable[[str], bool]) -> list[str]:
     out: list[str] = []
     buf: list[str] = []
     for sent in _SENTENCE_SPLIT.split(par):
-        if buf and _wc(" ".join(buf + [sent])) > max_words:
+        if not fits(sent):
+            if buf:
+                out.append(" ".join(buf))
+                buf = []
+            out.extend(_split_words(sent, fits))
+            continue
+        if buf and not fits(" ".join(buf + [sent])):
             out.append(" ".join(buf))
             buf = []
         buf.append(sent)
@@ -35,25 +67,40 @@ def _split_long_paragraph(par: str, max_words: int) -> list[str]:
     return out
 
 
-def split_section(text: str, max_words: int = MAX_WORDS) -> list[str]:
+def split_section(
+    text: str,
+    count: TokenCounter | None = None,
+    max_tokens: int = MAX_TOKENS,
+    min_tail: int = MIN_TAIL_TOKENS,
+) -> list[str]:
+    """Greedy packing of whole paragraphs (long ones cut at sentences) up to
+    `max_tokens` as measured by `count` on the chunk text. `count` should measure
+    the full embedded text (see `chunk_record`); defaults to `estimate_tokens`."""
+    count = count or estimate_tokens
+    max_tokens = max(max_tokens, count("") + min_tail)  # absurdly long title: still make progress
+    fits = lambda s: count(s) <= max_tokens  # noqa: E731
+
     paragraphs: list[str] = []
     for par in re.split(r"\n\s*\n", text.strip()):
         par = par.strip()
         if not par:
             continue
-        paragraphs.extend(_split_long_paragraph(par, max_words) if _wc(par) > max_words else [par])
+        paragraphs.extend([par] if fits(par) else _split_long_paragraph(par, fits))
 
     chunks: list[str] = []
     buf: list[str] = []
     for par in paragraphs:
-        if buf and _wc("\n\n".join(buf + [par])) > max_words:
+        if buf and not fits("\n\n".join(buf + [par])):
             chunks.append("\n\n".join(buf))
             buf = []
         buf.append(par)
     if buf:
         tail = "\n\n".join(buf)
-        if chunks and _wc(tail) < MIN_TAIL_WORDS and _wc(chunks[-1]) + _wc(tail) <= max_words + MIN_TAIL_WORDS:
-            chunks[-1] = chunks[-1] + "\n\n" + tail
+        merged = chunks[-1] + "\n\n" + tail if chunks else ""
+        # count() includes the fixed prefix/title overhead, so compare the tail's own share
+        overhead = count("")
+        if chunks and count(tail) - overhead < min_tail and count(merged) <= max_tokens + min_tail:
+            chunks[-1] = merged
         else:
             chunks.append(tail)
     return chunks
@@ -122,8 +169,11 @@ REQUIRED_FIELDS = {
 STRUCTURED_KINDS = set(REQUIRED_FIELDS)
 
 
-def chunk_record(record: dict[str, Any]) -> list[PassageIn]:
-    """Raises ValueError for a record that cannot be turned into passages."""
+def chunk_record(record: dict[str, Any], count_tokens: TokenCounter | None = None) -> list[PassageIn]:
+    """Raises ValueError for a record that cannot be turned into passages.
+
+    `count_tokens(text)` gives the embedding model's token count for the text it
+    embeds (prefix included); without it a word/char estimate is used."""
     kind = record["kind"]
     if kind in STRUCTURED_KINDS:
         fields = record.get("fields") or {}
@@ -135,7 +185,11 @@ def chunk_record(record: dict[str, Any]) -> list[PassageIn]:
     passages: list[PassageIn] = []
     for section in record.get("sections") or []:
         heading = section.get("heading")
-        for chunk in split_section(section["text"]):
+
+        def count(chunk: str, heading: str | None = heading) -> int:
+            return (count_tokens or estimate_tokens)(embedding_text(record.get("title") or "", heading, chunk))
+
+        for chunk in split_section(section["text"], count):
             passages.append(
                 PassageIn(
                     ord=len(passages), heading=heading, text=chunk, excerpt=chunk,

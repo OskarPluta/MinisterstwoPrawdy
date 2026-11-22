@@ -39,14 +39,17 @@ ORDER BY ts_rank_cd('{0, 0.2, 0.6, 1.0}', fts, q, 0) DESC, passage_id
 LIMIT %(limit)s;
 
 -- name: meta_by_ids
+-- syndicated_from: the record's own value, else the original found by reprint detection.
 SELECT p.passage_id, p.evidence_id, p.heading, p.search_text, p.excerpt, p.is_verbatim, p.page,
        e.source_id, e.upstream_id, e.version, e.kind, e.title, e.citation_url, e.published_at,
-       e.observed_at, e.valid_from, e.valid_to, e.areas_json, e.status, e.syndicated_from,
+       e.observed_at, e.valid_from, e.valid_to, e.areas_json, e.status,
+       COALESCE(e.syndicated_from, r.reprint_of) AS syndicated_from,
        e.fields_json, s.publisher, s.publishing_domain, s.source_type, s.last_success_at,
        s.last_error, s.attribution, s.processed_notice
 FROM passages p
 JOIN evidence e USING (evidence_id)
 JOIN sources s USING (source_id)
+LEFT JOIN reprint_signatures r ON r.evidence_id = p.evidence_id
 WHERE p.passage_id = ANY(%(ids)s);
 
 -- name: searchable_by_evidence

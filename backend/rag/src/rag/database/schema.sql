@@ -68,6 +68,20 @@ CREATE TABLE IF NOT EXISTS passages (
 CREATE INDEX IF NOT EXISTS passages_evidence ON passages(evidence_id);
 CREATE INDEX IF NOT EXISTS passages_fts ON passages USING GIN (fts);
 
+-- Reprint detection (rag/reprints.py), derived from the passages of current articles:
+-- a MinHash signature of word 5-shingles and the detected original ("source_id:upstream_id",
+-- NULL for an original or a unique text). Not part of the record's content hash, so
+-- detection never creates new evidence versions. `active` is cleared once a retired
+-- version's cluster has been recomputed.
+CREATE TABLE IF NOT EXISTS reprint_signatures (
+    evidence_id BIGINT PRIMARY KEY REFERENCES evidence(evidence_id),
+    shingles    INTEGER NOT NULL,
+    minhash     BYTEA NOT NULL,
+    reprint_of  TEXT,
+    active      BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS reprint_signatures_root ON reprint_signatures(reprint_of);
+
 -- Check log. Kept for PRAWDOWID_CHECKS_RETENTION_DAYS (rag/verify.py), deletable by check_id.
 -- share_id: random key of the public read-only page /wynik/<share_id>, set only when the person
 -- shares the result; result_json is never updated, so a shared result cannot change.
