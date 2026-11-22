@@ -44,10 +44,6 @@ class Blocked(FetchError):
 class HttpError(FetchError):
     """Błąd sieci, status 4xx/5xx (poza obsługiwanymi wyżej) albo za dużo przekierowań."""
 
-    def __init__(self, message: str, status: int | None = None):
-        super().__init__(message)
-        self.status = status
-
 
 @dataclass
 class Resp:
@@ -316,17 +312,6 @@ class Fetcher:
         except httpx.HTTPError as e:
             raise HttpError(f"{url}: {type(e).__name__}: {e}") from e
         status = r.status_code
-        self._raise_for_backoff(url, host, r)
-        if status == 304:
-            return Resp(url=url, final_url=str(r.url), status=304, headers=dict(r.headers),
-                        etag=r.headers.get("etag"), last_modified=r.headers.get("last-modified"))
-        if status >= 300:  # 3xx z Location obsługuje _raw_get; tu zostają 3xx bez Location i błędy
-            raise HttpError(f"{url}: HTTP {status}", status)
-        return self._to_resp(url, host, r)
-
-    def _raise_for_backoff(self, url: str, host: str, r: httpx.Response) -> None:
-        """429/503 → Throttled, 403 → Blocked; oba zapisują wycofanie hosta."""
-        status = r.status_code
         if status in (429, 503):
             secs = self._backoff_seconds(r, "default_backoff_minutes")
             self._set_backoff(host, secs, f"HTTP {status}")
@@ -335,10 +320,11 @@ class Fetcher:
             secs = self._backoff_seconds(r, "forbidden_backoff_minutes")
             self._set_backoff(host, secs, "HTTP 403", kind="blocked")
             raise Blocked(f"{url}: HTTP 403 (odmowa dostępu) – nie obchodzimy, wycofanie na {int(secs)} s")
-
-    def _to_resp(self, url: str, host: str, r: httpx.Response) -> Resp:
-        """Odpowiedź 2xx → Resp (rozpakowanie gzip, dekodowanie, detekcja wyzwań antybotowych)."""
-        status = r.status_code
+        if status == 304:
+            return Resp(url=url, final_url=str(r.url), status=304, headers=dict(r.headers),
+                        etag=r.headers.get("etag"), last_modified=r.headers.get("last-modified"))
+        if status >= 300:  # 3xx z Location obsługuje _raw_get; tu zostają 3xx bez Location i błędy
+            raise HttpError(f"{url}: HTTP {status}")
         content = r.content
         if content[:2] == b"\x1f\x8b":
             try:
@@ -358,32 +344,6 @@ class Fetcher:
                 self._challenge_backoff(host, hit)
                 raise Blocked(f"{url}: wyzwanie antybotowe/CAPTCHA (znacznik {hit!r}) – nie obchodzimy")
         return resp
-
-    def http_send(self, method: str, url: str, json_body: object = None, accept: str | None = None,
-                  headers: dict | None = None, private: dict | None = None) -> Resp:
-        """Zapytanie inne niż GET (np. POST JSON-RPC do serwera MCP) z tymi samymi zasadami co http_get:
-        robots.txt, wycofanie hosta, odstęp między zapytaniami. Bez przekierowań (3xx → HttpError),
-        więc `private` (klucz API) nigdy nie trafia na inny host. Status ≥400 → HttpError z `status`
-        i początkiem odpowiedzi (np. komunikatem JSON-RPC o złym kluczu)."""
-        url = strip_fragment(url)
-        host = host_of(url)
-        self._check_backoff(host)
-        delay = self.check_allowed(url).crawl_delay
-        self._wait_turn(host, delay)
-        hdrs = {**(headers or {}), **(private or {})}
-        if accept:
-            hdrs["Accept"] = accept
-        if any(k.lower() == "user-agent" for k in hdrs):
-            raise ValueError("nie wolno zmieniać User-Agenta")
-        try:
-            r = self.client.request(method, url, json=json_body, headers=hdrs)
-        except httpx.HTTPError as e:
-            raise HttpError(f"{method} {url}: {type(e).__name__}: {e}") from e
-        self._raise_for_backoff(url, host, r)
-        if r.status_code >= 300:
-            snippet = re.sub(r"\s+", " ", r.text[:300]).strip()
-            raise HttpError(f"{method} {url}: HTTP {r.status_code} {snippet}".rstrip(), r.status_code)
-        return self._to_resp(url, host, r)
 
     def commit_validators(self, resp: Resp) -> None:
         """Zapamiętaj ETag/Last-Modified dopiero po udanym przetworzeniu odpowiedzi."""
