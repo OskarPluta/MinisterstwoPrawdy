@@ -120,8 +120,25 @@ def test_euvsdisinfo_search_markdown_is_parsed():
 def test_govpl_pick_prefers_matching_articles():
     rec = recorded("govpl")
     search = next(e for e in rec["exchanges"] if "/api/data/search" in e["url"])
-    picks = live.govpl_pick(json.loads(search["body"])["results"], rec["queries"][0])
+    picks = live.govpl_pick(json.loads(search["body"])["results"], rec["claim"])
     assert len(picks) == 2 and all(p["url"].startswith("/web/") and "HPV" in p["title"] for p in picks)
+
+
+def test_govpl_pick_orders_by_meaning_with_a_real_embedder():
+    """Word overlap alone ranks "bezpłatne szczepienia … HPV" above "szczepienie przeciw grypie" for a
+    flu claim; a semantic embedder puts the flu page first (stand-in vectors: flu vs anything else)."""
+    class Topic:
+        name = "e5-test"
+        def embed_query(self, q):
+            return [1.0, 0.0] if "grypie" in q else [0.0, 1.0]
+        def embed_passages(self, ps):
+            return [[1.0, 0.1] if "grypie" in p else [0.1, 1.0] for p in ps]
+    results = [{"url": "/web/a/bezplatne-szczepienia-hpv", "title": "Bezpłatne szczepienia przeciw HPV dla seniorów 2026"},
+               {"url": "/web/b/hpv-2", "title": "Bezpłatne szczepienia HPV w sezonie 2026"},
+               {"url": "/web/gis/szczepienie-przeciw-grypie", "title": "Szczepienie przeciw grypie"}]
+    claim = "Seniorzy mogą się bezpłatnie zaszczepić przeciw grypie w sezonie 2026"
+    assert live.govpl_pick(results, claim, n=1)[0]["url"] != "/web/gis/szczepienie-przeciw-grypie"
+    assert live.govpl_pick(results, claim, n=1, embedder=Topic(), claim=claim)[0]["url"] == "/web/gis/szczepienie-przeciw-grypie"
 
 
 def test_short_query_keeps_three_content_words():
@@ -137,9 +154,11 @@ def test_govpl_source_respects_robots_and_extracts_articles(no_wait):
     assert run.error is None and run.requests == 3  # search + 2 articles (robots.txt is the Fetcher's)
     assert str(replay.seen[0].url) == "https://www.gov.pl/robots.txt"  # followed to /static/code/robots.txt
     assert all(r.headers["user-agent"].startswith("FaktBot/") for r in replay.seen)
-    # The Pabianice page has an empty .editor-content (the text is not in the page), so it is skipped.
-    assert [s["publisher"] for s in run.sources] == ["Powiatowa Stacja Sanitarno-Epidemiologiczna w Olsztynie"]
-    r = run.records[0]
+    # The search asks with the claim's own wording; both picked articles are on www.gov.pl.
+    assert "query=Od+1+pa" in str(next(r.url for r in replay.seen if "/api/data/search" in str(r.url)))
+    assert {s["publisher"] for s in run.sources} == {"Powiatowa Stacja Sanitarno-Epidemiologiczna w Olsztynie",
+                                                     "Powiatowa Stacja Sanitarno-Epidemiologiczna w Grodzisku Mazowieckim"}
+    r = next(x for x in run.records if "/web/psse-olsztyn/" in x["citation_url"])
     assert r["citation_url"].startswith("https://www.gov.pl/web/psse-olsztyn/")
     assert "18" in r["sections"][0]["text"] and r["published_at"].endswith("Z")
 
@@ -174,7 +193,8 @@ def test_stale_govpl_result_is_skipped(no_wait):
     rec = recorded("govpl")
     olsztyn = next(e["url"] for e in rec["exchanges"] if "/web/psse-olsztyn/" in e["url"])
     run = run_source("govpl", Replay("govpl", override={("GET", olsztyn): 404}))
-    assert run.error is None and run.records == [] and run.requests == 3
+    assert run.error is None and run.requests == 3
+    assert [r["citation_url"] for r in run.records] == [e["url"] for e in rec["exchanges"] if "/web/psse-grodzisk" in e["url"]]
 
 
 def test_throttled_source_fails_alone(no_wait):
@@ -191,14 +211,14 @@ def test_lookup_ingests_versioned_records_idempotently(conn, embedder, no_wait):
     rec = recorded("govpl")
     kw = {"sources": {"govpl": live.search_govpl}}
     first = live.live_lookup(conn, embedder, rec["claim"], rec["queries"], fetcher_factory=factory(Replay("govpl")), **kw)
-    assert first.new_docs == 1 and len(first.evidence_ids) == 1
+    assert first.new_docs == 2 and len(first.evidence_ids) == 2
     row = conn.execute("SELECT source_id, citation_url FROM evidence WHERE evidence_id = %(i)s",
                        {"i": first.evidence_ids[0]}).fetchone()
     assert row["source_id"].startswith("live-govpl-") and row["citation_url"].startswith("https://www.gov.pl/web/")
     again = live.live_lookup(conn, embedder, rec["claim"], rec["queries"], fetcher_factory=factory(Replay("govpl")), **kw)
-    assert again.new_docs == 0 and again.actions["unchanged"] == 1 and again.evidence_ids == first.evidence_ids
+    assert again.new_docs == 0 and again.actions["unchanged"] == 2 and again.evidence_ids == first.evidence_ids
     log = again.to_log()
-    assert log["sources"][0]["source"] == "govpl" and len(log["sources"][0]["urls"]) == 1
+    assert log["sources"][0]["source"] == "govpl" and len(log["sources"][0]["urls"]) == 2
 
 
 def test_lookup_reuses_url_already_crawled(conn, embedder, no_wait, keys):
@@ -252,11 +272,11 @@ def test_verifier_answers_from_live_evidence(retriever, replay_sources):
     assert cr.verdict == "true"
     assert cr.citations[0].url.startswith("https://www.gov.pl/web/psse-")  # from the stored citation_url
     assert cr.citations[0].publisher.startswith("Powiatowa Stacja Sanitarno-Epidemiologiczna")
-    assert any(n.startswith("Wyszukano na żywo w zaufanych źródłach: gov.pl (1)") for n in cr.notes), cr.notes
-    assert cr.live and cr.live["new_docs"] == 1
+    assert any(n.startswith("Wyszukano na żywo w zaufanych źródłach: gov.pl (2)") for n in cr.notes), cr.notes
+    assert cr.live and cr.live["new_docs"] == 2
     assert "Wyszukano na żywo" in render_markdown(res)
     logged = json.loads(retriever.conn.execute("SELECT result_json FROM checks").fetchone()["result_json"])
-    assert logged["claims"][0]["live"]["sources"][0]["found"] == 1
+    assert logged["claims"][0]["live"]["sources"][0]["found"] == 2
 
 
 def test_live_disabled_by_env(retriever, replay_sources, monkeypatch):

@@ -38,6 +38,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Callable
+import functools
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
 from dataclasses import dataclass, field
@@ -468,20 +469,31 @@ def search_euvsdisinfo(fetcher: Any, budget: _Budget, claim_text: str, queries: 
     return run
 
 
-def govpl_pick(results: list[dict[str, Any]], q: str, n: int = GOVPL_MAX_ARTICLES) -> list[dict[str, Any]]:
-    """Search results worth fetching: www.gov.pl /web/ pages whose title+intro share enough query
-    words (the portal search ORs the words and ranks service cards high), best overlap, then newest."""
+def govpl_pick(results: list[dict[str, Any]], q: str, n: int = GOVPL_MAX_ARTICLES,
+               embedder: Embedder | None = None, claim: str | None = None) -> list[dict[str, Any]]:
+    """Search results worth fetching: www.gov.pl /web/ pages whose title+intro share query words
+    (the portal search ORs the words and ranks service cards high). With an embedder the candidates
+    are ordered by semantic similarity to the claim (word overlap alone lets e.g. "bezpłatne
+    szczepienia … HPV" beat "szczepienie przeciw grypie" for a flu claim); otherwise best overlap, newest."""
     toks = [t[:5] for t in query_tokens(q)]
     need = min(2, len(toks))
-    scored = []
+    scored, seen = [], set()
     for r in results:
         url = r.get("url") or ""
-        if not url.startswith("/web/"):
+        if not url.startswith("/web/") or url in seen:
             continue
+        seen.add(url)
         hay = _fold(f"{r.get('title') or ''} {r.get('intro') or ''}")
         score = sum(1 for t in toks if t in hay)
         if toks and score >= need:
             scored.append((score, r.get("publishDate") or "", r))
+    # The hash embedder (tests, offline) carries no meaning, so it never reorders the results.
+    if embedder is not None and claim and len(scored) > n and not embedder.name.startswith("hash-"):
+        qv = np.asarray(embedder.embed_query(claim))
+        pv = np.asarray(embedder.embed_passages([f"{r.get('title') or ''}. {r.get('intro') or ''}" for _, _, r in scored]))
+        sims = pv @ qv / (np.linalg.norm(pv, axis=1) * np.linalg.norm(qv) + 1e-9)
+        order = sorted(range(len(scored)), key=lambda i: float(sims[i]), reverse=True)
+        return [scored[i][2] for i in order[:n]]
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [r for _, _, r in scored[:n]]
 
@@ -495,16 +507,26 @@ def govpl_publisher(html: str, unit: str) -> str:
     return f"Portal Gov.pl ({unit})"
 
 
-def search_govpl(fetcher: Any, budget: _Budget, claim_text: str, queries: list[str]) -> SourceRun:
+def search_govpl(fetcher: Any, budget: _Budget, claim_text: str, queries: list[str],
+                 embedder: Embedder | None = None) -> SourceRun:
     from crawler.extract import extract_article
     from crawler.fetcher import HttpError
 
     run = budget.run
-    q = next((x for x in queries if x.strip()), claim_text)
-    budget.spend()
-    resp = fetcher.http_get(f"{GOVPL_SEARCH}?{urlencode({'query': q[:200], 'page': 1, 'size': GOVPL_SEARCH_SIZE})}",
-                            conditional=False, accept="application/json")
-    picks = govpl_pick(json.loads(resp.text).get("results") or [], q)
+    # The claim's own wording first (the portal ranks a full sentence better than the LLM's keyword
+    # query), the keyword query only when the first search leaves too few candidates.
+    asked = [x for x in dict.fromkeys([claim_text, *queries[:1]]) if x and x.strip()]
+    words = " ".join(asked)
+    picks: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+    for i, q in enumerate(asked):
+        if i and len(picks) >= GOVPL_MAX_ARTICLES:
+            break
+        budget.spend()
+        resp = fetcher.http_get(f"{GOVPL_SEARCH}?{urlencode({'query': q[:200], 'page': 1, 'size': GOVPL_SEARCH_SIZE})}",
+                                conditional=False, accept="application/json")
+        results += json.loads(resp.text).get("results") or []
+        picks = govpl_pick(results, words, embedder=embedder, claim=claim_text)
     for r in picks:
         url = urljoin(GOVPL_BASE, r["url"])
         budget.spend()
@@ -603,6 +625,7 @@ def live_lookup(
     src = SOURCES if sources is None else sources
     queries = [q for q in dict.fromkeys(query_variants) if q and q.strip()]
     pool = ThreadPoolExecutor(max_workers=max(1, len(src)), thread_name_prefix="live")
+    src = {k: (functools.partial(fn, embedder=embedder) if fn is search_govpl else fn) for k, fn in src.items()}
     futures = {k: pool.submit(_run_source, k, fn, deadline, claim_text, queries, fetcher_factory)
                for k, fn in src.items()}
     wait_futures(list(futures.values()), timeout=budget_s + 2)
