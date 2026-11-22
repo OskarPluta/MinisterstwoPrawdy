@@ -12,7 +12,7 @@ Wskazówki dla agentów i nowych osób w zespole. Ogólny obraz: [`README.md`](R
 | `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `sources`). Tylko adaptuje HTTP do `rag.verify.Verifier`, bez własnej logiki. |
 | `backend/discord_bot/` | Pakiet `discord-bot`: kanał Discord (`/sprawdz`, `/zrodla`, wzmianki, DM). Adaptuje Discord do `rag.verify.Verifier` (lub `DISCORD_API_URL`), bez własnej logiki. |
 | `frontend/` | Interfejs WWW: Bun + React + TS. `server.ts` serwuje `src/index.html` i przekazuje `/api/*` do `API_URL`. Własne zależności (`bun install`), poza workspace uv. |
-| `scripts/` | `eval_retrieval.py` (bezpłatna), `eval_verify.py` (płatna, woła LLM). |
+| `scripts/` | `eval_retrieval.py` (bezpłatna), `eval_verify.py` i `eval_scenarios.py` (płatne, wołają LLM; zestawy `--suite scenarios` i `extended` z miernikami MVP, wyniki w `eval_results/`). |
 | `data/snapshot/` | Zamrożony zrzut crawla w git. Nie nadpisuj go przypadkiem przebiegiem crawlera. |
 | `docs/task/` | Treść konkursu. **Nie edytować.** |
 | `docs/notes/` | Notatki badawcze (plany, źródła). Nie opisują kodu. |

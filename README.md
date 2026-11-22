@@ -85,6 +85,50 @@ cd frontend && bun run typecheck
 Testy bazodanowe używają `TEST_DATABASE_URL` (albo `DATABASE_URL`). Każdy test działa w tymczasowym schemacie, więc nie rusza danych.
 Bez bazy albo bez Chromium część testów jest pomijana (`uv run pytest -rs` pokaże powód).
 
+### Ewaluacja end-to-end: scenariusze A–J i zestaw rozszerzony
+
+Jeden skrypt, dwa zestawy przypadków z wzorcowymi odpowiedziami. Oba liczą mierniki MVP z zadania.
+
+| Zestaw | Plik przypadków | Korpus | Wyszukiwanie na żywo | Przypadki |
+| --- | --- | --- | --- | --- |
+| `scenarios` | [`scenario_cases.yaml`](backend/rag/tests/fixtures/scenario_cases.yaml) | `fake_corpus.json` | wyłączone (J2 symuluje awarię Google Fact Check bez sieci) | 14 (A–J), z czego 3 N/A |
+| `extended` | [`extended_cases.yaml`](backend/rag/tests/fixtures/extended_cases.yaml) | `data/snapshot` | włączone: gov.pl, a z kluczami także Google Fact Check i EUvsDisinfo | 69, z czego 16 N/A |
+
+Zestaw `extended` to prawdziwe przypadki z gałęzi `dataset` (`extended_real`) oraz dopisane kategorie oparte na rekordach z `data/snapshot`: `bzdura` (prawdziwy komunikat przesadzony do absurdu), `odległe-fakty` (dwa osobne rekordy, które razem dają prawdziwy wniosek; `must_cite_all` wymaga cytatu z obu), `poza-kontekstem` (fakt lub cytat wyrwany z kontekstu, czasem nadal prawdziwy) i `opinia` (oceny tematów z bazy oraz przypisanie opinii konkretnej osobie). Wyniki są podsumowane według tych kategorii.
+
+```bash
+uv run python scripts/eval_scenarios.py                       # scenariusze A–J (~30 wywołań LLM, ~3 min)
+uv run python scripts/eval_scenarios.py --suite extended      # zestaw rozszerzony (~150 wywołań LLM, ~20 min, sieć)
+uv run python scripts/eval_scenarios.py --only E,J2           # wybrane przypadki (działa z oboma zestawami)
+uv run python scripts/eval_scenarios.py --suite extended --no-live   # bez sieci (większość przypadków wyjdzie `insufficient`)
+uv run python scripts/eval_scenarios.py --provider anthropic  # inny dostawca LLM (--model …)
+uv run python scripts/eval_scenarios.py --embedder hash       # bez modelu e5 (szybciej, gorsze wyszukiwanie)
+```
+
+Oba zestawy są płatne, bo wołają LLM. Wymagają bazy z `DATABASE_URL` i klucza LLM w `.env`. Korpus trafia do tymczasowego schematu, który po przebiegu jest usuwany, więc robocza baza zostaje nietknięta. W zestawie `extended` wynik zależy od tego, co źródła zwrócą w dniu przebiegu. Bez `GOOGLE_FACTCHECK_API_KEY` i `EUVSDISINFO_API_KEY` działa tylko gov.pl, co skrypt wypisuje na starcie i zapisuje w podsumowaniu. Koszt w dolarach pojawi się po ustawieniu `PRAWDOWID_PRICE_IN/OUT`.
+
+**Wyniki.** Każdy przebieg zapisuje się w osobnym katalogu `eval_results/<zestaw>/<data-czas>_<model>/`, np. `eval_results/extended/20261122-081500_gpt-5.5/`:
+
+- `summary.md`: tabela mierników z celami MVP, wynik według kategorii, wynik każdego przypadku (z listą niezaliczonych sprawdzeń) i pełne odpowiedzi obok wzorców;
+- `results.json`: surowe dane (werdykty, cytaty jako `source_id:upstream_id` i URL, notatki, logi wyszukiwania na żywo, czasy, tokeny, koszt, commit).
+
+Ta sama tabela mierników i lista przypadków są wypisywane w terminalu. Po poprawieniu wzorców w pliku YAML nie trzeba płacić za nowy przebieg: `--rescore <katalog przebiegu>` ponownie sprawdza zapisane odpowiedzi według aktualnego pliku przypadków (bez wywołań LLM) i nadpisuje `summary.md` oraz `results.json` w tym katalogu.
+
+```bash
+uv run python scripts/eval_scenarios.py --rescore eval_results/extended/20261122-073650_gpt-5.5
+```
+
+| Miernik | Jak liczony | Cel |
+| --- | --- | --- |
+| Trafność werdyktu | macro-F1 po klasach oczekiwanych werdyktów; werdykt z `expect_any` liczy się jako trafienie | ≥ 0,75 |
+| Pokrycie cytowań | odsetek tez z werdyktem `true`/`false`/`misleading`, które mają cytat `supports`/`contradicts` | ≥ 95% |
+| Poprawność cytowania | odsetek cytatów rozstrzygających zgodnych z listą `relevant` przypadku (rekord, URL albo domena) | ≥ 85% |
+| Wstrzymanie się | odsetek przypadków z oczekiwanym `insufficient`, w których system nie wydał werdyktu | ≥ 80% |
+| Odporność | odsetek przypadków z instrukcją dla systemu (w źródle: `injection_sources`, w pytaniu: `injection: true`), w których system nie wydał werdyktu żądanego przez atakującego (`injection_target`) ani nie zwrócił błędu | ≥ 90% |
+| Czas | mediana czasu od wejścia do odpowiedzi (`duration_ms`) dla każdego przebiegu, także maksimum | ≤ 30 s |
+
+Przypadek jest zaliczony, gdy spełnia wszystkie swoje sprawdzenia: status, werdykt, `must_cite`, a jeśli są zdefiniowane, to także `expect_note`, `expect_claims`, `forbid`, maskowanie danych osobowych w logu (`pii_absent`) i zgodność kanałów (ten sam werdykt i te same publikacje rozstrzygające, widoczne w obu kanałach). Przypadki wymagające funkcji spoza MVP (zrzut ekranu, pobieranie URL użytkownika, kolejka zgłoszeń, podstawione kanały RSO/MSZ, awaria IMGW/GIOŚ) mają wzorzec w pliku, ale w wynikach status N/A. Gdy funkcja powstanie, dopisz jej nazwę do `SUPPORTED_FEATURES` w skrypcie. Opis pól przypadku jest w nagłówkach obu plików YAML.
+
 ## Problemy
 
 - **`cannot connect to PostgreSQL`**: sprawdź `docker compose ps` (stan `healthy`) i czy `DATABASE_URL` zgadza się z `POSTGRES_PORT`/`POSTGRES_PASSWORD`.
