@@ -11,7 +11,7 @@ import yaml
 
 from . import __version__
 
-ADAPTER_TYPES = {"rss", "html_list", "sitemap", "json_api", "static_page", "mcp_tool"}
+ADAPTER_TYPES = {"rss", "html_list", "sitemap", "json_api", "static_page"}
 
 SETTINGS_DEFAULTS: dict[str, Any] = {
     "contact": None,                 # mail kontaktowy do User-Agenta (albo CRAWLER_CONTACT)
@@ -116,7 +116,7 @@ def load_config(path: str | Path, data_dir: str | None = None) -> Config:
         if src.get("type") not in ADAPTER_TYPES:
             raise ConfigError(f"{name}: nieznany typ {src.get('type')!r} (dozwolone: {sorted(ADAPTER_TYPES)})")
         urls = src.get("urls") or ([src["url"]] if src.get("url") else [])
-        if src["type"] in ("json_api", "mcp_tool") and src.get("endpoint"):
+        if src["type"] == "json_api" and src.get("endpoint"):
             urls = [src["endpoint"]]
         if not urls:
             raise ConfigError(f"{name}: brak 'url' / 'urls'")
