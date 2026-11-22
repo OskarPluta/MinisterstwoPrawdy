@@ -48,3 +48,10 @@ FROM passages p
 JOIN evidence e USING (evidence_id)
 JOIN sources s USING (source_id)
 WHERE p.passage_id = ANY(%(ids)s);
+
+-- name: searchable_by_evidence
+-- Live lookup (rag/live.py): searchable passages of the given records, with vectors for ranking.
+SELECT passage_id, evidence_id, embedding, embedding_model
+FROM passages
+WHERE evidence_id = ANY(%(ids)s) AND fts IS NOT NULL
+ORDER BY evidence_id, ord;

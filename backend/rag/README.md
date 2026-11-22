@@ -15,6 +15,7 @@ Polecenia: `uv run rag ingest | reembed | stats | search | verify` (opcje: `--he
 | wyszukiwanie | `search.py` | `Retriever`: FTS w Postgresie, gęste w NumPy, fuzja RRF, różnorodność, filtry |
 | LLM | `llm.py` | Prompty, schematy Pydantic, klienci OpenAI/Anthropic ze strukturalnym wyjściem, tokeny i koszt |
 | weryfikacja | `verify.py` | `Verifier`: ekstrakcja → wyszukiwanie → werdykt → kontrola cytatów i notatki → log → `render_markdown` |
+| na żywo | `live.py` | Gdy korpus nie rozstrzyga (`insufficient`): Google Fact Check, EUvsDisinfo (MCP `search`) i gov.pl na żywo przez `crawler.fetcher.Fetcher`, zapis przez `ingest_corpus`, ponowna weryfikacja |
 | pomocnicze | `cli.py`, `config.py` (`.env`), `timeutil.py` (UTC ↔ Europe/Warsaw), `evaluation.py` (recall@k, MRR) | |
 
 Użycie z kodu (np. przyszłe API):
@@ -68,6 +69,14 @@ Wektory są zapisane z nazwą modelu. Zapytanie innym embedderem kończy się b�
 - Jedno sprawdzenie to 1 wywołanie na ekstrakcję i po 1 na każde twierdzenie. Podsumowanie (model, tokeny, koszt) trafia na stderr.
 - Przy danych z przeszłości podaj `--now`, bo okna ważności ostrzeżeń liczą się od czasu zapytania.
 
+## Wyszukiwanie na żywo (`live.py`)
+
+- Kiedy: twierdzenie sprawdzalne z werdyktem `insufficient` po pierwszym przebiegu (brak trafień, nic rozstrzygającego albo werdykt obniżony za brak cytatu). Jedno wyszukiwanie na sprawdzenie, potem ponowna weryfikacja najwyżej 2 takich twierdzeń. Twierdzenie rozstrzygnięte z korpusu nie wywołuje sieci.
+- Gdzie (tylko te, równolegle, limit `BUDGET_S` = 18 s): Google Fact Check Tools (`claims:search`, recenzje tylko z domen `TRUSTED_FACTCHECK_DOMAINS`), EUvsDisinfo (narzędzie MCP `search`, tylko euvsdisinfo.eu), gov.pl (`/api/data/search` jak strona wyszukiwarki portalu, potem 2 artykuły z www.gov.pl z profilem gov.pl crawlera).
+- Jak: każde zapytanie przez `crawler.fetcher.Fetcher` (FaktBot z mailem kontaktowym, robots.txt, ≥3 s na host, wycofanie po 429/503/403, bez obchodzenia blokad). Wyniki to zwykłe wersjonowane rekordy (`live-factcheck-<domena>`, `live-euvsdisinfo`, `live-govpl-<jednostka>`); adres już zapisany przez crawler jest użyty ponownie. Linki dalej tylko z `citation_url`.
+- Wynik: notatka „Wyszukano na żywo w zaufanych źródłach: …”, log wyszukiwania w `ClaimResult.live` (trafia do `checks`, API go nie pokazuje). Koszt: jedno dodatkowe wywołanie LLM na ponownie sprawdzane twierdzenie i ok. 9–13 s sieci.
+- Wyłączenie: `PRAWDOWID_LIVE=0`. Testy (`test_live.py`) odtwarzają nagrane prawdziwe odpowiedzi z `tests/fixtures/live/` i nie łączą się z siecią.
+
 ## Testy
 
 `uv run pytest backend/rag`. Testy DB biorą `TEST_DATABASE_URL` (albo `DATABASE_URL`) i każdy pracuje we własnym schemacie `scratch_<id>`. Bez bazy są pomijane.
@@ -90,5 +99,6 @@ uv run python scripts/eval_verify.py --only v01,v07              # werdykty na �
 | `retrieval_cases.yaml` | Pytania z oczekiwanymi rekordami dla `fake_corpus.json` |
 | `real_retrieval_cases.yaml` | To samo dla `data/snapshot/` |
 | `verify_cases.yaml` | Twierdzenia z oczekiwanymi werdyktami i stałym czasem zapytania |
+| `live/*.json` | Nagrane prawdziwe odpowiedzi Google Fact Check, EUvsDisinfo i gov.pl (bez kluczy) dla `test_live.py` |
 
 Do zrobienia: przypadek „sprzeczne źródła” (scenariusz C konkursu) usunięto przy porządkach razem ze źródłami, na których stał. Trzeba go dodać ponownie na rekordach ostrzeżeń (`warning_meteo`/`warning_hydro`) w `fake_corpus.json` i `verify_cases.yaml`.

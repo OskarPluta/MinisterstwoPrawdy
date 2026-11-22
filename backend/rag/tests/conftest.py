@@ -16,6 +16,8 @@ from rag.search import Retriever
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 load_env()
+# Tests never touch the network: live lookup (rag/live.py) is off unless a test turns it on explicitly.
+os.environ["PRAWDOWID_LIVE"] = "0"
 
 
 @pytest.fixture(scope="session")

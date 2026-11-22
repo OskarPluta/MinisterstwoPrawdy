@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urlparse
 
+from . import live as live_mod
 from .db import corpus_version, record_check
 from .llm import LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape
 from .search import Hit, Retriever
@@ -85,6 +86,7 @@ class ClaimResult:
     downgraded_from: str | None = None
     conflict: bool = False
     error: str | None = None  # internal detail, not shown to the user
+    live: dict[str, Any] | None = None  # live lookup log (rag/live.py), internal
 
 
 @dataclass
@@ -238,13 +240,14 @@ def _masked_result(res: CheckResult) -> dict[str, Any]:
 class Verifier:
     def __init__(
         self, retriever: Retriever, llm: LLM, shortlist: int = 8, record: bool = True,
-        workers: int = LLM_WORKERS,
+        workers: int = LLM_WORKERS, live: bool | None = None,
     ):
         self.retriever = retriever
         self.llm = llm
         self.shortlist = shortlist
         self.record = record
         self.workers = workers
+        self.live = live_mod.live_enabled() if live is None else live  # None: PRAWDOWID_LIVE (default on)
 
     def retrieve(self, claim: Claim) -> list[Hit]:
         queries = list(dict.fromkeys([claim.text, *claim.search_queries]))
@@ -321,6 +324,8 @@ class Verifier:
         shortlists = [self.retrieve(c) if c.checkable else [] for c in claims]
         with ThreadPoolExecutor(max_workers=max(1, min(self.workers, len(claims)))) as pool:
             res.claims = list(pool.map(lambda c, h: self._check_isolated(c, h, now), claims, shortlists))
+        if self.live:  # claims the corpus could not settle: look them up live in trusted sources (rag/live.py)
+            res.claims = live_mod.live_pass(self, claims, res.claims, now)
         failed = [c for c in res.claims if c.verdict == "error"]
         if len(failed) == len(res.claims):
             res.status, res.message, res.error = "error", MSG_OUTAGE, failed[0].error

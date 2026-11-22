@@ -1,0 +1,26 @@
+{
+ "claim": "Migranci w Warszawie zostali sprowadzeni w ramach relokacji z paktu migracyjnego",
+ "queries": [
+  "migranci Warszawa relokacja pakt migracyjny",
+  "pakt migracyjny relokacja"
+ ],
+ "recorded": "2026-11-22",
+ "exchanges": [
+  {
+   "method": "GET",
+   "url": "https://factchecktools.googleapis.com/robots.txt",
+   "status": 404,
+   "content_type": "text/html",
+   "location": null,
+   "body": ""
+  },
+  {
+   "method": "GET",
+   "url": "https://factchecktools.googleapis.com/v1alpha1/claims:search?query=Migranci+Warszawie+zostali&pageSize=10&languageCode=pl",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "location": null,
+   "body": "{\n  \"claims\": [\n    {\n      \"text\": \"Migranci w Warszawie sprowadzeni w ramach relokacji.\",\n      \"claimant\": \"Wiele źródeł\",\n      \"claimDate\": \"2026-06-12T00:00:00Z\",\n      \"claimReview\": [\n        {\n          \"publisher\": {\n            \"name\": \"Demagog\",\n            \"site\": \"demagog.org.pl\"\n          },\n          \"url\": \"https://demagog.org.pl/fake_news/cudzoziemcy-w-warszawie-to-nie-relokacja-w-ramach-paktu-migracyjnego/\",\n          \"title\": \"Relokacja do Warszawy? Migranci tu pracują\",\n          \"reviewDate\": \"2026-06-17T00:00:00Z\",\n          \"textualRating\": \"Fałsz\",\n          \"languageCode\": \"pl\"\n        }\n      ]\n    }\n  ]\n}\n"
+  }
+ ]
+}

@@ -25,6 +25,7 @@ from rag.verify import MAX_INPUT_CHARS, MSG_OUTAGE
 
 FIXTURES = Path(__file__).resolve().parents[2] / "rag" / "tests" / "fixtures"
 load_env()
+os.environ["PRAWDOWID_LIVE"] = "0"  # no network in tests (live lookup: rag/live.py)
 
 
 def _claim(text: str) -> Claim:

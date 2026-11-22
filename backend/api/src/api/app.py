@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 # Fields that are internal diagnostics and never reach the user.
 _INTERNAL_RESULT = ("error",)
-_INTERNAL_CLAIM = ("error", "shortlist_ids", "invented_ids")
+_INTERNAL_CLAIM = ("error", "shortlist_ids", "invented_ids", "live")  # live: lookup log, the note says it to the user
 # Hard cap on the request body; the Verifier answers `too_long` above its own limit.
 MAX_REQUEST_CHARS = 50_000
 
