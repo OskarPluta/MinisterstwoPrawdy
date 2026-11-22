@@ -130,8 +130,48 @@ export function deleteCheck(checkId: string): Promise<{ deleted: boolean; check_
   return call("/api/checks/" + encodeURIComponent(checkId), { method: "DELETE" });
 }
 
+export interface ShareLink {
+  share_id: string;
+  /** Same-origin path of the read-only page, e.g. /wynik/<share_id>. */
+  path: string;
+  /** UTC ISO 8601; null when the check log has no retention limit. */
+  expires_at: string | null;
+}
+
+/** Read-only copy of a check, as logged at check time (personal data masked). check_id is always "". */
+export interface SharedResult {
+  share_id: string;
+  checked_at: string;
+  shared_at: string | null;
+  expires_at: string | null;
+  result: CheckResult;
+}
+
+export function shareCheck(checkId: string): Promise<ShareLink> {
+  return call("/api/checks/" + encodeURIComponent(checkId) + "/share", { method: "POST" });
+}
+
+export function unshareCheck(checkId: string): Promise<{ shared: boolean }> {
+  return call("/api/checks/" + encodeURIComponent(checkId) + "/share", { method: "DELETE" });
+}
+
+export function getShare(shareId: string): Promise<SharedResult> {
+  return call("/api/shares/" + encodeURIComponent(shareId));
+}
+
 export function getSources(): Promise<SourcesResponse> {
   return call<SourcesResponse>("/api/sources");
+}
+
+/** UTC ISO 8601 → DD.MM.RRRR, GG:MM in Europe/Warsaw. */
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return "brak danych";
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const d = new Date(hasZone ? iso : `${iso}Z`);
+  if (Number.isNaN(d.getTime())) return "brak danych";
+  return new Intl.DateTimeFormat("pl-PL", {
+    timeZone: "Europe/Warsaw", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(d);
 }
 
 /** UTC ISO 8601 → DD.MM.RRRR in Europe/Warsaw. */

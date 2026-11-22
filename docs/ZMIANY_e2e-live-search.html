@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zmiany e2e-live-search</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1b1b1b; --muted: #5a5f66; --line: #d9dde3; --head: #f3f5f8;
+    --accent: #0b4ea2; --ok: #1d6b3a; --bad: #a3221b; --warn: #8a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171b; --fg: #e8eaed; --muted: #a0a6ad; --line: #30353c; --head: #1d2127;
+      --accent: #7fb0ff; --ok: #6fcf8f; --bad: #ff8a80; --warn: #f0c060;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171b; --fg: #e8eaed; --muted: #a0a6ad; --line: #30353c; --head: #1d2127;
+    --accent: #7fb0ff; --ok: #6fcf8f; --bad: #ff8a80; --warn: #f0c060;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  .meta { color: var(--muted); margin: 0 0 8px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em;
+         background: var(--head); padding: 1px 5px; border-radius: 4px; }
+  ul { padding-left: 20px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { background: var(--head); font-weight: 600; }
+  td:first-child { width: 34%; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); }
+  .warn { color: var(--warn); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Zmiany na gałęzi <code>e2e-live-search</code></h1>
+  <p class="meta">Stan na 22.11.2026, względem <code>main</code>: 42 pliki, ok. 2250 linii, 121 testów przechodzi. <code>main</code> jest nietknięty.</p>
+
+  <h2>Po co</h2>
+  <p>System nie znajdował rzeczy, które powinien znaleźć:</p>
+  <ul>
+    <li>Komunikat premiera „Rosyjskie obiekty naruszyły polską przestrzeń powietrzną…” nie trafił do bazy, bo crawler nie zdążył go pobrać.</li>
+    <li>Tekst z EUvsDisinfo dostawał „nie podlega weryfikacji”, chociaż ta sprawa była w bazie: model uznawał twierdzenie za opinię i nie szukał.</li>
+    <li>Gdy baza nie miała odpowiedzi, system nie pytał żadnego źródła na żywo.</li>
+  </ul>
+
+  <h2>Dane (crawler)</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Zmiana</th><th>Dlaczego</th></tr>
+    <tr><td><strong>Google Fact Check:</strong> pobieranie kolejnych stron wyników (<code>nextPageToken</code>)</td><td>Wcześniej crawler brał 100 weryfikacji na wydawcę. Teraz jest ich ponad 5000 (Demagog, OKO.press, AFP, FakeNews.pl).</td></tr>
+    <tr><td><strong>EUvsDisinfo przez MCP</strong> (<code>mcp_tool</code>)</td><td>Ok. 19 900 spraw dezinformacji i 12 000 artykułów. Archiwum jest dociągane w kolejnych przebiegach. Parser powstał na podstawie prawdziwych odpowiedzi serwera.</td></tr>
+    <tr><td><strong>gov.pl:</strong> 22 listy aktualności ministerstw i ok. 90 całych jednostek</td><td>Strona <code>mapa-strony</code> daje w jednym zapytaniu wszystkie podstrony jednostki. Dzięki temu da się pobrać cały gov.pl, a nie tylko pierwsze strony list.</td></tr>
+    <tr><td><strong>Scheduler:</strong> źródła oznaczone <code>background</code></td><td>Pobieranie archiwum gov.pl (kilka dni pracy) nie opóźnia alertów RCB, IMGW i RSO.</td></tr>
+    <tr><td><strong>Scheduler:</strong> nowe źródła w kolejności od najkrótszego interwału</td><td>Przy starcie najpierw idą alerty i aktualności, a archiwa na końcu.</td></tr>
+    <tr><td><code>sources.d/*.yaml</code></td><td>Źródła w osobnych plikach zamiast jednego dużego <code>sources.yaml</code>.</td></tr>
+    <tr><td><code>scripts/crawler_run.sh</code>, <code>scripts/ingest_loop.sh</code></td><td>Crawler działa w tle, a nowe dane trafiają do bazy co 15 minut.</td></tr>
+  </table></div>
+
+  <h2>Weryfikacja (RAG)</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Zmiana</th><th>Dlaczego</th></tr>
+    <tr><td><strong>Znane narracje dezinformacyjne</strong></td><td>Twierdzenie podobne do opinii jest teraz sprawdzane w bazach fact-checków i EUvsDisinfo. Jeśli pasuje do opisanej dezinformacji, dostaje werdykt „fałszywe” lub „wprowadza w błąd” i flagę „Znana narracja dezinformacyjna”. Flagę ustawia kod, i tylko wtedy, gdy wśród cytatów jest ten, który obala twierdzenie.</td></tr>
+    <tr><td><strong>Wyszukiwanie wielojęzyczne</strong></td><td>Tekst angielski jest wyszukiwany także po angielsku, a odpowiedź zawsze jest po polsku.</td></tr>
+    <tr><td><strong>Wyszukiwanie na żywo</strong> (<code>rag/live.py</code>)</td><td>Gdy baza nie rozstrzyga twierdzenia, system pyta Google Fact Check, wyszukiwarkę EUvsDisinfo i wyszukiwarkę gov.pl. Wyniki trafiają do bazy i dopiero stamtąd są cytowane, więc linki nadal pochodzą tylko z bazy. Zapytania idą przez <code>Fetcher</code> crawlera (robots.txt, odstępy). Wyłącza się to przez <code>PRAWDOWID_LIVE=0</code>.</td></tr>
+    <tr><td><strong>Interfejs</strong></td><td>Wyświetla wiersz „Znana narracja dezinformacyjna” i notatkę o wyszukiwaniu na żywo.</td></tr>
+  </table></div>
+
+  <h2>Wynik</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Przykład</th><th>Przed zmianami</th><th>Po zmianach</th></tr>
+    <tr><td>Komunikat premiera o przestrzeni powietrznej</td><td class="warn">brak dowodów</td><td><span class="ok">potwierdzone</span>, cytuje KPRM i MON</td></tr>
+    <tr><td>Tekst z EUvsDisinfo (po angielsku)</td><td class="warn">nie podlega weryfikacji</td><td><span class="bad">fałszywe</span> i znana narracja, cytuje EUvsDisinfo</td></tr>
+    <tr><td>Twierdzenie spoza bazy (np. HPV dla osób w wieku 18–26 lat)</td><td class="warn">brak dowodów</td><td><span class="ok">potwierdzone</span> na podstawie stron gov.pl pobranych na żywo</td></tr>
+  </table></div>
+
+  <h2>Ograniczenia</h2>
+  <ul>
+    <li>Wyszukiwanie na żywo trwa 40–65 s, a interfejs obiecuje „do 30 sekund”.</li>
+    <li>Trafność wyszukiwarki gov.pl przy ogólnych twierdzeniach jest słaba. Na przykład przy grypie dostajemy wyniki o COVID-19 i HPV, a system odpowiada wtedy „brak dowodów”.</li>
+    <li>W User-Agencie wciąż jest tymczasowy mail <code>testtest@gmail.com</code>.</li>
+    <li>Tekst interfejsu „tylko oficjalne komunikaty” jest nieaktualny, bo dochodzą fact-checkerzy i EUvsDisinfo.</li>
+  </ul>
+</main>
+</body>
+</html>

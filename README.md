@@ -19,7 +19,7 @@ twierdzenie ─► rag verify ─► LLM: ekstrakcja twierdzeń ─► wyszukiwa
 | --- | --- | --- |
 | [`backend/crawler/`](backend/crawler/) | **FaktBot**: „grzeczny” crawler źródeł z [`sources.yaml`](backend/crawler/sources.yaml), zapis do plików JSONL z historią wersji. Nie zna bazy. | [README](backend/crawler/README.md) |
 | [`backend/rag/`](backend/rag/) | Pakiet `rag`: import danych crawlera, PostgreSQL, wyszukiwanie hybrydowe, weryfikator LLM. | [README](backend/rag/README.md) |
-| [`backend/api/`](backend/api/) | API HTTP (FastAPI) dla interfejsu WWW: `POST /api/verify`, `DELETE /api/checks/{id}`, `GET /api/sources`, `GET /api/health`. | [frontend README](frontend/README.md#backend) |
+| [`backend/api/`](backend/api/) | API HTTP (FastAPI) dla interfejsu WWW: `POST /api/verify`, `DELETE /api/checks/{id}`, `POST/DELETE /api/checks/{id}/share`, `GET /api/shares/{id}`, `GET /api/sources`, `GET /api/health`. Limity żądań na klienta. | [frontend README](frontend/README.md#backend) |
 | [`backend/discord_bot/`](backend/discord_bot/) | Kanał Discord (`discord-bot`): komendy `/sprawdz`, `/zrodla`, wzmianki i DM oparte o `rag.verify.Verifier` lub `/api`. | [README](backend/discord_bot/README.md) |
 | [`frontend/`](frontend/) | Interfejs WWW **Copernicus** w systemie Ministerstwo Prawdy (Bun + React + TypeScript), `/api/*` przekazywane do backendu. | [README](frontend/README.md) |
 | [`data/snapshot/`](data/snapshot/) | Zamrożony zrzut crawla w repo, domyślne wejście `rag ingest`. `data/crawl/` (świeże przebiegi) jest poza git. | |

@@ -69,6 +69,8 @@ CREATE INDEX IF NOT EXISTS passages_evidence ON passages(evidence_id);
 CREATE INDEX IF NOT EXISTS passages_fts ON passages USING GIN (fts);
 
 -- Check log. Kept for PRAWDOWID_CHECKS_RETENTION_DAYS (rag/verify.py), deletable by check_id.
+-- share_id: random key of the public read-only page /wynik/<share_id>, set only when the person
+-- shares the result; result_json is never updated, so a shared result cannot change.
 CREATE TABLE IF NOT EXISTS checks (
     check_id        TEXT PRIMARY KEY,
     created_at      TEXT NOT NULL,
@@ -78,7 +80,9 @@ CREATE TABLE IF NOT EXISTS checks (
     corpus_version  INTEGER NOT NULL,
     model           TEXT,
     embedding_model TEXT,
-    duration_ms     INTEGER
+    duration_ms     INTEGER,
+    share_id        TEXT UNIQUE,
+    shared_at       TEXT
 );
 
 INSERT INTO meta (key, value) VALUES ('corpus_version', '0') ON CONFLICT (key) DO NOTHING;

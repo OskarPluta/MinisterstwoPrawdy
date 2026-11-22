@@ -222,8 +222,11 @@ def test_source_licence_fields_are_stored(conn):
 
 
 def test_v1_database_is_migrated(new_db, database_url):
+    from rag.db import SCHEMA_VERSION, share_check
+
     c = new_db()
     c.execute("ALTER TABLE sources DROP COLUMN license, DROP COLUMN attribution, DROP COLUMN processed_notice")
+    c.execute("ALTER TABLE checks DROP COLUMN share_id, DROP COLUMN shared_at")
     c.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
     schema = c.execute("SELECT current_schema() AS s").fetchone()["s"]
     again = connect(database_url, db_schema=schema)
@@ -231,7 +234,9 @@ def test_v1_database_is_migrated(new_db, database_url):
         upsert_source(again, {"source_id": "s", "publisher": "P", "publishing_domain": "p.test",
                               "source_type": "official", "license": "CC BY 4.0"})
         assert again.execute("SELECT license FROM sources").fetchone()["license"] == "CC BY 4.0"
-        assert again.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()["value"] == "2"
+        assert again.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()["value"] == str(SCHEMA_VERSION)
+        _add_check(again, "c1", "2026-11-21T10:00:00Z")
+        assert share_check(again, "c1")["share_id"], "v3 share columns added"
     finally:
         again.close()
 

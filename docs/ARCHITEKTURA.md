@@ -55,7 +55,7 @@ Rodzaje rekordów:
 - **`sources`**: katalog źródeł z licencją (`license`, `terms_url`, `attribution`, `processed_notice`; schemat v2) i stan ostatniego pobrania (`last_success_at`, `last_error`).
 - **`evidence`**: wersjonowane rekordy. Tożsamość to `(source_id, upstream_id)`. Nowa treść (hasz kanonicznego JSON pól treści, bez `fetched_at`) daje wersję `n+1`, a poprzednia dostaje `is_current = false`. Ta sama treść co bieżąca daje `unchanged`, a treść równa starszej wersji daje `known_version`.
 - **`passages`**: fragmenty z `tsvector` (`fts`) i wektorem (`BYTEA` float32, bez pgvector). Fragmenty starych wersji mają `fts = NULL`, więc znikają z wyszukiwania, ale dawne cytaty da się prześledzić.
-- **`checks`**: log każdej weryfikacji z zamaskowanym wejściem. Retencja 30 dni, usuwanie po `check_id`.
+- **`checks`**: log każdej weryfikacji z zamaskowanym wejściem. Retencja 30 dni, usuwanie po `check_id`. `share_id` (schemat v3) to klucz publicznej strony `/wynik/<share_id>` tylko do odczytu.
 
 Usuwanie danych idzie wyłącznie procedurą z [`DANE_I_LICENCJE.md`](DANE_I_LICENCJE.md#procedura-usunięcia) (`removed.yaml`, `crawler forget`, `rag purge`).
 - **`meta`**: `schema_version` i `corpus_version`. Każdy zapis podbija `corpus_version`, co unieważnia macierz wektorów trzymaną w pamięci.
@@ -102,6 +102,7 @@ Usuwanie danych idzie wyłącznie procedurą z [`DANE_I_LICENCJE.md`](DANE_I_LIC
 - **Halucynacje**: ograniczone kontrolą cytatów, ale wyjaśnienie (`explanation_pl`) pisze model. Rola cytatu też pochodzi od modelu.
 - **Stronniczość źródeł**: korpus to wyłącznie komunikaty instytucji. System sprawdza zgodność z nimi, a nie prawdę absolutną. Brak wyniku nie oznacza fałszu.
 - **Prywatność**: treści źródeł (także `data/snapshot/` w git) są przechowywane bez maskowania i mogą zawierać nazwiska. Maskowany jest tylko log `checks`, który ma 30-dniową retencję.
+- **Nadużycia**: każde sprawdzenie kosztuje wywołania LLM. API i bot mają limity na klienta (5 na minutę, 30 na godzinę) i dzienny limit procesu (1000), konfigurowane w `PRAWDOWID_RATE_*` (`rag/ratelimit.py`). Liczniki są w pamięci, osobno dla każdego procesu, i zerują się po restarcie. Udostępniony wynik jest kopią z serwera, więc nie da się go podrobić pod naszym adresem. Zrzut ekranu można jednak sfałszować, dlatego dowodem jest tylko link.
 - **Licencje**: podstawa prawna każdego źródła, otwarte ryzyka (regulamin Google Fact Check API, CERT/SOK bez licencji, EUvsDisinfo) i procedura usunięcia: [`DANE_I_LICENCJE.md`](DANE_I_LICENCJE.md).
 - **Prompt injection**: tekst użytkownika i fragmenty są escapowane, a podejrzane fragmenty oznaczane. To heurystyka, a nie gwarancja.
 - **Dostępność i aktualność**: zależy od ostatniego crawla i `ingest`. Notatka o nieaktualności dotyczy tylko źródeł `structured`. Awaria LLM daje `error`.

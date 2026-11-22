@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -25,7 +26,7 @@ from .database import query, schema
 from .embed import _fold
 from .timeutil import parse_ts, utcnow_iso
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 Connection = psycopg.Connection[dict[str, Any]]
 
@@ -65,6 +66,8 @@ def connect(url: str | None = None, *, db_schema: str | None = None) -> Connecti
             # Upgrade steps for databases created by an older version (found < version <= SCHEMA_VERSION).
             if found < 2:
                 conn.execute(query("meta.migrate_v2"))
+            if found < 3:
+                conn.execute(query("meta.migrate_v3"))
             conn.execute(query("meta.set_schema_version"), {"version": str(SCHEMA_VERSION)})
     except BaseException:
         conn.close()
@@ -260,6 +263,26 @@ def delete_checks(conn: Connection, check_ids: Iterable[str]) -> int:
     if not ids:
         return 0
     return conn.execute(query("checks.delete"), {"ids": ids}).rowcount
+
+
+def share_check(conn: Connection, check_id: str) -> dict[str, Any] | None:
+    """Give a check a random public share key (kept if it already has one). None: no such check."""
+    return conn.execute(
+        query("checks.share"),
+        {"check_id": check_id, "share_id": secrets.token_urlsafe(12), "now": utcnow_iso()},
+    ).fetchone()
+
+
+def unshare_check(conn: Connection, check_id: str) -> bool:
+    return conn.execute(query("checks.unshare"), {"check_id": check_id}).fetchone() is not None
+
+
+def shared_check(conn: Connection, share_id: str) -> dict[str, Any] | None:
+    """The stored (masked) result behind a share key, exactly as logged at check time."""
+    row = conn.execute(query("checks.by_share"), {"share_id": share_id}).fetchone()
+    if row is None:
+        return None
+    return {**row, "result": json.loads(row.pop("result_json"))}
 
 
 def prune_checks(conn: Connection, older_than: datetime) -> int:

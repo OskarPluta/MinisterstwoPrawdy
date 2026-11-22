@@ -63,6 +63,10 @@ export function HowPage() {
           Zapis przechowujemy 30 dni, a potem usuwamy go automatycznie. Pod wynikiem możesz usunąć go od razu przyciskiem „Usuń zapis
           tego sprawdzenia”. Nikt poza osobą, która dostała wynik, nie zna jego identyfikatora, więc tylko ona może go usunąć.
         </p>
+        <p>
+          Wynik możesz udostępnić linkiem. Strona pod linkiem jest tylko do odczytu: pokazuje wynik zapisany na serwerze, z ukrytymi danymi
+          osobowymi, i nie można jej zmienić. Link działa, dopóki istnieje zapis sprawdzenia. Możesz go wcześniej wyłączyć.
+        </p>
       </InfoSection>
 
       <InfoSection title="Skąd mamy treści źródeł" id="licencje">

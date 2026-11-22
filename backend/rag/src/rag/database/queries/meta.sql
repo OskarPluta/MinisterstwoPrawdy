@@ -43,3 +43,8 @@ SELECT
 ALTER TABLE sources ADD COLUMN IF NOT EXISTS license TEXT;
 ALTER TABLE sources ADD COLUMN IF NOT EXISTS attribution TEXT;
 ALTER TABLE sources ADD COLUMN IF NOT EXISTS processed_notice TEXT;
+
+-- name: migrate_v3
+-- v3: read-only public share of a check (/wynik/<share_id>).
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS share_id TEXT UNIQUE;
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS shared_at TEXT;

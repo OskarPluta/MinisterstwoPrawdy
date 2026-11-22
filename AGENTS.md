@@ -9,7 +9,7 @@ Wskazówki dla agentów i nowych osób w zespole. Ogólny obraz: [`README.md`](R
 | `backend/crawler/` | Pakiet `crawler` (FaktBot): konfiguracja źródeł `sources.yaml`, pobieranie, ekstrakcja, zapis `data/crawl/`. Nie zna bazy ani RAG. |
 | `backend/rag/` | Pakiet `rag`: konwersja danych crawlera, ingest do PostgreSQL, wyszukiwanie, LLM, weryfikacja. Cały SQL jest w `src/rag/database/`. |
 | `backend/rag/tests/fixtures/` | Sztuczny korpus (domena `.test`) i przypadki ewaluacyjne. |
-| `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `sources`). Tylko adaptuje HTTP do `rag.verify.Verifier`, bez własnej logiki. |
+| `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `checks/{id}` (usunięcie, udostępnienie), `shares/{id}`, `sources`). Tylko adaptuje HTTP do `rag.verify.Verifier`, bez własnej logiki. |
 | `backend/discord_bot/` | Pakiet `discord-bot`: kanał Discord (`/sprawdz`, `/zrodla`, wzmianki, DM). Adaptuje Discord do `rag.verify.Verifier` (lub `DISCORD_API_URL`), bez własnej logiki. |
 | `frontend/` | Interfejs WWW: Bun + React + TS. `server.ts` serwuje `src/index.html` i przekazuje `/api/*` do `API_URL`. Własne zależności (`bun install`), poza workspace uv. |
 | `scripts/` | `eval_retrieval.py` (bezpłatna), `eval_verify.py` (płatna, woła LLM). |
@@ -55,6 +55,8 @@ bun run dev | typecheck | build  # w frontend/
 - **Zmiana schematu** (`database/schema.sql`) wymaga podbicia `SCHEMA_VERSION` i dodania kroku migracji w `db.connect`.
 - **Frontend nie renderuje tekstu modelu jako HTML ani Markdown** i nie tworzy linków z tekstu. Linki pochodzą tylko z `citation.url`. Ocena `insufficient` nigdy nie jest czerwona.
 - **Dane strukturalne (ostrzeżenia IMGW, pomiary synop i GIOŚ) nie są cytowane dosłownie.** Renderuje je stały szablon i są pokazywane jako „Dane ze źródła”.
+- **Kanały mają limity żądań** (`rag/ratelimit.py`: na klienta na minutę i godzinę oraz dzienny limit procesu, `PRAWDOWID_RATE_*`). API ufa `X-Forwarded-For` tylko od lokalnego proxy (`PRAWDOWID_TRUSTED_PROXIES`), a proxy Bun ustawia ten nagłówek samo, nigdy nie przekazuje wartości z przeglądarki.
+- **Udostępniony wynik (`/wynik/<share_id>`) jest tylko do odczytu.** Pochodzi z `checks.result_json`, którego nic nie aktualizuje. `share_id` to osobny losowy klucz, a `check_id` (klucz do usunięcia) nigdy nie wychodzi przez udostępnienie. Link żyje tyle co zapis sprawdzenia.
 - **Tekst użytkownika jest maskowany w logu `checks`.** Treści źródeł nie są maskowane. Log ma retencję (`PRAWDOWID_CHECKS_RETENTION_DAYS`, domyślnie 30 dni) i można go usunąć po `check_id` (`DELETE /api/checks/{check_id}`).
 - Czas w bazie jest w UTC (ISO 8601, porównywany w Pythonie), a użytkownikowi pokazywany w strefie Europe/Warsaw.
 - Testy nie korzystają z sieci ani z prawdziwego LLM. Korpus testowy używa domeny `.test`.

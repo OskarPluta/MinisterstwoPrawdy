@@ -1,8 +1,21 @@
 // CheckResult → UI. Model-written text (explanation, claim, message) is rendered as plain text only;
 // links come only from citation.url, which the backend takes from the database.
 import { useState, type ReactNode } from "react";
-import { ApiError, deleteCheck, MSG_OUTAGE, type CheckResult, type CheckStatus, type ClaimResult, type Strength, type Verdict } from "./api";
-import { Button, Notice, StatusPanel, type Tone } from "./design/components";
+import {
+  ApiError,
+  deleteCheck,
+  formatDate,
+  MSG_OUTAGE,
+  shareCheck,
+  unshareCheck,
+  type CheckResult,
+  type CheckStatus,
+  type ClaimResult,
+  type ShareLink,
+  type Strength,
+  type Verdict,
+} from "./api";
+import { Button, Notice, StatusPanel, TextField, type Tone } from "./design/components";
 import { CitationList } from "./design/extra";
 
 /** Non-ok statuses: one Notice; the form stays filled in so the person can fix the input. */
@@ -119,9 +132,101 @@ export function resultAsText(res: CheckResult): string {
   return out.join("\n").trim();
 }
 
-export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => void }) {
+type Async = { kind: "idle" | "busy" | "done" } | { kind: "fail"; message: string };
+
+function errorText(err: unknown): string {
+  return err instanceof ApiError ? err.message : MSG_OUTAGE;
+}
+
+/** Publish / withdraw the read-only page /wynik/<share_id> (a server-side copy, never editable). */
+function ShareBox({ checkId, erased }: { checkId: string; erased: boolean }) {
+  const [link, setLink] = useState<ShareLink | null>(null);
+  const [state, setState] = useState<Async>({ kind: "idle" });
   const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
-  const [erase, setErase] = useState<{ kind: "idle" | "busy" | "done" } | { kind: "fail"; message: string }>({ kind: "idle" });
+  const url = link ? window.location.origin + link.path : "";
+
+  async function share() {
+    if (state.kind === "busy") return;
+    setState({ kind: "busy" });
+    try {
+      setLink(await shareCheck(checkId));
+      setState({ kind: "done" });
+    } catch (err) {
+      setState({ kind: "fail", message: errorText(err) });
+    }
+  }
+
+  async function unshare() {
+    if (state.kind === "busy") return;
+    setState({ kind: "busy" });
+    try {
+      await unshareCheck(checkId);
+      setLink(null);
+      setCopied("idle");
+      setState({ kind: "idle" });
+    } catch (err) {
+      setState({ kind: "fail", message: errorText(err) });
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied("ok");
+    } catch {
+      setCopied("fail");
+    }
+  }
+
+  if (erased) return null;
+  return (
+    <div className="app-share">
+      <h3 className="app-share-title">Udostępnij wynik</h3>
+      <p>
+        Każdy, kto dostanie link, zobaczy ten wynik w wersji tylko do odczytu. Wynik zapisujemy na serwerze w chwili udostępnienia, więc
+        nikt nie może go zmienić. Dane osobowe w treści są ukryte.
+      </p>
+      {link ? (
+        <>
+          <TextField label="Link do wyniku" value={url} readOnly onFocus={(e) => e.currentTarget.select()} width="full" />
+          <div className="app-result-actions">
+            <Button variant="secondary" icon="file-text" iconPosition="start" onClick={copyLink}>
+              Kopiuj link
+            </Button>
+            <a className="mp-link" href={link.path} target="_blank" rel="noopener noreferrer">
+              Otwórz udostępnioną stronę
+              <span className="mp-sr"> (otwiera się w nowej karcie)</span>
+            </a>
+            <Button variant="link" onClick={unshare} aria-disabled={state.kind === "busy" || undefined}>
+              Wyłącz udostępnianie
+            </Button>
+          </div>
+          {link.expires_at && <p className="app-share-note">Link działa do {formatDate(link.expires_at)}.</p>}
+        </>
+      ) : (
+        <Button variant="secondary" onClick={share} aria-disabled={state.kind === "busy" || undefined}>
+          Utwórz link do wyniku
+        </Button>
+      )}
+      <p className="app-copy-state" role="status">
+        {state.kind === "fail"
+          ? state.message
+          : state.kind === "busy"
+            ? "Chwileczkę…"
+            : copied === "ok"
+              ? "Skopiowano link do schowka."
+              : copied === "fail"
+                ? "Nie udało się skopiować. Zaznacz link ręcznie."
+                : ""}
+      </p>
+    </div>
+  );
+}
+
+/** `readOnly`: a shared result (/wynik/<id>) – no reset, delete or share controls. */
+export function ResultView({ res, onReset, readOnly = false }: { res: CheckResult; onReset?: () => void; readOnly?: boolean }) {
+  const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
+  const [erase, setErase] = useState<Async>({ kind: "idle" });
 
   async function eraseLog() {
     if (erase.kind === "busy" || erase.kind === "done") return;
@@ -130,7 +235,7 @@ export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => 
       await deleteCheck(res.check_id);
       setErase({ kind: "done" });
     } catch (err) {
-      setErase({ kind: "fail", message: err instanceof ApiError ? err.message : MSG_OUTAGE });
+      setErase({ kind: "fail", message: errorText(err) });
     }
   }
 
@@ -143,6 +248,7 @@ export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => 
     }
   }
 
+  const owner = !readOnly && Boolean(res.check_id);
   return (
     <div className="app-result">
       <h2 className="mp-sr">Wynik sprawdzenia</h2>
@@ -159,17 +265,25 @@ export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => 
         <Button variant="secondary" icon="file-text" iconPosition="start" onClick={copy}>
           Kopiuj wynik
         </Button>
-        <Button variant="link" onClick={onReset}>
-          Sprawdź inną wiadomość
-        </Button>
+        {onReset ? (
+          <Button variant="link" onClick={onReset}>
+            Sprawdź inną wiadomość
+          </Button>
+        ) : (
+          <a className="mp-link" href="/">
+            Sprawdź własną wiadomość
+          </a>
+        )}
       </div>
       <p className="app-copy-state" role="status">
         {copied === "ok" ? "Skopiowano wynik do schowka." : copied === "fail" ? "Nie udało się skopiować. Zaznacz tekst ręcznie." : ""}
       </p>
-      {res.check_id && (
+      {owner && <ShareBox checkId={res.check_id} erased={erase.kind === "done"} />}
+      {owner && (
         <div className="app-erase">
           <p>
-            Zapis tego sprawdzenia (z ukrytymi danymi osobowymi) przechowujemy 30 dni. Możesz go usunąć od razu.
+            Zapis tego sprawdzenia (z ukrytymi danymi osobowymi) przechowujemy 30 dni. Możesz go usunąć od razu. Usunięcie wyłącza też
+            link do wyniku.
           </p>
           <Button variant="secondary" onClick={eraseLog} aria-disabled={erase.kind === "busy" || erase.kind === "done" || undefined}>
             Usuń zapis tego sprawdzenia

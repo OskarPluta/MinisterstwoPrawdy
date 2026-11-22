@@ -354,6 +354,20 @@ def test_discord_service_without_llm_is_outage():
     assert res.message == MSG_OUTAGE
 
 
+def test_discord_service_limits_each_user():
+    from rag.ratelimit import RateLimiter
+
+    def no_key() -> Any:
+        raise SystemExit("OPENAI_API_KEY is not set")
+
+    svc = DiscordService(conn=object(), embedder=HashEmbedder(), llm_factory=no_key, owns_conn=False,
+                         limiter=RateLimiter(per_minute=1, per_hour=0, per_day_total=0))
+    assert asyncio.run(svc.verify("Czy jest ostrzeżenie?", user="1")).message == MSG_OUTAGE
+    limited = asyncio.run(svc.verify("Czy jest ostrzeżenie?", user="1"))
+    assert limited.status == "error" and "zbyt wiele" in (limited.message or "")
+    assert asyncio.run(svc.verify("Czy jest ostrzeżenie?", user="2")).message == MSG_OUTAGE, "per user"
+
+
 def test_discord_service_api_outage_returns_error():
     svc = DiscordService(api_url="http://127.0.0.1:1")
     res = asyncio.run(svc.verify("Czy jest ostrzeżenie?"))

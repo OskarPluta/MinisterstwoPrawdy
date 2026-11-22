@@ -11,7 +11,7 @@ Dokument opisuje stan na 2026-11-22. Warunki źródeł odczytano tego dnia ze st
 | `data/crawl/` (poza git) | Bieżące przebiegi crawlera: `documents.jsonl` z wersjami, `state.json`, `crawl_log.jsonl`. | Tak, oprócz fact-checków Google (same metadane). | Dopóki źródło jest w `sources.yaml` i nie trafiło do `removed.yaml`. | Konto systemowe, na którym działa crawler. Brak usługi sieciowej. |
 | PostgreSQL `evidence`, `passages` | Rekordy z wersjami, fragmenty do cytowania, wektory. | Tak, w podziale na fragmenty. | Jak `data/crawl/`. Starsze wersje zostają do śledzenia cytatów. | Baza słucha tylko na `127.0.0.1` (`docker-compose.yml`), hasło w `.env` (poza git). |
 | PostgreSQL `sources` | Katalog źródeł z licencją (`license`, `terms_url`, `attribution`). | Nie | Jak wyżej. | Publiczny przez `GET /api/sources` i stronę „Źródła”. |
-| PostgreSQL `checks` | Log sprawdzeń: zamaskowany tekst użytkownika i wynik z cytatami. | Nie (cytaty mają ≤ 400 znaków) | **30 dni** (`PRAWDOWID_CHECKS_RETENTION_DAYS`, `0` wyłącza log). Usuwanie automatyczne, najwyżej raz na godzinę. | Nikt przez API poza usunięciem po `check_id`. |
+| PostgreSQL `checks` | Log sprawdzeń: zamaskowany tekst użytkownika i wynik z cytatami. | Nie (cytaty mają ≤ 400 znaków) | **30 dni** (`PRAWDOWID_CHECKS_RETENTION_DAYS`, `0` wyłącza log). Usuwanie automatyczne, najwyżej raz na godzinę. | Autor sprawdzenia: usunięcie po `check_id`. Osoby z linkiem: odczyt wyniku, jeśli autor go udostępnił (`/wynik/<share_id>`). |
 | Wyszukiwanie na żywo (`rag/live.py`) | Artykuły gov.pl, sprawy i artykuły EUvsDisinfo oraz ClaimReview, pobrane w trakcie sprawdzenia. | Tak (gov.pl, EUvsDisinfo) | Jak `evidence`. Źródła `live-*` też podlegają `removed.yaml` i `rag purge`. | Jak `evidence`. |
 
 API nie ma endpointu zwracającego cały dokument. Użytkownik widzi tylko cytowane fragmenty (≤ 400 znaków) z linkiem do oryginału.
@@ -48,6 +48,8 @@ Reguły są w [`backend/crawler/sources.yaml`](../backend/crawler/sources.yaml) 
 
 - PostgreSQL działa tylko na `127.0.0.1` z hasłem z `.env` (poza git). Klucze API (Google, EUvsDisinfo, LLM) są tylko w środowisku i nie trafiają do danych ani do URL.
 - API (`uv run api`) domyślnie słucha na `127.0.0.1`. Publicznie wystawiamy tylko frontend (`scripts/tunnel.sh`), który przekazuje `/api/*`. API daje werdykt z cytatami (≤ 400 znaków) i katalog źródeł, nigdy całych dokumentów.
+- Limity żądań: API i bot przyjmują od jednego klienta 5 sprawdzeń na minutę i 30 na godzinę, a cały proces najwyżej 1000 na dobę (`PRAWDOWID_RATE_*`). Nadmiar dostaje 429 z komunikatem.
+- Udostępnienie wyniku: `POST /api/checks/{check_id}/share` tworzy osobny losowy `share_id`. Strona `/wynik/<share_id>` pokazuje zamaskowany wynik z logu, tylko do odczytu i z `noindex`. Link przestaje działać po wyłączeniu udostępniania, usunięciu zapisu albo po upływie retencji.
 - Usunięcie zapisu sprawdzenia: `DELETE /api/checks/{check_id}`. `check_id` to losowy UUID4 zwracany tylko autorowi sprawdzenia, więc nikt inny go nie zna. Innych operacji zapisu API nie udostępnia.
 - `data/crawl/` i `.env` są w `.gitignore`. Do repozytorium trafia tylko `data/snapshot/`.
 

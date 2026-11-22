@@ -29,6 +29,7 @@ from discord import app_commands
 from rag.config import load_env
 from rag.db import Connection, connect, corpus_totals, list_sources
 from rag.embed import DEFAULT_EMBEDDER, Embedder, get_embedder
+from rag.ratelimit import RateLimiter
 from rag.search import Retriever
 from rag.timeutil import WARSAW, parse_ts
 from rag.verify import MSG_OUTAGE, CheckResult, Verifier
@@ -69,6 +70,8 @@ class DiscordService:
     api_url: str | None = None
     owns_conn: bool = True
     lock: threading.Lock = field(default_factory=threading.Lock)
+    # Per Discord user and daily limits (rag/ratelimit.py, PRAWDOWID_RATE_*): each check costs LLM calls.
+    limiter: RateLimiter = field(default_factory=RateLimiter.from_env)
     _verifier: Verifier | None = None
 
     def __post_init__(self) -> None:
@@ -82,22 +85,31 @@ class DiscordService:
             self._verifier = Verifier(Retriever(self.conn, self.embedder), self.llm_factory())
         return self._verifier
 
-    def _verify_via_api(self, text: str, now: datetime | None) -> CheckResult:
+    def _verify_via_api(self, text: str, now: datetime | None, user: str | None = None) -> CheckResult:
         payload: dict[str, Any] = {"text": text}
         if now is not None:
             payload["now"] = now.isoformat()
+        # The API trusts X-Forwarded-For from a local peer, so it limits each Discord user separately.
+        headers = {"X-Forwarded-For": f"discord:{user}"} if user else {}
         try:
             with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT_S) as client:
-                resp = client.post(f"{self.api_url}/api/verify", json=payload)
+                resp = client.post(f"{self.api_url}/api/verify", json=payload, headers=headers)
+                if resp.status_code == 429:
+                    detail = (resp.json() or {}).get("detail") or MSG_OUTAGE
+                    return CheckResult(check_id="", status="error", message=str(detail))
                 resp.raise_for_status()
                 return check_result_from_dict(resp.json())
         except Exception as e:  # noqa: BLE001 - outage must surface as MSG_OUTAGE, never crash bot
             log.error("API /api/verify request failed: %s", e)
             return CheckResult(check_id="", status="error", message=MSG_OUTAGE, error=repr(e))
 
-    def verify_sync(self, text: str, now: datetime | None = None) -> CheckResult:
+    def verify_sync(self, text: str, now: datetime | None = None, user: str | None = None) -> CheckResult:
+        refused = self.limiter.hit(f"discord:{user or 'anon'}")
+        if refused:
+            log.warning("rate limit (%s) for a Discord user, retry after %d s", refused.scope, refused.retry_after)
+            return CheckResult(check_id="", status="error", message=refused.message)
         if self.api_url:
-            return self._verify_via_api(text, now)
+            return self._verify_via_api(text, now, user)
         with self.lock:
             try:
                 verifier = self.verifier()
@@ -109,8 +121,8 @@ class DiscordService:
             log.warning("check %s: %s", res.check_id, res.error)
         return res
 
-    async def verify(self, text: str, now: datetime | None = None) -> CheckResult:
-        return await asyncio.to_thread(self.verify_sync, text, now)
+    async def verify(self, text: str, now: datetime | None = None, user: str | None = None) -> CheckResult:
+        return await asyncio.to_thread(self.verify_sync, text, now, user)
 
     def sources_sync(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         if self.api_url:
@@ -185,7 +197,7 @@ class PrawdowidBot(discord.Client):
             await message.reply(EMPTY_MENTION_HINT, mention_author=False)
             return
         async with message.channel.typing():
-            res = await self.service.verify(query, self.default_now)
+            res = await self.service.verify(query, self.default_now, str(message.author.id))
         formatted = format_check_result(res)
         await message.reply(content=formatted.content, embeds=formatted.embeds, mention_author=False)
 
@@ -209,7 +221,7 @@ def create_bot(
     @app_commands.describe(tekst="Twierdzenie, wiadomość lub pytanie do weryfikacji")
     async def sprawdz_cmd(interaction: discord.Interaction, tekst: str) -> None:
         await interaction.response.defer(thinking=True)
-        res = await service.verify(tekst, default_now)
+        res = await service.verify(tekst, default_now, str(interaction.user.id))
         formatted = format_check_result(res)
         await interaction.followup.send(content=formatted.content, embeds=formatted.embeds)
 

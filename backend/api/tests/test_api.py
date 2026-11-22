@@ -154,3 +154,64 @@ def test_delete_check(client):
     assert r.status_code == 200 and r.json() == {"deleted": True, "check_id": check_id}
     assert client.delete(f"/api/checks/{check_id}").status_code == 404, "already deleted"
     assert client.delete("/api/checks/nie-uuid").status_code == 422
+
+
+QUESTION = {"text": "Czy na Wiśle w Sandomierzu jest ostrzeżenie?"}
+
+
+def test_share_is_read_only_and_never_leaks_check_id(client):
+    res = client.post("/api/verify", json=QUESTION).json()
+    check_id = res["check_id"]
+    r = client.post(f"/api/checks/{check_id}/share")
+    assert r.status_code == 200
+    link = r.json()
+    assert link["path"] == f"/wynik/{link['share_id']}" and link["expires_at"]
+    assert client.post(f"/api/checks/{check_id}/share").json()["share_id"] == link["share_id"], "same link twice"
+
+    shared = client.get(f"/api/shares/{link['share_id']}")
+    assert shared.status_code == 200 and shared.headers["x-robots-tag"] == "noindex"
+    body = shared.json()
+    assert body["result"]["check_id"] == "", "the deletion key never leaves through a share"
+    assert check_id not in shared.text
+    assert body["result"]["claims"][0]["verdict"] == res["claims"][0]["verdict"]
+    assert body["result"]["claims"][0]["citations"] == res["claims"][0]["citations"]
+    for internal in ("shortlist_ids", "invented_ids", "live", "error"):
+        assert internal not in body["result"]["claims"][0]
+    assert "error" not in body["result"]
+
+    # No route can change a shared result.
+    assert client.put(f"/api/shares/{link['share_id']}", json={}).status_code == 405
+    assert client.delete(f"/api/shares/{link['share_id']}").status_code == 405
+
+    assert client.delete(f"/api/checks/{check_id}/share").json() == {"shared": False, "check_id": check_id}
+    assert client.get(f"/api/shares/{link['share_id']}").status_code == 404
+
+
+def test_deleting_the_check_removes_its_share(client):
+    check_id = client.post("/api/verify", json=QUESTION).json()["check_id"]
+    share_id = client.post(f"/api/checks/{check_id}/share").json()["share_id"]
+    client.delete(f"/api/checks/{check_id}")
+    assert client.get(f"/api/shares/{share_id}").status_code == 404
+    assert client.post(f"/api/checks/{check_id}/share").status_code == 404
+    assert client.get("/api/shares/za-krotki").status_code == 422
+
+
+def test_verify_rate_limit_per_client(client):
+    from rag.ratelimit import RateLimiter
+
+    svc = client.app.state.svc
+    svc.limiter = RateLimiter(per_minute=1, per_hour=0, per_day_total=0)
+
+    def post(ip):
+        return client.post("/api/verify", json=QUESTION, headers={"X-Forwarded-For": ip})
+
+    svc.trusted_proxies = frozenset({"testclient"})  # TestClient's peer plays the local Bun proxy
+    assert post("203.0.113.5").status_code == 200
+    r = post("203.0.113.5")
+    assert r.status_code == 429 and int(r.headers["retry-after"]) > 0
+    assert "Spróbuj ponownie" in r.json()["detail"]
+    assert post("203.0.113.6").status_code == 200, "another visitor has its own limit"
+
+    svc.trusted_proxies = frozenset()  # untrusted peer: a forged X-Forwarded-For must not help
+    assert post("198.51.100.8").status_code == 200
+    assert post("198.51.100.9").status_code == 429, "header ignored, both count as the same peer"

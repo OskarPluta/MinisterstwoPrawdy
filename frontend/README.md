@@ -16,6 +16,7 @@ bun run start      # serwer produkcyjny
 | Ścieżka | Plik | Co robi |
 | --- | --- | --- |
 | `/` | [`pages/CheckPage.tsx`](src/pages/CheckPage.tsx) | Formularz „Sprawdź informację” i wynik. Wynik zastępuje formularz, a fokus przechodzi na jego tytuł. |
+| `/wynik/<id>` | [`pages/SharedPage.tsx`](src/pages/SharedPage.tsx) | Udostępniony wynik tylko do odczytu (`GET /api/shares/<id>`), `noindex`. |
 | `/zrodla` | [`pages/SourcesPage.tsx`](src/pages/SourcesPage.tsx) | Lista źródeł do audytu (`GET /api/sources`). |
 | `/jak-to-dziala` | [`pages/HowPage.tsx`](src/pages/HowPage.tsx) | Metoda, znaczenie ocen, granice systemu, prywatność, deklaracja dostępności. |
 
@@ -25,6 +26,7 @@ bun run start      # serwer produkcyjny
 
 - [`server.ts`](server.ts) to `Bun.serve`: importuje [`src/index.html`](src/index.html), a Bun sam bundluje TSX i CSS, do których strona się odwołuje. Każda ścieżka poza `/api/*` dostaje `index.html`, a routing robi [`router.tsx`](src/router.tsx) (History API, bez zależności).
 - `/api/*` jest przekazywane do backendu Pythona pod `API_URL` (domyślnie `http://127.0.0.1:8000`), więc kod frontu woła po prostu `fetch("/api/...")`, bez CORS. Gdy backend nie działa, proxy zwraca 502, a strona pokazuje komunikat o niedostępności.
+- Proxy ustawia `X-Forwarded-For` na adres odwiedzającego (za tunelem cloudflared z `CF-Connecting-IP`), bo na nim API liczy limity żądań. Przy 429 strona pokazuje komunikat z API.
 - Zmienne: `API_URL`, `FRONTEND_PORT`. Bun czyta `.env` z `frontend/`, nie z katalogu głównego.
 
 ## System projektowy ([`src/design/`](src/design/))
@@ -53,6 +55,8 @@ Mapowanie odpowiedzi API na widok (ton, tytuł, komunikaty) jest w [`result.tsx`
 | --- | --- |
 | `GET /api/health` | `{status, corpus_version}` |
 | `POST /api/verify` `{text, now?}` | `CheckResult` bez pól wewnętrznych (`error`, `shortlist_ids`, `invented_ids`). 503, gdy nie ma klucza LLM. |
+| `POST /api/checks/{check_id}/share` | `{share_id, path, expires_at}`: link do strony tylko do odczytu (ten sam przy ponownym wywołaniu). `DELETE` wyłącza udostępnianie. |
+| `GET /api/shares/{share_id}` | `{share_id, checked_at, shared_at, expires_at, result}`. `result.check_id` jest zawsze pusty. 404, gdy link wygasł lub został wyłączony. |
 | `DELETE /api/checks/{check_id}` | `{deleted, check_id}`; 404, gdy zapisu już nie ma. Przycisk „Usuń zapis tego sprawdzenia” pod wynikiem. |
 | `GET /api/sources` | `{totals, sources}`: katalog źródeł z licencją, stanem pobrania i liczbą rekordów |
 
