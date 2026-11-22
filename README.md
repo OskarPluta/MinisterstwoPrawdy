@@ -45,7 +45,7 @@ uv run rag search "ostrzeżenie hydrologiczne"
 uv run rag verify "Czy IMGW wydał ostrzeżenie przed suszą hydrologiczną?"   # płatne wywołania LLM
 ```
 
-`verify` potrzebuje `OPENAI_API_KEY` albo `ANTHROPIC_API_KEY` z `--provider anthropic`. Wszystkie zmienne są opisane w [`.env.example`](.env.example).
+`verify` potrzebuje `PCSS_API_KEY` (domyślny dostawca: modele PCSS, np. GLM-5.3-Flash, Bielik), albo `OPENAI_API_KEY` z `--provider openai`, albo `ANTHROPIC_API_KEY` z `--provider anthropic`. Wszystkie zmienne są opisane w [`.env.example`](.env.example).
 Ostrzeżenia mają okna ważności, więc przy pytaniach o „dziś” na starym zrzucie podaj `--now <ISO 8601>`.
 
 Świeże dane z crawlera (odpytuje prawdziwe serwisy, trwa kilka minut):

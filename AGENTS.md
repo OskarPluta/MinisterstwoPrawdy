@@ -61,7 +61,7 @@ bun run dev | typecheck | build  # w frontend/
 | --- | --- | --- |
 | dodać źródło | `backend/crawler/sources.yaml` | Bez zmian w kodzie. Jeśli źródło ma API, użyj `json_api` (stronicowanie, szczegóły rekordu: crawler README). Instrukcja: [crawler README](backend/crawler/README.md#dodanie-źródła). Nowy `doc_type` zmapuj w `ARTICLE_KINDS` w `rag/crawler_import.py`. |
 | dodać rodzaj rekordu lub szablon strukturalny | `rag/crawler_import.py` (konwerter pól, jak `_meteo`/`_hydro`), `rag/chunking.py` (`render_structured`, `REQUIRED_FIELDS`), `rag/verify.py` (`TIMED_KINDS`, jeśli rekord ma okres ważności) | Dodaj przykład do `fake_corpus.json` i test. |
-| zmienić prompty | `rag/llm.py` (`EXTRACT_SYSTEM`, `VERIFY_SYSTEM`, schematy Pydantic) | Wspólne dla OpenAI i Anthropic. Sprawdź przez `eval_verify.py --only ...`. |
+| zmienić prompty | `rag/llm.py` (`EXTRACT_SYSTEM`, `VERIFY_SYSTEM`, schematy Pydantic) | Wspólne dla PCSS, OpenAI i Anthropic. Sprawdź przez `eval_verify.py --only ...`. |
 | zmienić reguły werdyktu, siłę dowodów, notatki, render | `rag/verify.py` (`REQUIRED_ROLES`, `_enforce`, `assess_strength`, `PRIMARY_SOURCE_TYPES`, `_notes`, `render_markdown`, `VERDICT_PL`) | Testy: `test_verify.py`. |
 | zmienić wyszukiwanie lub fuzję | `rag/search.py` (`Retriever`, `fts_query`, `STOPWORDS`, `RRF_K`) | Porównaj wyniki przed i po: `scripts/eval_retrieval.py`. |
 | zmienić wyszukiwanie na żywo | `rag/live.py` (`SOURCES`, `TRUSTED_FACTCHECK_DOMAINS`, `BUDGET_S`, `needs_live`) | Testy: `test_live.py` na nagranych odpowiedziach w `tests/fixtures/live/`. Nowe nagranie: prawdziwa odpowiedź, bez kluczy w pliku. |

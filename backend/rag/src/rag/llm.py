@@ -7,7 +7,7 @@ import platform
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, Protocol, TypeVar
+from typing import Literal, NamedTuple, Protocol, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -195,25 +195,29 @@ class LLM(Protocol):
     def verify_claim(self, claim: Claim, evidence_xml: str, now: datetime) -> ClaimVerdict: ...
 
 
-# USD per million tokens (input, output); used for cost reporting only.
-# For models not listed, set PRAWDOWID_PRICE_IN / PRAWDOWID_PRICE_OUT (USD per 1M tokens).
+# Price per million tokens (input, output, currency); used for cost reporting only.
+# For models not listed, set PRAWDOWID_PRICE_IN / PRAWDOWID_PRICE_OUT (per 1M tokens) and
+# optionally PRAWDOWID_PRICE_CURRENCY (default USD).
 PRICES = {
-    "claude-opus-5-5": (4.0, 20.0),
-    "claude-sonnet-5-5": (2.0, 10.0),
-    "claude-haiku-5-5": (0.10, 0.50),
-    "gpt-5.5": (2.50, 10.0),
-    "gpt-5.4": (2.50, 10.0),
-    "gpt-5.4-mini": (0.40, 1.60),
-    "gpt-5.4-nano": (0.10, 0.40),
-    "gpt-4.1": (2.00, 8.00),
-    "gpt-4.1-mini": (0.40, 1.60),
-    "gpt-4.1-nano": (0.10, 0.40),
-    "gpt-4o": (2.50, 10.0),
-    "gpt-4o-mini": (0.15, 0.60),
+    "claude-opus-5-5": (4.0, 20.0, "USD"),
+    "claude-sonnet-5-5": (2.0, 10.0, "USD"),
+    "claude-haiku-5-5": (0.10, 0.50, "USD"),
+    "gpt-5.5": (2.50, 10.0, "USD"),
+    "gpt-5.4": (2.50, 10.0, "USD"),
+    "gpt-5.4-mini": (0.40, 1.60, "USD"),
+    "gpt-5.4-nano": (0.10, 0.40, "USD"),
+    "gpt-4.1": (2.00, 8.00, "USD"),
+    "gpt-4.1-mini": (0.40, 1.60, "USD"),
+    "gpt-4.1-nano": (0.10, 0.40, "USD"),
+    "gpt-4o": (2.50, 10.0, "USD"),
+    "gpt-4o-mini": (0.15, 0.60, "USD"),
+    # PCSS price list (llm.hpc.psnc.pl), 2026-11.
+    "GLM-5.3-Flash": (2.948, 5.895, "PLN"),
+    "Bielik-11B-v3.0-Instruct": (0.423, 0.846, "PLN"),
 }
 
 
-def _price_for(model: str) -> tuple[float, float] | None:
+def _price_for(model: str) -> tuple[float, float, str] | None:
     if model in PRICES:
         return PRICES[model]
     matches = [k for k in PRICES if model.startswith(f"{k}-")]
@@ -226,6 +230,14 @@ MAX_OUTPUT_TOKENS = 16000
 
 Tag = Literal["extract", "verify"]
 M = TypeVar("M", bound=BaseModel)
+
+
+class Cost(NamedTuple):
+    amount: float
+    currency: str
+
+    def __str__(self) -> str:
+        return f"{self.amount:.4f} {self.currency}"
 
 
 @dataclass
@@ -259,14 +271,21 @@ class Usage:
             )
 
     def cost_usd(self, model: str) -> float | None:
+        """None when the price of `model` is unknown or not in USD (the checks log and
+        /api/stats sum USD only, so PLN-priced PCSS models are left out there)."""
+        cost = self.cost(model)
+        return cost.amount if cost is not None and cost.currency == "USD" else None
+
+    def cost(self, model: str) -> Cost | None:
         """None when the price of `model` is unknown."""
         if os.environ.get("PRAWDOWID_PRICE_IN") and os.environ.get("PRAWDOWID_PRICE_OUT"):
             pin, pout = float(os.environ["PRAWDOWID_PRICE_IN"]), float(os.environ["PRAWDOWID_PRICE_OUT"])
+            currency = os.environ.get("PRAWDOWID_PRICE_CURRENCY") or "USD"
         elif (price := _price_for(model)) is not None:
-            pin, pout = price
+            pin, pout, currency = price
         else:
             return None
-        return (self.input_tokens * pin + self.output_tokens * pout) / 1e6
+        return Cost((self.input_tokens * pin + self.output_tokens * pout) / 1e6, currency)
 
 
 class _StructuredLLM:
@@ -289,14 +308,24 @@ class OpenAILLM(_StructuredLLM):
     """OpenAI Chat Completions with strict structured output (Pydantic response_format).
 
     Model: --model / OPENAI_MODEL (default gpt-5.5). Reasoning effort is sent only when
-    set (OPENAI_REASONING_EFFORT), since not every model accepts it."""
+    set (OPENAI_REASONING_EFFORT), since not every model accepts it. `base_url` and
+    `api_key` point the same client at an OpenAI-compatible server (see PCSSLLM)."""
 
-    def __init__(self, model: str | None = None, reasoning_effort: str | None = None):
+    def __init__(
+        self,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ):
         import openai
 
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-5.5")
         self.reasoning_effort = reasoning_effort or os.environ.get("OPENAI_REASONING_EFFORT")
-        self.client = openai.OpenAI(timeout=LLM_TIMEOUT_S, max_retries=LLM_RETRIES)  # reads OPENAI_API_KEY
+        # Without api_key/base_url the client reads OPENAI_API_KEY / OPENAI_BASE_URL.
+        self.client = openai.OpenAI(
+            api_key=api_key, base_url=base_url, timeout=LLM_TIMEOUT_S, max_retries=LLM_RETRIES
+        )
         self.usage = Usage()
 
     def _parse(self, system: str, user: str, schema: type[M], tag: Tag) -> M:
@@ -316,6 +345,28 @@ class OpenAILLM(_StructuredLLM):
         if choice.finish_reason == "length" or choice.message.parsed is None:
             raise RuntimeError(f"no structured output ({tag}, finish_reason={choice.finish_reason})")
         return choice.message.parsed
+
+
+PCSS_BASE_URL = "https://llm.hpc.psnc.pl/v1"
+PCSS_DEFAULT_MODEL = "GLM-5.3-Flash"
+
+
+class PCSSLLM(OpenAILLM):
+    """Open models hosted by PCSS (Poznań Supercomputing and Networking Center) behind an
+    OpenAI-compatible API, using the same strict structured output as OpenAILLM.
+
+    Key: PCSS_API_KEY. Model: --model / PCSS_MODEL (default GLM-5.3-Flash; also e.g.
+    Bielik-11B-v3.0-Instruct). Endpoint: PCSS_BASE_URL. Reasoning effort is sent only when
+    PCSS_REASONING_EFFORT is set."""
+
+    def __init__(self, model: str | None = None, reasoning_effort: str | None = None):
+        super().__init__(
+            model=model or os.environ.get("PCSS_MODEL") or PCSS_DEFAULT_MODEL,
+            base_url=os.environ.get("PCSS_BASE_URL") or PCSS_BASE_URL,
+            api_key=os.environ.get("PCSS_API_KEY"),
+        )
+        # Set after super() so OPENAI_REASONING_EFFORT never leaks into PCSS requests.
+        self.reasoning_effort = reasoning_effort or os.environ.get("PCSS_REASONING_EFFORT")
 
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
@@ -350,20 +401,31 @@ class AnthropicLLM(_StructuredLLM):
         return resp.parsed_output
 
 
+PROVIDERS = ("pcss", "openai", "anthropic")
+
+
+def _require_key(var: str, example: str) -> None:
+    if os.environ.get(var):
+        return
+    hint = ""
+    if "microsoft" in platform.uname().release.lower():
+        hint = (
+            "\nRunning in WSL: Windows environment variables are not visible here unless "
+            f"listed in WSLENV. In Windows run `setx WSLENV \"{var}/u\"`, then "
+            "`wsl --shutdown` and reopen the terminal, or put the key in .env."
+        )
+    raise SystemExit(f"{var} is not set (export {var}={example} or add it to .env){hint}")
+
+
 def make_llm(provider: str | None = None, model: str | None = None) -> OpenAILLM | AnthropicLLM:
-    """provider: openai | anthropic (default: PRAWDOWID_PROVIDER or openai)."""
-    provider = (provider or os.environ.get("PRAWDOWID_PROVIDER") or "openai").lower()
+    """provider: pcss | openai | anthropic (default: PRAWDOWID_PROVIDER or pcss)."""
+    provider = (provider or os.environ.get("PRAWDOWID_PROVIDER") or "pcss").lower()
+    if provider == "pcss":
+        _require_key("PCSS_API_KEY", "...")
+        return PCSSLLM(model=model)
     if provider == "openai":
-        if not os.environ.get("OPENAI_API_KEY"):
-            hint = ""
-            if "microsoft" in platform.uname().release.lower():
-                hint = (
-                    "\nRunning in WSL: Windows environment variables are not visible here unless "
-                    "listed in WSLENV. In Windows run `setx WSLENV \"OPENAI_API_KEY/u\"`, then "
-                    "`wsl --shutdown` and reopen the terminal."
-                )
-            raise SystemExit(f"OPENAI_API_KEY is not set (export OPENAI_API_KEY=sk-...){hint}")
+        _require_key("OPENAI_API_KEY", "sk-...")
         return OpenAILLM(model=model)
     if provider == "anthropic":
         return AnthropicLLM(model=model)
-    raise SystemExit(f"unknown provider {provider!r} (use openai or anthropic)")
+    raise SystemExit(f"unknown provider {provider!r} (use {' | '.join(PROVIDERS)})")

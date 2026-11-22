@@ -1,8 +1,8 @@
 """Live end-to-end run of the verifier on backend/rag/tests/fixtures/verify_cases.yaml.
 
-Calls the LLM (2 calls per case, ~15 cases), so it costs money and needs OPENAI_API_KEY
-(default provider) or ANTHROPIC_API_KEY with --provider anthropic. Prints per-case outcome,
-accuracy, citation checks, latency and cost.
+Calls the LLM (2 calls per case, ~15 cases), so it costs money and needs PCSS_API_KEY
+(default provider), OPENAI_API_KEY with --provider openai or ANTHROPIC_API_KEY with
+--provider anthropic. Prints per-case outcome, accuracy, citation checks, latency and cost.
 
     uv run python scripts/eval_verify.py                 # default embedder: e5
     uv run python scripts/eval_verify.py --only v01,v07
@@ -38,7 +38,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--embedder", default=DEFAULT_EMBEDDER)
     ap.add_argument("--only", help="comma-separated case ids")
-    ap.add_argument("--provider", default=None, help="openai (default) | anthropic")
+    ap.add_argument("--provider", default=None, help="pcss (default) | openai | anthropic")
     ap.add_argument("--model", default=None)
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--json-out")
@@ -101,10 +101,10 @@ def run(conn: Connection, args: argparse.Namespace) -> None:
     print(f"required citation present: {sum(r['cite_ok'] for r in rows)}/{n}")
     print(f"invented citation ids caught: {sum(len(r['invented']) for r in rows)}")
     print(f"latency median: {statistics.median(latencies) / 1000:.1f}s  max: {max(latencies) / 1000:.1f}s")
-    cost = llm.usage.cost_usd(llm.model)
+    cost = llm.usage.cost(llm.model)
     cost_s = (
-        "cost n/a (set PRAWDOWID_PRICE_IN/OUT, USD per 1M tokens)" if cost is None
-        else f"cost=${cost:.3f} (≈ ${cost / max(n, 1) * 1000:.0f} per 1000 checks)"
+        "cost n/a (set PRAWDOWID_PRICE_IN/OUT per 1M tokens, PRAWDOWID_PRICE_CURRENCY)" if cost is None
+        else f"cost={cost} (≈ {cost.amount / max(n, 1) * 1000:.0f} {cost.currency} per 1000 checks)"
     )
     print(f"model={llm.model} calls={llm.usage.calls} tokens={llm.usage.input_tokens}+"
           f"{llm.usage.output_tokens} {cost_s}")
