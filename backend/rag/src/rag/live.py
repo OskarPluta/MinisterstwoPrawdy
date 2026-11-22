@@ -158,7 +158,7 @@ class LiveResult:
             return None
         found = ", ".join(f"{r.label} ({len(r.records)})" for r in asked)
         note = f"Wyszukano na żywo w zaufanych źródłach: {found}."
-        if not self.evidence_ids:
+        if not self.evidence_ids and any(not r.error for r in asked):  # "nothing found" only if a source answered
             note += " Nie znaleziono tam materiałów na ten temat."
         failed = [r.label for r in asked if r.error]
         if failed:

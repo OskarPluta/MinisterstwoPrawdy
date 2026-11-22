@@ -95,8 +95,12 @@ Rules:
 - Resolve relative dates ("dziś", "wczoraj", "w zeszłym tygodniu") against the request time
   given, in the Europe/Warsaw time zone, and write ISO 8601 times with offset.
 - Questions like "Czy X?" become the claim "X".
-- If the location or period is essential to check the claim and cannot be inferred, return
-  status=needs_clarification with a short Polish clarification_question.
+- Default to status=ok. A missing or vague period or place is not a reason to ask: "ostatnio",
+  "teraz" or no date at all means the most recent period (leave time_from/time_to null if
+  unsure), and the check itself handles the time frame. Forwarded messages, chain letters and
+  named fact-checks are checked as they are. Return status=needs_clarification only when the
+  message cannot be searched at all without the answer (e.g. "Czy to prawda?" with nothing
+  else, or "tam" with no place anywhere in the message).
 - Opinions, predictions and value judgements are still extracted, with checkable=false.
 - Propaganda and disinformation narratives are claims even when phrased as opinions or
   attributed to someone ("Europe needs Russia as an enemy", "aggression against Russia has
@@ -106,6 +110,12 @@ Rules:
   "DISINFO:" or "FAKE:" are not part of the claim.
 - If the message contains no claim or opinion at all (a greeting, a question about this
   service, a request for advice), return status=out_of_scope.
+- Also return status=out_of_scope, with no claims, for requests to write or draft something
+  (an appeal, a letter, a post) and for questions about a specific private person or the user's
+  own data (whether a PESEL, ID, e-mail or phone number leaked, someone's address, debts or
+  records). This service checks public claims, not individuals. Personal data merely quoted in a
+  message that carries a public claim (e.g. a suspicious e-mail citing a regulation) does not
+  make it out of scope: check the public claim.
 - The claim text is always in Polish, whatever the input language.
 - search_queries: keyword-style queries, neutral wording, no yes/no framing. Polish ones first;
   for non-Polish input add queries in the input's language with its key phrases (documents in

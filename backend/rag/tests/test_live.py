@@ -307,5 +307,7 @@ def test_nothing_found_keeps_first_answer_with_note(retriever, monkeypatch, no_w
     llm = FakeLLM([c], lambda cl, xml: verdict("insufficient"))
     cr = Verifier(retriever, llm, record=False, live=True).verify(c.text, NOW).claims[0]
     assert cr.verdict == "insufficient"
-    assert any("Nie znaleziono tam materiałów" in n and "Nie wszystkie odpowiedziały: gov.pl" in n for n in cr.notes)
+    notes = [n for n in cr.notes if "Wyszukano na żywo" in n]
+    assert notes and "Nie wszystkie odpowiedziały: gov.pl" in notes[0]
+    assert "Nie znaleziono tam materiałów" not in notes[0]  # the only source failed: no "nothing there"
     assert cr.live["sources"][0]["error"] == "HttpError HTTP 404"
