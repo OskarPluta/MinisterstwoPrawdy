@@ -152,11 +152,96 @@ def test_no_shortlist_abstains_without_llm_call(new_db, embedder):
     assert "nie oznacza" in cr.explanation
 
 
-def test_opinion_is_unverifiable_without_retrieval(retriever):
+def test_opinion_is_checked_only_against_factcheck_databases(retriever):
     c = claim("Ten rząd jest najgorszy w historii", checkable=False)
-    llm = FakeLLM([c])
+    llm = FakeLLM([c], lambda cl, xml: verdict("unverifiable"))
     cr = Verifier(retriever, llm, record=False).verify("Ten rząd jest najgorszy", NOW).claims[0]
     assert cr.verdict == "unverifiable" and cr.verdict_pl == "nie podlega weryfikacji"
+    assert cr.citations == [] and not cr.known_disinformation
+    types = re.findall(r'source_type="(\w+)"', llm.seen_xml[0])
+    assert types and set(types) == {"factcheck"}  # no official or structured records for an opinion
+
+
+def test_opinion_without_any_factcheck_hit_skips_the_llm(new_db, embedder):
+    from rag.search import Retriever
+
+    c = claim("Ten rząd jest najgorszy w historii", checkable=False)
+    cr = Verifier(Retriever(new_db(), embedder), FakeLLM([c]), record=False).verify("x", NOW).claims[0]
+    assert cr.verdict == "unverifiable" and "opinia" in cr.explanation
+
+
+# --- known disinformation narratives ------------------------------------------------------
+
+CASE = "euvsdisinfo:https://euvsdisinfo.test/report/aggression-against-russia-moral-obligation/"
+NARRATIVE = claim(
+    "Agresja wobec Rosji stała się moralnym obowiązkiem Europy",
+    ["agresja wobec Rosji obowiązek moralny Europa",
+     "aggression against Russia moral obligation Europe"],  # original-language (English) query
+    checkable=False,
+)
+
+
+def _case_pids(v: Verifier, c: Claim) -> dict[str, str]:
+    """{section heading: passage id} of the EUvsDisinfo test case in the claim's shortlist."""
+    out = {h.meta["heading"]: f"P{h.passage_id}" for h in v.retrieve(c) if key(h.meta) == CASE}
+    assert set(out) == {"Claim", "Fact Check"}, [key(h.meta) for h in v.retrieve(c)]
+    return out
+
+
+def test_opinion_matching_documented_disinformation_is_flagged_with_citation(retriever):
+    v = Verifier(retriever, FakeLLM(), record=True)
+    pids = _case_pids(v, NARRATIVE)
+    v.llm = FakeLLM([NARRATIVE], lambda cl, xml: verdict(
+        "false", ((pids["Claim"], "context"), (pids["Fact Check"], "contradicts")),
+        known_disinformation=True,
+    ))
+    res = v.verify("DISINFO: Aggression against Russia has become a moral obligation for Europe", NOW)
+    cr = res.claims[0]
+    assert cr.verdict == "false" and cr.known_disinformation
+    assert [c.role for c in cr.citations] == ["contradicts", "context"]  # debunk first
+    assert cr.citations[0].url == "https://euvsdisinfo.test/report/aggression-against-russia-moral-obligation/"
+    assert cr.notes[0].startswith("Znana narracja dezinformacyjna udokumentowana przez: EUvsDisinfo (dane testowe)")
+    assert "**Znana narracja dezinformacyjna**" in render_markdown(res)
+    row = retriever.conn.execute("SELECT result_json FROM checks").fetchone()
+    assert json.loads(row["result_json"])["claims"][0]["known_disinformation"] is True
+
+
+def test_disinformation_flag_needs_a_cited_debunk(retriever):
+    v = Verifier(retriever, FakeLLM(), record=False)
+    pids = _case_pids(v, NARRATIVE)
+    # Flag claimed, but the only citation is the quoted narrative itself (context): flag dropped,
+    # and an opinion without a documented narrative stays a plain "unverifiable".
+    v.llm = FakeLLM([NARRATIVE], lambda cl, xml: verdict(
+        "unverifiable", ((pids["Claim"], "context"),), known_disinformation=True,
+    ))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "unverifiable" and not cr.known_disinformation
+    assert cr.citations == [] and cr.notes == []
+
+
+def test_documented_narrative_cannot_be_confirmed_by_its_own_quote(retriever):
+    c = NARRATIVE.model_copy(update={"checkable": True})
+    v = Verifier(retriever, FakeLLM(), record=False)
+    pids = _case_pids(v, c)
+    # The model labels the quoted disinformation as support: it becomes context, so "true" has
+    # nothing left to stand on and drops to insufficient.
+    v.llm = FakeLLM([c], lambda cl, xml: verdict(
+        "true", ((pids["Claim"], "supports"), (pids["Fact Check"], "contradicts")),
+        known_disinformation=True,
+    ))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "insufficient" and cr.downgraded_from == "true"
+    assert cr.known_disinformation and {c.role for c in cr.citations} == {"contradicts", "context"}
+
+
+def test_unverifiable_narrative_keeps_flag_and_citation(retriever):
+    v = Verifier(retriever, FakeLLM(), record=False)
+    pids = _case_pids(v, NARRATIVE)
+    v.llm = FakeLLM([NARRATIVE], lambda cl, xml: verdict(
+        "unverifiable", ((pids["Fact Check"], "contradicts"),), known_disinformation=True,
+    ))
+    cr = v.verify("x", NOW).claims[0]
+    assert cr.verdict == "unverifiable" and cr.known_disinformation and len(cr.citations) == 1
 
 
 def test_injection_passage_is_wrapped_as_data(retriever):
@@ -291,7 +376,7 @@ def test_too_long_input_is_refused_before_the_llm(retriever):
 
 def test_claim_count_is_capped(retriever):
     claims = [claim(f"Opinia numer {i}", checkable=False) for i in range(MAX_CLAIMS + 2)]
-    res = Verifier(retriever, FakeLLM(claims), record=False).verify("x", NOW)
+    res = Verifier(retriever, FakeLLM(claims, lambda cl, xml: verdict("unverifiable")), record=False).verify("x", NOW)
     assert len(res.claims) == MAX_CLAIMS and str(MAX_CLAIMS + 2) in (res.message or "")
     assert render_markdown(res).startswith(f"Sprawdzam pierwsze {MAX_CLAIMS}")
 
@@ -309,7 +394,8 @@ def test_supporting_and_contradicting_citations_force_conflict(retriever):
 
 def test_check_log_masks_text_derived_from_input(retriever):
     c = claim("Jan pisze z adresu jan.kowalski@example.com, że to skandal", checkable=False)
-    Verifier(retriever, FakeLLM([c]), record=True).verify("jan.kowalski@example.com", NOW)
+    llm = FakeLLM([c], lambda cl, xml: verdict("unverifiable"))
+    Verifier(retriever, llm, record=True).verify("jan.kowalski@example.com", NOW)
     row = retriever.conn.execute("SELECT input_masked, result_json FROM checks").fetchone()
     assert "example.com" not in row["input_masked"] and "example.com" not in row["result_json"]
 

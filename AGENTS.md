@@ -42,6 +42,7 @@ bun run dev | typecheck | build  # w frontend/
 - **W bazie rekordy są wersjonowane, a nie nadpisywane.** Tożsamość to `(source_id, upstream_id)`. Stara wersja zostaje, ale wypada z wyszukiwania. `ingest` musi pozostać idempotentny.
 - **Cytaty egzekwuje kod.** Model widzi tylko listę fragmentów. Identyfikatory spoza listy są odrzucane, a werdykt bez cytatu o właściwej roli spada do `insufficient`. Linki pochodzą wyłącznie z `citation_url` w bazie, nigdy z tekstu modelu.
 - **Brak dowodów oznacza `insufficient`, a nie `false`.**
+- **Flagę `known_disinformation` (znana narracja dezinformacyjna) ustawia kod** tylko przy zachowanym cytacie `contradicts` ze źródła `source_type: factcheck`. Cytat samej narracji nigdy nie potwierdza twierdzenia.
 - **SQL tylko jako nazwane zapytania** w `database/queries/<grupa>.sql` (`-- name: <nazwa>`), wywoływane przez `query("<grupa>.<nazwa>")`. Wartości przekazuje się tylko jako `%(nazwa)s`. Nie składaj SQL f-stringiem.
 - **Zmiana schematu** (`database/schema.sql`) wymaga podbicia `SCHEMA_VERSION` i dodania kroku migracji w `db.connect`.
 - **Frontend nie renderuje tekstu modelu jako HTML ani Markdown** i nie tworzy linków z tekstu. Linki pochodzą tylko z `citation.url`. Ocena `insufficient` nigdy nie jest czerwona.

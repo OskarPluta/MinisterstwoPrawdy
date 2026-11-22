@@ -121,3 +121,13 @@ def test_gios_becomes_structured_air_quality(tmp_path):
     assert ev["fields"]["index"] == "bardzo dobry" and ev["fields"]["pollutants"] == {"PM10": "dobry"}
     (p,) = chunk_record(ev)
     assert "Indeks ogólny: bardzo dobry. Poszczególne zanieczyszczenia: PM10: dobry." in p.text
+
+
+def test_factcheck_sources_get_factcheck_type(tmp_path):
+    case = _doc(url="https://euvsdisinfo.eu/report/x/", source="euvsdisinfo-cases", doc_type="weryfikacja",
+                institution="EUvsDisinfo", title="X", content="Claim: X.\nFact Check: Not X.")
+    analysis = _doc(url="https://euvsdisinfo.eu/y/", source="euvsdisinfo-articles", doc_type="analiza")
+    corpus = convert(_write(tmp_path / "d.jsonl", [case, analysis, _doc()]))
+    types = {s["source_id"]: s["source_type"] for s in corpus["sources"]}
+    assert types == {"euvsdisinfo-cases": "factcheck", "euvsdisinfo-articles": "official", "rcb": "official"}
+    assert corpus["evidence"][0]["kind"] == "article"  # record unchanged: no new version, no re-embedding
