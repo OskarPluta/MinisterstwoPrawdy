@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import statistics
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import numpy as np
@@ -24,9 +26,9 @@ from psycopg.rows import dict_row
 from .config import database_url
 from .database import query, schema
 from .embed import _fold
-from .timeutil import utcnow_iso
+from .timeutil import parse_ts, utcnow_iso
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 Connection = psycopg.Connection[dict[str, Any]]
 
@@ -54,6 +56,7 @@ def connect(url: str | None = None, *, db_schema: str | None = None) -> Connecti
             conn.execute(query("meta.set_search_path"), {"schema": db_schema})
         with conn.transaction():
             conn.execute(query("meta.schema_lock"))
+            found = SCHEMA_VERSION  # a new database gets the current schema.sql as is
             if _one(conn.execute(query("meta.has_meta")))["present"]:
                 row = conn.execute(query("meta.get_schema_version")).fetchone()
                 found = int(row["value"]) if row else 0
@@ -62,7 +65,11 @@ def connect(url: str | None = None, *, db_schema: str | None = None) -> Connecti
                         f"database schema v{found} is newer than this code (v{SCHEMA_VERSION})"
                     )
             conn.execute(schema())  # static DDL from schema.sql
-            # Schema changes after v1 go here as steps for found < version <= SCHEMA_VERSION.
+            # Upgrade steps for databases created by an older version (found < version <= SCHEMA_VERSION).
+            if found < 2:
+                conn.execute(query("meta.migrate_v2"))
+            if found < 3:
+                conn.execute(query("meta.migrate_v3"))
             conn.execute(query("meta.set_schema_version"), {"version": str(SCHEMA_VERSION)})
     except BaseException:
         conn.close()
@@ -93,7 +100,8 @@ def _bump_corpus_version(conn: Connection) -> None:
 
 
 _CATALOG_FIELDS = (
-    "publisher", "publishing_domain", "source_type", "terms_url", "citation_url", "refresh_policy",
+    "publisher", "publishing_domain", "source_type", "terms_url", "license", "attribution",
+    "processed_notice", "citation_url", "refresh_policy",
 )
 _STATUS_FIELDS = ("last_success_at", "last_error")
 
@@ -323,3 +331,63 @@ def checks_stats(conn: Connection) -> dict[str, Any]:
             "cost_usd": round(cost_usd, 6),
         },
     }
+
+
+def delete_checks(conn: Connection, check_ids: Iterable[str]) -> int:
+    """Delete check log rows by id; returns how many existed."""
+    ids = list(check_ids)
+    if not ids:
+        return 0
+    return conn.execute(query("checks.delete"), {"ids": ids}).rowcount
+
+
+def share_check(conn: Connection, check_id: str) -> dict[str, Any] | None:
+    """Give a check a random public share key (kept if it already has one). None: no such check."""
+    return conn.execute(
+        query("checks.share"),
+        {"check_id": check_id, "share_id": secrets.token_urlsafe(12), "now": utcnow_iso()},
+    ).fetchone()
+
+
+def unshare_check(conn: Connection, check_id: str) -> bool:
+    return conn.execute(query("checks.unshare"), {"check_id": check_id}).fetchone() is not None
+
+
+def shared_check(conn: Connection, share_id: str) -> dict[str, Any] | None:
+    """The stored (masked) result behind a share key, exactly as logged at check time."""
+    row = conn.execute(query("checks.by_share"), {"share_id": share_id}).fetchone()
+    if row is None:
+        return None
+    return {**row, "result": json.loads(row.pop("result_json"))}
+
+
+def prune_checks(conn: Connection, older_than: datetime) -> int:
+    """Retention: delete check log rows created before `older_than` (compared in Python, UTC)."""
+    old = [
+        r["check_id"] for r in conn.execute(query("checks.created"))
+        if (t := parse_ts(r["created_at"], naive_tz=timezone.utc)) is None or t < older_than
+    ]
+    return delete_checks(conn, old)
+
+
+def purge(conn: Connection, *, urls: Iterable[str] = (), sources: Iterable[str] = ()) -> dict[str, int]:
+    """Procedure of removal (docs/DANE_I_LICENCJE.md): delete every version of the records that
+    cite one of `urls` or belong to one of `sources`, their passages and vectors, the source rows
+    of `sources`, and the check logs that quote or link a deleted URL. One transaction."""
+    params = {"urls": list(urls), "sources": list(sources)}
+    out = {"evidence": 0, "passages": 0, "sources": 0, "checks": 0}
+    if not params["urls"] and not params["sources"]:
+        return out
+    with conn.transaction():
+        rows = conn.execute(query("evidence.purge_targets"), params).fetchall()
+        ids = [r["evidence_id"] for r in rows]
+        if ids:
+            out["passages"] = conn.execute(query("passages.delete_by_evidence"), {"ids": ids}).rowcount
+            out["evidence"] = conn.execute(query("evidence.delete"), {"ids": ids}).rowcount
+        if params["sources"]:
+            out["sources"] = conn.execute(query("sources.delete"), params).rowcount
+        for url in sorted({r["citation_url"] for r in rows} | set(params["urls"])):
+            out["checks"] += conn.execute(query("checks.delete_citing"), {"url": url}).rowcount
+        if ids or out["sources"]:
+            _bump_corpus_version(conn)
+    return out

@@ -65,6 +65,7 @@ export function CitationList({ citations }: { citations: Citation[] }) {
                   {c.text}
                 </div>
               )}
+              {c.attribution && <p className="mp-cite-credit">{c.attribution}</p>}
             </li>
           );
         })}
@@ -92,6 +93,7 @@ export function SourcesTable({ sources }: { sources: Source[] }) {
             <th scope="col" className="mp-num">
               Rekordy
             </th>
+            <th scope="col">Licencja</th>
             <th scope="col">Ostatnia aktualizacja</th>
             <th scope="col">Stan</th>
           </tr>
@@ -112,6 +114,20 @@ export function SourcesTable({ sources }: { sources: Source[] }) {
               </td>
               <td data-label="Rodzaj">{SOURCE_TYPE[s.source_type] ?? s.source_type}</td>
               <td className="mp-num" data-label="Rekordy">{s.current_records.toLocaleString("pl-PL")}</td>
+              <td data-label="Licencja" className="mp-license">
+                <span>
+                  {s.license ?? "nie określono"}
+                  {s.terms_url?.startsWith("https://") && (
+                    <>
+                      {" "}
+                      <a className="mp-link" href={s.terms_url} target="_blank" rel="noopener noreferrer">
+                      warunki
+                        <span className="mp-sr"> korzystania ze źródła {s.publisher} (otwiera się w nowej karcie)</span>
+                      </a>
+                    </>
+                  )}
+                </span>
+              </td>
               <td data-label="Ostatnia aktualizacja">{formatDate(s.last_success_at)}</td>
               <td data-label="Stan">
                 {s.last_error ? (

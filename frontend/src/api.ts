@@ -19,6 +19,8 @@ export interface Citation {
   text: string;
   /** false: structured data rendered by a fixed template ("Dane ze źródła"), not a quote. */
   is_verbatim: boolean;
+  /** Credit required by the source's terms (e.g. IMGW), from the source catalog, never from the model. Plain text. */
+  attribution?: string | null;
 }
 
 export type StrengthLevel = "strong" | "moderate" | "weak" | "none";
@@ -85,6 +87,9 @@ export interface Source {
   source_type: "official" | "structured" | "factcheck" | string;
   citation_url: string | null;
   terms_url: string | null;
+  /** Licence or legal basis for storing the source (docs/DANE_I_LICENCJE.md). */
+  license: string | null;
+  attribution: string | null;
   /** UTC, ISO 8601. */
   last_success_at: string | null;
   last_error: string | null;
@@ -115,7 +120,12 @@ export const MAX_FILE_BYTES = 15_000_000;
 export const MAX_IMAGE_BYTES = 10_000_000;
 export const ACCEPTED_FILES = "image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,application/pdf";
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  /** HTTP status; 0 when the backend could not be reached. 429: rate limited (rag/ratelimit.py). */
+  constructor(message: string, readonly status = 0) {
+    super(message);
+  }
+}
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -135,7 +145,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
         /* keep the generic message */
       }
     }
-    throw new ApiError(detail);
+    throw new ApiError(detail, res.status);
   }
   return (await res.json()) as T;
 }
@@ -157,8 +167,64 @@ export function verifyUpload(text: string, files: File[], now?: string): Promise
   return call<CheckResult>("/api/verify/upload", { method: "POST", body: form });
 }
 
+/** Deletes the server-side log of one check (the check_id returned with the result is the only key). */
+export function deleteCheck(checkId: string): Promise<{ deleted: boolean; check_id: string }> {
+  return call("/api/checks/" + encodeURIComponent(checkId), { method: "DELETE" });
+}
+
+export interface ShareLink {
+  share_id: string;
+  /** Same-origin path of the read-only page, e.g. /wynik/<share_id>. */
+  path: string;
+  /** UTC ISO 8601; null when the check log has no retention limit. */
+  expires_at: string | null;
+}
+
+/** Read-only copy of a check, as logged at check time (personal data masked). check_id is always "". */
+export interface SharedResult {
+  share_id: string;
+  checked_at: string;
+  shared_at: string | null;
+  expires_at: string | null;
+  result: CheckResult;
+}
+
+export function shareCheck(checkId: string): Promise<ShareLink> {
+  return call("/api/checks/" + encodeURIComponent(checkId) + "/share", { method: "POST" });
+}
+
+export function unshareCheck(checkId: string): Promise<{ shared: boolean }> {
+  return call("/api/checks/" + encodeURIComponent(checkId) + "/share", { method: "DELETE" });
+}
+
+export function getShare(shareId: string): Promise<SharedResult> {
+  return call("/api/shares/" + encodeURIComponent(shareId));
+}
+
+export interface Health {
+  status: string;
+  corpus_version: number;
+  /** PRAWDOWID_CONTACT_EMAIL of the API: where publishers ask for removal; null when not set. */
+  contact: string | null;
+}
+
+export function getHealth(): Promise<Health> {
+  return call<Health>("/api/health");
+}
+
 export function getSources(): Promise<SourcesResponse> {
   return call<SourcesResponse>("/api/sources");
+}
+
+/** UTC ISO 8601 → DD.MM.RRRR, GG:MM in Europe/Warsaw. */
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return "brak danych";
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const d = new Date(hasZone ? iso : `${iso}Z`);
+  if (Number.isNaN(d.getTime())) return "brak danych";
+  return new Intl.DateTimeFormat("pl-PL", {
+    timeZone: "Europe/Warsaw", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(d);
 }
 
 /** UTC ISO 8601 → DD.MM.RRRR in Europe/Warsaw. */

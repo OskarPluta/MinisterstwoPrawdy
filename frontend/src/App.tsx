@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { SiteFooter, SiteHeader } from "./design/components";
 import { CheckPage } from "./pages/CheckPage";
 import { HowPage } from "./pages/HowPage";
+import { SharedPage } from "./pages/SharedPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { useLinkInterception, usePath } from "./router";
 import { useContrast } from "./theme";
@@ -31,7 +32,9 @@ export function App() {
   useLinkInterception();
   const path = usePath();
   const [contrast, toggleContrast] = useContrast();
-  const route = ROUTES[path];
+  // /wynik/<share_id>: read-only shared result (the id format is checked by the API).
+  const shareId = /^\/wynik\/([A-Za-z0-9_-]{16})$/.exec(path)?.[1];
+  const route = shareId ? { title: "Udostępniony wynik", page: NotFound } : ROUTES[path];
   const Page = route?.page ?? NotFound;
 
   useEffect(() => {
@@ -55,7 +58,7 @@ export function App() {
         ]}
       />
       <main id="main" className="mp-container app-main" tabIndex={-1}>
-        <Page />
+        {shareId ? <SharedPage shareId={shareId} /> : <Page />}
       </main>
       <SiteFooter
         name="Copernicus"

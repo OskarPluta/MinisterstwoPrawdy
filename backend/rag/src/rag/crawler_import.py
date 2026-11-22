@@ -264,7 +264,22 @@ def _source_type(doc_type: str | None) -> str:
     return "factcheck" if doc_type in FACTCHECK_DOC_TYPES else "official"
 
 
-def convert(documents: Path, crawl_log: Path | None = None) -> dict[str, Any]:
+# Licence and credit of a crawler source, from backend/crawler/sources.yaml (rule `licenses`).
+CATALOG_FIELDS = ("license", "terms_url", "attribution", "processed_notice")
+
+
+def source_catalog(config_path: Path | None = None) -> dict[str, dict[str, Any]]:
+    """Licence fields of every crawler source, keyed by source name (= source_id)."""
+    from crawler.config import DEFAULT_CONFIG, load_config
+
+    cfg = load_config(config_path or DEFAULT_CONFIG)
+    return {s["name"]: {k: s.get(k) for k in CATALOG_FIELDS} for s in cfg.sources}
+
+
+def convert(
+    documents: Path, crawl_log: Path | None = None, catalog: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """`catalog` (source_catalog()) supplies licence and credit; sources missing from it keep None."""
     docs = _read_jsonl(documents)
     runs: dict[str, dict[str, Any]] = {}
     last_success: dict[str, str | None] = {}
@@ -287,8 +302,8 @@ def convert(documents: Path, crawl_log: Path | None = None) -> dict[str, Any]:
             "publishing_domain": _publishing_domain(host),
             "source_type": _source_type(doc.get("doc_type")),
             "citation_url": listing,
-            "terms_url": None,
             "refresh_policy": None,
+            **{k: (catalog or {}).get(sid, {}).get(k) for k in CATALOG_FIELDS},
         }
         run = runs.get(sid)
         if run:

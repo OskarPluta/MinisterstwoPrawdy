@@ -1,6 +1,22 @@
+import { useEffect, useState } from "react";
 import { Breadcrumbs, Icon, InfoSection, ServiceSteps, TONE_ICON } from "../design/components";
 import { VERDICT_VIEW } from "../result";
-import type { Verdict } from "../api";
+import { getHealth, type Verdict } from "../api";
+
+/** Contact address for publishers from the API (PRAWDOWID_CONTACT_EMAIL); null while unknown or unset. */
+function useContact(): string | null {
+  const [contact, setContact] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    getHealth()
+      .then((h) => live && setContact(h.contact))
+      .catch(() => undefined); // the page reads fine without it
+    return () => {
+      live = false;
+    };
+  }, []);
+  return contact;
+}
 
 // Same words as VERDICT_PL in verify.py.
 const VERDICTS: { v: Verdict; word: string; meaning: string }[] = [
@@ -12,6 +28,7 @@ const VERDICTS: { v: Verdict; word: string; meaning: string }[] = [
 ];
 
 export function HowPage() {
+  const contact = useContact();
   return (
     <>
       <Breadcrumbs items={[{ label: "Jak to działa" }]} />
@@ -58,6 +75,40 @@ export function HowPage() {
         <p>
           Zapisujemy wynik sprawdzenia, żeby poprawiać usługę. Zanim zapiszemy Twoją wiadomość, ukrywamy w niej adresy e-mail, numery
           telefonów, PESEL, numery dowodów i kont bankowych.
+        </p>
+        <p>
+          Zapis przechowujemy 30 dni, a potem usuwamy go automatycznie. Pod wynikiem możesz usunąć go od razu przyciskiem „Usuń zapis
+          tego sprawdzenia”. Nikt poza osobą, która dostała wynik, nie zna jego identyfikatora, więc tylko ona może go usunąć.
+        </p>
+        <p>
+          Wynik możesz udostępnić linkiem. Strona pod linkiem jest tylko do odczytu: pokazuje wynik zapisany na serwerze, z ukrytymi danymi
+          osobowymi, i nie można jej zmienić. Link działa, dopóki istnieje zapis sprawdzenia. Możesz go wcześniej wyłączyć.
+        </p>
+      </InfoSection>
+
+      <InfoSection title="Skąd mamy treści źródeł" id="licencje">
+        <p>
+          Przechowujemy komunikaty instytucji publicznych, dane pomiarowe i wyniki weryfikacji. Dla każdego źródła określiliśmy licencję
+          albo podstawę prawną (także dla źródeł przeszukiwanych na żywo). Znajdziesz je w kolumnie „Licencja” na stronie{" "}
+          <a className="mp-link" href="/zrodla">
+            Źródła
+          </a>
+          . Z serwisów fact-checkingowych zapisujemy tylko tezę, ocenę i link, bez treści artykułów.
+        </p>
+        <p>
+          Jeśli jesteś wydawcą i chcesz, żebyśmy usunęli Twoje materiały,{" "}
+          {contact ? (
+            <>
+              napisz na adres{" "}
+              <a className="mp-link" href={`mailto:${contact}`}>
+                {contact}
+              </a>
+            </>
+          ) : (
+            "napisz do zespołu prowadzącego serwis"
+          )}
+          . Usuwamy je z bazy, z archiwum i z zapisów sprawdzeń, w których były cytowane, a adres trafia do rejestru usuniętych treści,
+          więc nie wróci przy kolejnym pobraniu.
         </p>
       </InfoSection>
 

@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote, urlparse
 
 from . import attachments as att
 from . import live as live_mod
 from .attachments import Attachment, InputSummary
-from .db import corpus_version, record_check
+from .db import corpus_version, prune_checks, record_check
 from .llm import LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape, build_attachments_xml
 from .search import Filters, Hit, Retriever
 from .timeutil import WARSAW, fmt_local, parse_ts, utcnow_iso
@@ -41,6 +42,9 @@ STALE_AFTER = timedelta(hours=48)
 TIMED_KINDS = {"warning_meteo", "warning_hydro", "alert"}  # alert: komunikaty RSO
 
 MAX_INPUT_CHARS = 10_000
+# Check log retention in days (docs/DANE_I_LICENCJE.md); 0 = do not keep a check log at all.
+DEFAULT_CHECKS_RETENTION_DAYS = 30
+PRUNE_EVERY = timedelta(hours=1)
 MAX_CLAIMS = 5
 LLM_WORKERS = 4
 
@@ -82,6 +86,9 @@ class Citation:
     date_label: str
     text: str
     is_verbatim: bool
+    # Credit required by the source's terms (sources.attribution, + processed_notice under
+    # template-rendered data); fixed text from the source catalog, never from the model.
+    attribution: str | None = None
 
 
 @dataclass
@@ -364,17 +371,57 @@ def _safe_url(url: str | None) -> str | None:
     return quote(url or "", safe=":/?#@!$&'*+,;=%~")
 
 
+_CLAIMREVIEW_KEY = "claimReview[0]."
+
+
+def claimreview_text(text: str) -> str | None:
+    """A Google Fact Check record stored as the crawler's "key: value" dump, rendered by a fixed
+    template (it is structured data, so it is shown as "Dane ze źródła", not as a quote).
+    None when `text` is not such a dump."""
+    if _CLAIMREVIEW_KEY not in text:
+        return None
+    kv: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, val = line.partition(": ")
+        if sep and val.strip():
+            kv.setdefault(key.strip(), val.strip())
+    r = lambda k: kv.get(_CLAIMREVIEW_KEY + k)  # noqa: E731
+    parts = []
+    if kv.get("text"):
+        parts.append(f"Sprawdzane twierdzenie: „{kv['text']}”.")
+    if kv.get("claimant"):
+        parts.append(f"Autor twierdzenia: {kv['claimant']}.")
+    if r("textualRating"):
+        who = r("publisher.name") or r("publisher.site") or "weryfikator"
+        when = fmt_local(r("reviewDate"), with_time=False) if r("reviewDate") else None
+        parts.append(f"Ocena ({who}{', ' + when if when else ''}): {r('textualRating')}.")
+    if r("title"):
+        parts.append(f"Tytuł weryfikacji: {r('title')}.")
+    return " ".join(parts) or None
+
+
 def _citation(n: int, h: Hit, role: str) -> Citation:
     m = h.meta
     date = m["published_at"] or m["observed_at"] or m["valid_from"]
     text = m["excerpt"] if m["is_verbatim"] else m["search_text"]
+    verbatim = bool(m["is_verbatim"])
+    rendered = claimreview_text(text or "")
+    if rendered:
+        text, verbatim = rendered, False
     if len(text) > 400:
         text = text[:400].rsplit(" ", 1)[0] + " …"
     return Citation(
         n=n, passage_id=pid(h), role=role, title=m["title"], publisher=m["publisher"],
         url=_safe_url(m["citation_url"]), date_label=fmt_local(date, with_time=False), text=text,
-        is_verbatim=bool(m["is_verbatim"]),
+        is_verbatim=verbatim, attribution=_attribution({**m, "is_verbatim": verbatim}),
     )
+
+
+def _attribution(m: dict[str, Any]) -> str | None:
+    parts = [m.get("attribution")]
+    if not m["is_verbatim"]:
+        parts.append(m.get("processed_notice"))
+    return " ".join(p.strip() for p in parts if p and p.strip()) or None
 
 
 _MASKS = [
@@ -384,6 +431,16 @@ _MASKS = [
     (re.compile(r"\b[A-Z]{3} ?\d{6}\b"), "[dowód]"),  # ID card number
     (re.compile(r"(?<!\d)(?:\+48[\s-]?)?\d{3}[\s-]?\d{3}[\s-]?\d{3}(?!\d)"), "[telefon]"),
 ]
+
+
+def checks_retention_days() -> int:
+    """PRAWDOWID_CHECKS_RETENTION_DAYS (default DEFAULT_CHECKS_RETENTION_DAYS; 0 = no check log)."""
+    raw = os.environ.get("PRAWDOWID_CHECKS_RETENTION_DAYS", "").strip()
+    try:
+        return max(0, int(raw)) if raw else DEFAULT_CHECKS_RETENTION_DAYS
+    except ValueError:
+        log.warning("PRAWDOWID_CHECKS_RETENTION_DAYS=%r is not a number; using %d", raw, DEFAULT_CHECKS_RETENTION_DAYS)
+        return DEFAULT_CHECKS_RETENTION_DAYS
 
 
 def mask(text: str) -> str:
@@ -427,9 +484,19 @@ class Verifier:
         self.retriever = retriever
         self.llm = llm
         self.shortlist = shortlist
-        self.record = record
         self.workers = workers
         self.live = live_mod.live_enabled() if live is None else live  # None: PRAWDOWID_LIVE (default on)
+        self.retention_days = checks_retention_days()
+        self.record = record and self.retention_days > 0
+        self._pruned_at: datetime | None = None
+
+    def prune(self, now: datetime | None = None) -> int:
+        """Retention: delete check logs older than `retention_days` (at most once per PRUNE_EVERY)."""
+        now = now or datetime.now(timezone.utc)
+        if self.retention_days <= 0 or (self._pruned_at and now - self._pruned_at < PRUNE_EVERY):
+            return 0
+        self._pruned_at = now
+        return prune_checks(self.retriever.conn, now - timedelta(days=self.retention_days))
 
     def retrieve(self, claim: Claim) -> list[Hit]:
         """Every claim searches the whole corpus. Opinion-shaped claims (checkable=false) also get
@@ -599,6 +666,10 @@ class Verifier:
                 "embedding_model": getattr(self.retriever.embedder, "name", None),
                 "duration_ms": res.duration_ms,
             })
+            try:
+                self.prune()
+            except Exception as e:  # noqa: BLE001 - retention must not fail a check; retried next hour
+                log.warning("check log retention failed: %r", e)
         return res
 
 
@@ -661,5 +732,7 @@ def render_markdown(res: CheckResult) -> str:
                     out.append("   > " + body.replace("\n", "\n   > "))
                 else:
                     out.append(f"   Dane ze źródła: {body}")
+                if cit.attribution:
+                    out.append(f"   _{_md(cit.attribution)}_")
         out.append("")
     return "\n".join(out).strip()

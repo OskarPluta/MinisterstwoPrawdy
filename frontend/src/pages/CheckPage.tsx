@@ -19,7 +19,7 @@ type State =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "done"; res: CheckResult }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string; limited?: boolean };
 
 /** Optional ?now=<ISO 8601> for demos on an old snapshot (warnings have validity windows). */
 function demoNow(): string | undefined {
@@ -93,7 +93,11 @@ function CheckForm() {
       const res = files.length ? await verifyUpload(value, files, demoNow()) : await verify(value, demoNow());
       setState({ kind: "done", res });
     } catch (err) {
-      setState({ kind: "failed", message: err instanceof ApiError ? err.message : MSG_OUTAGE });
+      setState({
+        kind: "failed",
+        message: err instanceof ApiError ? err.message : MSG_OUTAGE,
+        limited: err instanceof ApiError && err.status === 429,
+      });
     }
   }
 
@@ -112,7 +116,14 @@ function CheckForm() {
   // Not-ok results and transport failures keep the form, with one notice above it.
   let notice = null;
   if (state.kind === "failed") {
-    notice = <Notice tone="danger">{state.message}</Notice>;
+    // A rate limit is not a failure: amber "try again later", not red.
+    notice = state.limited ? (
+      <Notice tone="warning" title="Spróbuj za chwilę">
+        <p>{state.message}</p>
+      </Notice>
+    ) : (
+      <Notice tone="danger">{state.message}</Notice>
+    );
   } else if (state.kind === "done") {
     const { status, message } = state.res;
     const view = status === "ok" ? STATUS_NOTICE.out_of_scope : STATUS_NOTICE[status];

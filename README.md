@@ -20,12 +20,12 @@ twierdzenie ─► rag verify ─► LLM: ekstrakcja twierdzeń ─► wyszukiwa
 | [`backend/crawler/`](backend/crawler/) | **FaktBot**: „grzeczny” crawler źródeł z [`sources.yaml`](backend/crawler/sources.yaml), zapis do plików JSONL z historią wersji. Nie zna bazy. | [README](backend/crawler/README.md) |
 | [`backend/rag/`](backend/rag/) | Pakiet `rag`: import danych crawlera, PostgreSQL, wyszukiwanie hybrydowe, weryfikator LLM. | [README](backend/rag/README.md) |
 | [`backend/intake/`](backend/intake/) | Materiał od użytkownika: link do strony, film YouTube, zdjęcie, zrzut ekranu, PDF → tekst do sprawdzenia (bezpieczne pobieranie, OCR, metadane). | [README](backend/intake/README.md) |
-| [`backend/api/`](backend/api/) | API HTTP (FastAPI) dla interfejsu WWW: `POST /api/verify`, `POST /api/verify/upload`, `GET /api/sources`, `GET /api/health`. | [frontend README](frontend/README.md#backend) |
+| [`backend/api/`](backend/api/) | API HTTP (FastAPI) dla interfejsu WWW: `POST /api/verify`, `POST /api/verify/upload`, `DELETE /api/checks/{id}`, `POST/DELETE /api/checks/{id}/share`, `GET /api/shares/{id}`, `GET /api/sources`, `GET /api/stats`, `GET /api/health`, `GET /api/export` (eksport logu CSV/JSON dla analityka, token `PRAWDOWID_ADMIN_TOKEN`). Limity żądań na klienta. | [frontend README](frontend/README.md#backend) |
 | [`backend/discord_bot/`](backend/discord_bot/) | Kanał Discord (`discord-bot`): komendy `/sprawdz`, `/zrodla`, wzmianki i DM oparte o `rag.verify.Verifier` lub `/api`. | [README](backend/discord_bot/README.md) |
 | [`frontend/`](frontend/) | Interfejs WWW **Copernicus** w systemie Ministerstwo Prawdy (Bun + React + TypeScript), `/api/*` przekazywane do backendu. | [README](frontend/README.md) |
 | [`data/snapshot/`](data/snapshot/) | Zamrożony zrzut crawla w repo, domyślne wejście `rag ingest`. `data/crawl/` (świeże przebiegi) jest poza git. | |
 | [`scripts/`](scripts/) | Ewaluacja wyszukiwania i werdyktów. | [rag README](backend/rag/README.md#ewaluacja) |
-| [`docs/`](docs/) | [Architektura](docs/ARCHITEKTURA.md), [treść zadania](docs/task/), [notatki badawcze](docs/notes/). | |
+| [`docs/`](docs/) | [Architektura](docs/ARCHITEKTURA.md), [dane, licencje i usuwanie](docs/DANE_I_LICENCJE.md), [treść zadania](docs/task/), [notatki badawcze](docs/notes/). | |
 
 Backend (`backend/*`) to workspace uv: jedno `.venv` w katalogu głównym, polecenia Pythona uruchamiasz **z katalogu głównego**.
 Frontend ma własne zależności (Bun) i jego polecenia uruchamiasz w `frontend/`.
@@ -76,6 +76,13 @@ Każde sprawdzenie w interfejsie to płatne wywołania LLM, tak jak `rag verify`
 W interfejsie można też wkleić link (strona, YouTube) albo dodać zdjęcie, zrzut ekranu lub PDF. Każdy obraz to dodatkowe wywołanie modelu wizyjnego.
 Linki są pobierane tylko z mailem kontaktowym w `.env` (`INTAKE_CONTACT`). Szczegóły i ograniczenia: [intake README](backend/intake/README.md).
 Sam odczyt materiału, bez werdyktu: `uv run intake read plik.pdf https://… [--ocr none]`.
+
+Eksport logu sprawdzeń dla analityka (zamaskowany, bez treści wiadomości i bez `check_id`), opis formatu w [`rag/export.py`](backend/rag/src/rag/export.py):
+
+```bash
+uv run rag export --format csv --since 2026-11-01 --verdict false --out falszywe.csv
+uv run rag export --format json > eksport.json
+```
 
 Opcje poleceń: `uv run rag --help`, `uv run rag <polecenie> --help`, `uv run crawler --help`.
 

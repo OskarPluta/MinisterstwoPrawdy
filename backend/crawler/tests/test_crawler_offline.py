@@ -37,6 +37,7 @@ settings:
   min_delay_seconds: 0.05
 defaults:
   interval_minutes: 1
+  license: "licencja testowa"
 sources:
   - name: t-policja
     type: rss
@@ -487,3 +488,72 @@ def test_json_api_env_headers_and_url_template(tmp_path, monkeypatch):
 def test_parse_compact_date():
     from crawler.extract import parse_any_date
     assert parse_any_date("20261120160042").isoformat() == "2026-11-20T16:00:42+01:00"
+
+
+# ---------------- licencje i procedura usunięcia (docs/DANE_I_LICENCJE.md) ----------------
+def _cfg(tmp_path: Path, body: str, removed: str | None = None) -> Path:
+    p = tmp_path / "sources.yaml"
+    p.write_text(body)
+    if removed is not None:
+        (tmp_path / "removed.yaml").write_text(removed)
+    return p
+
+
+_SRC = """
+sources:
+  - {name: a, type: rss, institution: A, url: "https://www.example.test/feed"}
+"""
+
+
+def test_source_without_license_is_refused(tmp_path):
+    from crawler.config import ConfigError, load_config
+    with pytest.raises(ConfigError, match="licencji"):
+        load_config(_cfg(tmp_path, _SRC))
+
+
+def test_license_rule_by_host_and_source_override(tmp_path):
+    from crawler.config import load_config
+    cfg = load_config(_cfg(tmp_path, """
+licenses:
+  - {hosts: [example.test], license: "CC BY 4.0", terms_url: "https://example.test/terms", processed_notice: "Przetworzone."}
+sources:
+  - {name: a, type: rss, institution: A, url: "https://www.example.test/feed"}
+  - {name: b, type: rss, institution: B, url: "https://www.example.test/b", license: "własna"}
+"""))
+    a, b = cfg.source("a"), cfg.source("b")
+    assert (a["license"], a["terms_url"], a["processed_notice"]) == ("CC BY 4.0", "https://example.test/terms", "Przetworzone.")
+    assert b["license"] == "własna" and b["terms_url"] == "https://example.test/terms", "pole źródła ma pierwszeństwo"
+
+
+def test_removals_need_reason_and_date(tmp_path):
+    from crawler.config import ConfigError, load_config
+    body = 'licenses: [{hosts: [example.test], license: x}]\n' + _SRC
+    with pytest.raises(ConfigError, match="reason"):
+        load_config(_cfg(tmp_path, body, "removed:\n  - {url: 'https://www.example.test/1', date: 2026-11-22}\n"))
+    with pytest.raises(ConfigError, match="dokładnie jedno"):
+        load_config(_cfg(tmp_path, body, "removed:\n  - {date: 2026-11-22, reason: r}\n"))
+
+
+def test_removed_documents_are_not_saved_and_forget_drops_them(tmp_path):
+    from crawler.removals import Removals
+    store = Store(tmp_path / "rm")
+    common = dict(institution="I", doc_type="komunikat", region=None, title="t", published_at=None, fetch_method="rss")
+    store.save_document(url="https://x.test/1", source="s1", content="jeden", **common)
+    store.save_document(url="https://x.test/1", source="s1", content="jeden v2", **common)
+    store.save_document(url="https://x.test/2", source="s1", content="dwa", **common)
+    store.save_document(url="https://y.test/3", source="s2", content="trzy", **common)
+    store.set_validators("https://x.test/1", "etag", None)
+    store.source_state("s2")["known"]["https://y.test/3"] = {}
+
+    rm = Removals(urls=frozenset({"https://x.test/1"}), sources=frozenset({"s2"}))
+    assert store.forget(rm) == {"lines": 3, "urls": 2}
+    lines = [json.loads(ln) for ln in (tmp_path / "rm" / "documents.jsonl").read_text().splitlines()]
+    assert [d["url"] for d in lines] == ["https://x.test/2"], "obie wersje usuniętego adresu i całe źródło znikają"
+    assert set(store.current) == {"https://x.test/2"}
+    assert "https://x.test/1" not in store.state["http_cache"] and "s2" not in store.state["sources"]
+    assert store.forget(rm) == {"lines": 0, "urls": 0}, "ponowne wywołanie niczego nie zmienia"
+
+    store2 = Store(tmp_path / "rm", removals=rm)
+    assert store2.save_document(url="https://x.test/1", source="s1", content="wraca?", **common) == "unchanged"
+    assert store2.save_document(url="https://y.test/9", source="s2", content="nowy", **common) == "unchanged"
+    assert len((tmp_path / "rm" / "documents.jsonl").read_text().splitlines()) == 1, "usunięte nie wracają przy crawlu"

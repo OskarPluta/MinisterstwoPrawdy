@@ -29,6 +29,33 @@ defaults:
   recheck_hours: 24
   silence_alert_hours: 168
 
+# Licencja / podstawa prawna wg hosta źródła (pierwsza pasująca reguła; host albo jego subdomena).
+# Źródło bez licencji (pole `license` w źródle albo reguła tutaj) nie przejdzie walidacji:
+# crawler nie archiwizuje treści, dla których nie określono podstawy. Uzasadnienie, retencja,
+# kontrola dostępu i procedura usunięcia: docs/DANE_I_LICENCJE.md. Pola trafiają do bazy (tabela
+# sources) i na stronę „Źródła”. `processed_notice` dopisujemy pod danymi pokazywanymi szablonem.
+licenses:
+  - hosts: [www.gov.pl]
+    license: "CC BY-SA 4.0 (teksty portalu gov.pl); materiały urzędowe (art. 4 pkt 2 pr. aut.)"
+    terms_url: https://www.gov.pl/web/gov/prawa-autorskie
+  - hosts: [danepubliczne.imgw.pl, baltyk-api.imgw.pl]
+    license: "Regulamin udostępniania danych IMGW-PIB (ustawa o otwartych danych), użycie niezarobkowe, z oznaczeniem źródła"
+    terms_url: https://danepubliczne.imgw.pl/
+    processed_notice: "Dane Instytutu Meteorologii i Gospodarki Wodnej – Państwowego Instytutu Badawczego zostały przetworzone."
+  - hosts: [api.gios.gov.pl]
+    license: "Dane publiczne GIOŚ (Państwowy Monitoring Środowiska), z oznaczeniem źródła"
+    terms_url: https://powietrze.gios.gov.pl/pjp/content/api
+  - hosts: [factchecktools.googleapis.com]
+    license: "Google APIs Terms of Service; zapisujemy tylko metadane ClaimReview (teza, ocena, link), bez treści artykułów"
+    terms_url: https://developers.google.com/terms
+  - hosts: [mcp.euvsd.info, euvsdisinfo.eu]
+    license: "EUvsDisinfo (ESDZ): dostęp do API na wniosek; ponowne wykorzystanie z podaniem źródła (nota prawna ESDZ)"
+    terms_url: https://www.eeas.europa.eu/eeas/legal-notice_en
+  - hosts: [policja.pl, policja.gov.pl, umgdy.gov.pl, ums.gov.pl, odyseusz.gov.pl]
+    license: "Materiał urzędowy organu publicznego (art. 4 pkt 2 pr. aut.)"
+  - hosts: [moje.cert.pl, kgsok.pl]
+    license: "Licencja nieokreślona przez wydawcę; krótkie fragmenty jako cytat z podaniem źródła (art. 29 pr. aut.)"
+
 # Wspólny profil CMS gov.pl (wstawiany przez "<<: *govpl").
 # <h1> na gov.pl to logo serwisu, a tytuł artykułu to <h2> w <article>. Treść jest w .editor-content.
 # trafilatura gubi tam np. numery telefonów zapisane jako <h4>. .metrics/.metric-history to metryczka BIP.

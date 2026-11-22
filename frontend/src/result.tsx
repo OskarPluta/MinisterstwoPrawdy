@@ -1,9 +1,24 @@
 // CheckResult → UI. Model-written text (explanation, claim, message) is rendered as plain text only;
 // links come only from citation.url, which the backend takes from the database.
 import { useState, type ReactNode } from "react";
-import type { CheckResult, CheckStatus, ClaimResult, InputSummary, Strength, Verdict } from "./api";
-import { Button, Notice, StatusPanel, type Tone } from "./design/components";
+import {
+  ApiError,
+  deleteCheck,
+  formatDate,
+  MSG_OUTAGE,
+  shareCheck,
+  unshareCheck,
+  type CheckResult,
+  type CheckStatus,
+  type ClaimResult,
+  type InputSummary,
+  type ShareLink,
+  type Strength,
+  type Verdict,
+} from "./api";
+import { Button, Notice, StatusPanel, TextField, type Tone } from "./design/components";
 import { CitationList, MaterialList } from "./design/extra";
+import { downloadText, exportFilename, resultAsCsv, resultAsJson } from "./export";
 
 /** Non-ok statuses: one Notice; the form stays filled in so the person can fix the input. */
 export const STATUS_NOTICE: Record<Exclude<CheckStatus, "ok">, { tone: Tone; title: string }> = {
@@ -128,6 +143,7 @@ export function resultAsText(res: CheckResult): string {
         const role = { supports: "potwierdza", contradicts: "przeczy", context: "kontekst" }[s.role];
         out.push(`${s.n}. ${s.title} · ${s.publisher}, ${s.date_label} (${role})${s.url ? `\n   ${s.url}` : ""}`);
         out.push(s.is_verbatim ? `   „${s.text}”` : `   Dane ze źródła: ${s.text}`);
+        if (s.attribution) out.push(`   ${s.attribution}`);
       }
     }
     out.push("");
@@ -135,18 +151,149 @@ export function resultAsText(res: CheckResult): string {
   return out.join("\n").trim();
 }
 
-export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => void }) {
-  const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
+type Async = { kind: "idle" | "busy" | "done" } | { kind: "fail"; message: string };
 
-  async function copy() {
+function errorText(err: unknown): string {
+  return err instanceof ApiError ? err.message : MSG_OUTAGE;
+}
+
+/** Publish / withdraw the read-only page /wynik/<share_id> (a server-side copy, never editable). */
+function ShareBox({ checkId, erased }: { checkId: string; erased: boolean }) {
+  const [link, setLink] = useState<ShareLink | null>(null);
+  const [state, setState] = useState<Async>({ kind: "idle" });
+  const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
+  const url = link ? window.location.origin + link.path : "";
+
+  async function share() {
+    if (state.kind === "busy") return;
+    setState({ kind: "busy" });
     try {
-      await navigator.clipboard.writeText(resultAsText(res));
+      setLink(await shareCheck(checkId));
+      setState({ kind: "done" });
+    } catch (err) {
+      setState({ kind: "fail", message: errorText(err) });
+    }
+  }
+
+  async function unshare() {
+    if (state.kind === "busy") return;
+    setState({ kind: "busy" });
+    try {
+      await unshareCheck(checkId);
+      setLink(null);
+      setCopied("idle");
+      setState({ kind: "idle" });
+    } catch (err) {
+      setState({ kind: "fail", message: errorText(err) });
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(url);
       setCopied("ok");
     } catch {
       setCopied("fail");
     }
   }
 
+  if (erased) return null;
+  return (
+    <div className="app-share">
+      <h3 className="app-share-title">Udostępnij wynik</h3>
+      <p>
+        Każdy, kto dostanie link, zobaczy ten wynik w wersji tylko do odczytu. Link pokazuje wynik zapisany na serwerze w chwili sprawdzenia, więc
+        nikt nie może go zmienić. Dane osobowe w treści są ukryte.
+      </p>
+      {link ? (
+        <>
+          <TextField label="Link do wyniku" value={url} readOnly onFocus={(e) => e.currentTarget.select()} width="full" />
+          <div className="app-result-actions">
+            <Button variant="secondary" icon="file-text" iconPosition="start" onClick={copyLink}>
+              Kopiuj link
+            </Button>
+            <a className="mp-link" href={link.path} target="_blank" rel="noopener noreferrer">
+              Otwórz udostępnioną stronę
+              <span className="mp-sr"> (otwiera się w nowej karcie)</span>
+            </a>
+            <Button variant="link" onClick={unshare} aria-disabled={state.kind === "busy" || undefined}>
+              Wyłącz udostępnianie
+            </Button>
+          </div>
+          {link.expires_at && <p className="app-share-note">Link działa do {formatDate(link.expires_at)}.</p>}
+        </>
+      ) : (
+        <Button variant="secondary" onClick={share} aria-disabled={state.kind === "busy" || undefined}>
+          Utwórz link do wyniku
+        </Button>
+      )}
+      <p className="app-copy-state" role="status">
+        {state.kind === "fail"
+          ? state.message
+          : state.kind === "busy"
+            ? "Chwileczkę…"
+            : copied === "ok"
+              ? "Skopiowano link do schowka."
+              : copied === "fail"
+                ? "Nie udało się skopiować. Zaznacz link ręcznie."
+                : ""}
+      </p>
+    </div>
+  );
+}
+
+/** `readOnly`: a shared result (/wynik/<id>) – no reset, delete or share controls.
+ *  `checkedAt`: UTC ISO time of the check for the downloaded file (default: when the result was shown). */
+export function ResultView({
+  res,
+  onReset,
+  readOnly = false,
+  checkedAt,
+}: {
+  res: CheckResult;
+  onReset?: () => void;
+  readOnly?: boolean;
+  checkedAt?: string | null;
+}) {
+  // One status line for copy and download, announced by screen readers.
+  const [actionState, setActionState] = useState("");
+  const [erase, setErase] = useState<Async>({ kind: "idle" });
+  const [shownAt] = useState(() => new Date().toISOString());
+
+  async function eraseLog() {
+    if (erase.kind === "busy" || erase.kind === "done") return;
+    setErase({ kind: "busy" });
+    try {
+      await deleteCheck(res.check_id);
+      setErase({ kind: "done" });
+    } catch (err) {
+      setErase({ kind: "fail", message: errorText(err) });
+    }
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(resultAsText(res));
+      setActionState("Skopiowano wynik do schowka.");
+    } catch {
+      setActionState("Nie udało się skopiować. Zaznacz tekst ręcznie.");
+    }
+  }
+
+  /** Built from the displayed result in the browser; the check_id (deletion key) is never written. */
+  function download(ext: "json" | "csv") {
+    const ctx = { checkedAt: checkedAt ?? shownAt, shared: readOnly ? true : null };
+    const name = exportFilename(ext);
+    try {
+      if (ext === "json") downloadText(name, resultAsJson(res, ctx), "application/json;charset=utf-8");
+      else downloadText(name, resultAsCsv(res, ctx), "text/csv;charset=utf-8");
+      setActionState(`Pobrano plik ${name}.`);
+    } catch {
+      setActionState("Nie udało się zapisać pliku. Skopiuj wynik do schowka.");
+    }
+  }
+
+  const owner = !readOnly && Boolean(res.check_id);
   return (
     <div className="app-result">
       <h2 className="mp-sr">Wynik sprawdzenia</h2>
@@ -164,13 +311,47 @@ export function ResultView({ res, onReset }: { res: CheckResult; onReset: () => 
         <Button variant="secondary" icon="file-text" iconPosition="start" onClick={copy}>
           Kopiuj wynik
         </Button>
-        <Button variant="link" onClick={onReset}>
-          Sprawdź inną wiadomość
+        <Button variant="secondary" icon="download" iconPosition="start" onClick={() => download("json")}>
+          Pobierz JSON
         </Button>
+        <Button variant="secondary" icon="download" iconPosition="start" onClick={() => download("csv")}>
+          Pobierz CSV
+        </Button>
+        {onReset ? (
+          <Button variant="link" onClick={onReset}>
+            Sprawdź inną wiadomość
+          </Button>
+        ) : (
+          <a className="mp-link" href="/">
+            Sprawdź własną wiadomość
+          </a>
+        )}
       </div>
       <p className="app-copy-state" role="status">
-        {copied === "ok" ? "Skopiowano wynik do schowka." : copied === "fail" ? "Nie udało się skopiować. Zaznacz tekst ręcznie." : ""}
+        {actionState}
       </p>
+      {owner && <ShareBox checkId={res.check_id} erased={erase.kind === "done"} />}
+      {owner && (
+        <div className="app-erase">
+          <h3 className="app-share-title">Usuń zapis sprawdzenia</h3>
+          <p>
+            Zapis tego sprawdzenia (z ukrytymi danymi osobowymi) przechowujemy 30 dni. Możesz go usunąć od razu. Usunięcie wyłącza też
+            link do wyniku.
+          </p>
+          <Button variant="secondary" onClick={eraseLog} aria-disabled={erase.kind === "busy" || erase.kind === "done" || undefined}>
+            Usuń zapis tego sprawdzenia
+          </Button>
+          <p className="app-copy-state" role="status">
+            {erase.kind === "done"
+              ? "Usunęliśmy zapis tego sprawdzenia z serwera. Wynik zostaje tylko na tej stronie."
+              : erase.kind === "busy"
+                ? "Usuwam zapis…"
+                : erase.kind === "fail"
+                  ? erase.message
+                  : ""}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

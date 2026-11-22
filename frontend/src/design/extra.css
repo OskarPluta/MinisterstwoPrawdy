@@ -83,6 +83,7 @@
 .mp-cite-sub { margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .mp-cite-quote { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); background: var(--surface-muted); border: 1px solid var(--border); font-size: 16px; line-height: 24px; white-space: pre-line; overflow-wrap: anywhere; }
 .mp-cite-data-label { font-weight: 600; }
+.mp-cite-credit { margin: var(--space-2) 0 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); overflow-wrap: anywhere; }
 
 .mp-role { flex: none; display: inline-flex; align-items: center; gap: var(--space-1); font-size: 14px; line-height: 20px; font-weight: 700; }
 .mp-role-supports { color: var(--success); }
@@ -99,6 +100,7 @@
 .mp-table tbody th { font-weight: 600; }
 .mp-table tbody tr:last-child > * { border-bottom: 0; }
 .mp-table .mp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mp-table .mp-license { min-width: 18em; font-size: 14px; line-height: 20px; }
 .mp-state { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; color: var(--ink-muted); font-weight: 600; }
 .mp-state-success { color: var(--success); }
 .mp-state-warning { color: var(--warning); }
@@ -116,6 +118,7 @@
   .mp-table .mp-num { text-align: left; }
   .mp-table td > * { min-width: 0; overflow-wrap: anywhere; }
   .mp-state { white-space: normal; }
+  .mp-table .mp-license { min-width: 0; font-size: 16px; line-height: 24px; }
 }
 
 /* MaterialList */

@@ -131,3 +131,22 @@ def test_factcheck_sources_get_factcheck_type(tmp_path):
     types = {s["source_id"]: s["source_type"] for s in corpus["sources"]}
     assert types == {"euvsdisinfo-cases": "factcheck", "euvsdisinfo-articles": "official", "rcb": "official"}
     assert corpus["evidence"][0]["kind"] == "article"  # record unchanged: no new version, no re-embedding
+
+
+def test_catalog_supplies_licence_and_credit(tmp_path):
+    docs = _write(tmp_path / "d.jsonl", [_doc()])
+    cat = {"rcb": {"license": "CC BY-SA 4.0", "terms_url": "https://www.gov.pl/web/gov/prawa-autorskie",
+                   "attribution": None, "processed_notice": None}}
+    (src,) = convert(docs, catalog=cat)["sources"]
+    assert src["license"] == "CC BY-SA 4.0" and src["terms_url"].endswith("prawa-autorskie")
+    (bare,) = convert(docs)["sources"]
+    assert bare["license"] is None and bare["terms_url"] is None
+
+
+def test_every_crawler_source_has_a_licence():
+    """The real sources.yaml: no source may be archived without a licence or legal basis."""
+    from rag.crawler_import import source_catalog
+
+    cat = source_catalog()
+    assert cat and all(v["license"] for v in cat.values())
+    assert cat["imgw-hydro"]["processed_notice"] and cat["imgw-hydro"]["attribution"]

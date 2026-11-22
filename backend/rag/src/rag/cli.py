@@ -1,4 +1,4 @@
-"""rag ingest | reembed | stats | search | verify"""
+"""rag ingest | reembed | stats | search | verify | purge | prune-checks | export | delete-check"""
 
 from __future__ import annotations
 
@@ -133,6 +133,93 @@ def verify(
         f"{'cost n/a' if cost is None else cost}]",
         err=True,
     )
+
+
+@app.command()
+def purge(
+    url: list[str] = typer.Option([], "--url", help="Document URL to delete (repeatable)"),
+    source: list[str] = typer.Option([], "--source", help="Source id to delete with all records (repeatable)"),
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation"),
+):
+    """Procedure of removal: delete records, passages, vectors and related check logs.
+    Without --url/--source applies the register backend/crawler/removed.yaml."""
+    from .db import purge as db_purge
+    from .ingest import default_removals
+
+    urls, sources = list(url), list(source)
+    if not urls and not sources:
+        reg = default_removals()
+        urls, sources = sorted(reg.urls), sorted(reg.sources)
+        typer.echo(f"removed.yaml: {len(urls)} URLs, {len(sources)} sources")
+        if not urls and not sources:
+            return
+    elif not yes:
+        typer.echo("Hint: also add the entry to backend/crawler/removed.yaml, or the next ingest brings it back.")
+    if not yes and not typer.confirm(f"Delete {len(urls)} URLs and {len(sources)} sources from the database?"):
+        raise typer.Abort()
+    typer.echo(f"deleted: {db_purge(connect(db), urls=urls, sources=sources)}")
+
+
+@app.command("prune-checks")
+def prune_checks_cmd(
+    days: int | None = typer.Option(None, help="Keep this many days (default PRAWDOWID_CHECKS_RETENTION_DAYS or 30)"),
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+):
+    """Check log retention: delete checks older than the retention period (0 days = all)."""
+    from datetime import timedelta, timezone
+
+    from .db import prune_checks
+    from .verify import checks_retention_days
+
+    keep = checks_retention_days() if days is None else max(0, days)
+    n = prune_checks(connect(db), datetime.now(timezone.utc) - timedelta(days=keep))
+    typer.echo(f"deleted {n} checks older than {keep} days")
+
+
+@app.command()
+def export(
+    fmt: str = typer.Option("json", "--format", help="json | csv"),
+    since: str | None = typer.Option(None, help="From this time, inclusive (ISO 8601; no offset = Europe/Warsaw)"),
+    until: str | None = typer.Option(None, help="Before this time, exclusive (ISO 8601; no offset = Europe/Warsaw)"),
+    status: list[str] = typer.Option([], "--status", help="ok | needs_clarification | out_of_scope | too_long | error (repeatable)"),
+    verdict: list[str] = typer.Option([], "--verdict", help="Keep only claims with this verdict, e.g. false (repeatable)"),
+    out: Path | None = typer.Option(None, "--out", help="Output file (default: stdout)"),
+    bom: bool = typer.Option(True, "--bom/--no-bom", help="CSV: UTF-8 BOM so spreadsheets read Polish letters (--no-bom for pipes and tools)"),
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+):
+    """Analyst export of the check log (masked; no user message, no deletion keys). See rag/export.py."""
+    from . import export as ex
+
+    if fmt not in ("json", "csv"):
+        raise typer.BadParameter("expected json or csv", param_hint="--format")
+    try:
+        filters = ex.ExportFilters.parse(since, until, status, verdict)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from None
+    records = ex.load(connect(db), filters)
+    body = ex.to_json(records, filters) if fmt == "json" else ex.to_csv(records, bom=bom)
+    if out is None:
+        typer.echo(body, nl=False)
+        return
+    # newline="": the CSV writer already ends rows with CRLF (RFC 4180).
+    with out.open("w", encoding="utf-8", newline="") as f:
+        f.write(body)
+    typer.echo(f"exported {len(records)} checks to {out}", err=True)
+
+
+@app.command("delete-check")
+def delete_check(
+    check_id: str,
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+):
+    """Delete one check log (the check_id returned to the user)."""
+    from .db import delete_checks
+
+    n = delete_checks(connect(db), [check_id])
+    typer.echo("deleted" if n else "not found")
+    if not n:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
