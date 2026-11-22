@@ -39,6 +39,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 import functools
+import math
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
 from dataclasses import dataclass, field
@@ -471,31 +472,42 @@ def search_euvsdisinfo(fetcher: Any, budget: _Budget, claim_text: str, queries: 
 
 def govpl_pick(results: list[dict[str, Any]], q: str, n: int = GOVPL_MAX_ARTICLES,
                embedder: Embedder | None = None, claim: str | None = None) -> list[dict[str, Any]]:
-    """Search results worth fetching: www.gov.pl /web/ pages whose title+intro share query words
-    (the portal search ORs the words and ranks service cards high). With an embedder the candidates
-    are ordered by semantic similarity to the claim (word overlap alone lets e.g. "bezpłatne
-    szczepienia … HPV" beat "szczepienie przeciw grypie" for a flu claim); otherwise best overlap, newest."""
-    toks = [t[:5] for t in query_tokens(q)]
+    """Search results worth fetching: www.gov.pl /web/ pages whose title+intro share query words.
+
+    The portal search ORs the words, so many results share only common words ("sezon", "2026").
+    Ranking: word overlap weighted by rarity within the result set (IDF: a word found in few results,
+    e.g. "grypie", says more), plus – with a semantic embedder – the min-max normalised similarity to
+    the claim. Ties: newest first."""
+    toks = list(dict.fromkeys(t[:5] for t in query_tokens(q)))
     need = min(2, len(toks))
-    scored, seen = [], set()
+    cands, seen = [], set()
     for r in results:
         url = r.get("url") or ""
-        if not url.startswith("/web/") or url in seen:
+        key = url.rstrip("/").lower()
+        if not url.startswith("/web/") or key in seen:
             continue
-        seen.add(url)
+        seen.add(key)
         hay = _fold(f"{r.get('title') or ''} {r.get('intro') or ''}")
-        score = sum(1 for t in toks if t in hay)
-        if toks and score >= need:
-            scored.append((score, r.get("publishDate") or "", r))
+        hits = {t for t in toks if t in hay}
+        if toks and len(hits) >= need:
+            cands.append((hits, r))
+    if not cands:
+        return []
+    df = {t: sum(1 for h, _ in cands if t in h) for t in toks}
+    idf = {t: math.log((len(cands) + 1) / (df[t] + 0.5)) for t in toks}
+    total = sum(idf.values()) or 1.0
+    lex = [sum(idf[t] for t in h) / total for h, _ in cands]
+    sem = [0.0] * len(cands)
     # The hash embedder (tests, offline) carries no meaning, so it never reorders the results.
-    if embedder is not None and claim and len(scored) > n and not embedder.name.startswith("hash-"):
+    if embedder is not None and claim and len(cands) > n and not embedder.name.startswith("hash-"):
         qv = np.asarray(embedder.embed_query(claim))
-        pv = np.asarray(embedder.embed_passages([f"{r.get('title') or ''}. {r.get('intro') or ''}" for _, _, r in scored]))
+        pv = np.asarray(embedder.embed_passages([f"{r.get('title') or ''}. {r.get('intro') or ''}" for _, r in cands]))
         sims = pv @ qv / (np.linalg.norm(pv, axis=1) * np.linalg.norm(qv) + 1e-9)
-        order = sorted(range(len(scored)), key=lambda i: float(sims[i]), reverse=True)
-        return [scored[i][2] for i in order[:n]]
-    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return [r for _, _, r in scored[:n]]
+        lo, hi = float(sims.min()), float(sims.max())
+        sem = [(float(x) - lo) / (hi - lo) if hi > lo else 0.0 for x in sims]
+    order = sorted(range(len(cands)), key=lambda i: (lex[i] + sem[i], cands[i][1].get("publishDate") or ""),
+                   reverse=True)
+    return [cands[i][1] for i in order[:n]]
 
 
 def govpl_publisher(html: str, unit: str) -> str:
