@@ -125,6 +125,16 @@ class Strength:
 
 
 @dataclass
+class Fragment:
+    """A phrase of ClaimResult.quote; offsets into quote are found by code, status comes from Jev."""
+
+    text: str
+    start: int
+    end: int
+    status: str  # correct | wrong | unchecked
+
+
+@dataclass
 class ClaimResult:
     claim: str
     verdict: str  # a VERDICT_PL key
@@ -141,6 +151,10 @@ class ClaimResult:
     known_disinformation: bool = False
     strength: Strength | None = None  # None only for `error`
     origin: str = "user"  # "user" or the id of the attachment (InputSummary.id) the claim comes from
+    # The user's wording the claim came from (verbatim in the message or a readable attachment),
+    # with the phrases the evidence confirms (correct) or contradicts (wrong).
+    quote: str | None = None
+    fragments: list[Fragment] = field(default_factory=list)
     error: str | None = None  # internal detail, not shown to the user
     error_type: str | None = None  # internal: exception class name (rag/outcomes.py)
     live: dict[str, Any] | None = None  # live lookup log (rag/live.py), internal
@@ -543,7 +557,7 @@ def assess_strength(
         return s
     pct = round(confidence.value * 100)
     level = "strong" if confidence.value >= 0.85 else "moderate" if confidence.value >= 0.6 else "weak"
-    reasons = [f"Pewność oceny (Jev): {pct}%."]
+    reasons: list[str] = []  # the confidence itself is the shown value (label "Pewność oceny", strength_label)
     if confidence.probabilities:
         dist = sorted(confidence.probabilities.items(), key=lambda kv: -kv[1])
         reasons.append("Rozkład ocen Jev: " + ", ".join(
@@ -553,6 +567,11 @@ def assess_strength(
                        "zmienił kod (pierwszeństwo nowszych danych lub brak cytatu o właściwej roli), "
                        "więc pewność to prawdopodobieństwo obecnego werdyktu.")
     return Strength(level, f"{pct}%", reasons + s.reasons, confidence=confidence.value)
+
+
+def strength_label(s: Strength) -> str:
+    """"Pewność oceny" when Jev decided (the value is its confidence), else "Siła dowodów"."""
+    return "Siła dowodów" if s.confidence is None else "Pewność oceny"
 
 
 @dataclass
@@ -817,6 +836,23 @@ def checks_retention_days() -> int:
         return DEFAULT_CHECKS_RETENTION_DAYS
 
 
+def locate_fragments(quote: str, texts: list[str], statuses: list[str], verdict: str) -> list[Fragment]:
+    """Fragments found in quote, left to right without overlaps (others are dropped). Colours
+    follow the final verdict: none without one, and nothing is wrong in a true claim."""
+    out: list[Fragment] = []
+    pos = 0
+    for i, text in enumerate(texts):
+        start = quote.find(text, pos) if text.strip() else -1
+        if start < 0:
+            continue
+        status = statuses[i] if i < len(statuses) else "unchecked"
+        if verdict not in ("true", "false", "misleading") or (verdict == "true" and status == "wrong"):
+            status = "unchecked"
+        pos = start + len(text)
+        out.append(Fragment(text, start, pos, status))
+    return out
+
+
 def mask(text: str) -> str:
     for rx, rep in _MASKS:
         text = rx.sub(rep, text)
@@ -833,6 +869,11 @@ def _masked_result(res: CheckResult) -> dict[str, Any]:
         for k in ("claim", "explanation", "error"):
             if c[k]:
                 c[k] = mask(c[k])
+        if c["quote"]:  # masking shifts the offsets: find the masked fragments again
+            c["quote"] = mask(c["quote"])
+            frags = [(mask(f["text"]), f["status"]) for f in c["fragments"]]
+            c["fragments"] = [asdict(f) for f in locate_fragments(
+                c["quote"], [t for t, _ in frags], [st for _, st in frags], c["verdict"])]
     for i in d["inputs"]:
         # Retention: the log keeps a short masked excerpt and the hash, not the material itself.
         i["label"] = mask(i["label"])
@@ -977,6 +1018,9 @@ class Verifier:
             strength=assess_strength(verdict, kept, by_id, claim, now,
                                      None if decision else raw.evidence_strength,
                                      raw.conflict, downgraded, older_basis, _confidence(decision, verdict)),
+            quote=claim.quote,  # checked against the message in _run
+            fragments=locate_fragments(claim.quote, claim.fragments, decision.fragments if decision else [],
+                                       verdict) if claim.quote else [],
         )
 
     def _decide(self, claim: Claim, hits: list[Hit], newer: dict[str, Hit], now: datetime) -> tuple[ClaimVerdict, Any]:
@@ -1042,7 +1086,12 @@ class Verifier:
             res.claims = live_mod.live_pass(self, claims, res.claims, now)
         # After the live pass: it replaces the results it re-checks, which would drop the origin.
         by_id = {a.id: a for a in readable}
+        sources = [text, *(a.text for a in readable)]
         for claim, cr in zip(claims, res.claims):
+            if not claim.quote or not any(claim.quote in s for s in sources):
+                cr.quote, cr.fragments = None, []  # not the user's own words: nothing to show
+            elif cr.quote is None:  # decided without evidence (or failed): the quote, uncoloured
+                cr.quote, cr.fragments = claim.quote, locate_fragments(claim.quote, claim.fragments, [], cr.verdict)
             source = by_id.get((claim.origin or "").strip())
             if source is None:
                 continue
@@ -1187,7 +1236,7 @@ def render_markdown(res: CheckResult) -> str:
         out.append(f"**Twierdzenie:** {_model_text(c.claim)}")
         out.append(f"**Ocena:** {c.verdict_pl}")
         if c.strength:
-            out.append(f"**Siła dowodów:** {c.strength.level_pl}")
+            out.append(f"**{strength_label(c.strength)}:** {c.strength.level_pl}")
             out.extend(f"- {_md(r)}" for r in c.strength.reasons)
         if c.known_disinformation:
             out.append("**Znana narracja dezinformacyjna**")

@@ -11,6 +11,8 @@ import {
   type CheckResult,
   type CheckStatus,
   type ClaimResult,
+  type Fragment,
+  type FragmentStatus,
   type InputSummary,
   type ShareLink,
   type Strength,
@@ -50,14 +52,17 @@ const INJECTION =
 
 export const RESULT_HEADING_ID = "wynik";
 
-const STRENGTH_LABEL = "Siła dowodów";
+/** "Pewność oceny" when Jev decided (level_pl is its confidence), else "Siła dowodów". */
+function strengthLabel(s: Strength): string {
+  return s.confidence == null ? "Siła dowodów" : "Pewność oceny";
+}
 
 /** Premises behind the verdict's strength. Neutral styling: strength is not a verdict colour. */
 function StrengthBox({ s }: { s: Strength }) {
   return (
-    <section className="app-strength" aria-label={STRENGTH_LABEL}>
+    <section className="app-strength" aria-label={strengthLabel(s)}>
       <p className="app-strength-title">
-        {STRENGTH_LABEL}: <strong data-level={s.level}>{s.level_pl}</strong>
+        {strengthLabel(s)}: <strong data-level={s.level}>{s.level_pl}</strong>
       </p>
       <ul>
         {s.reasons.map((r, i) => (
@@ -73,17 +78,47 @@ function originLabel(c: ClaimResult, inputs: InputSummary[]): string | null {
   return m ? `materiał ${m.id} (${m.kind_pl})` : null;
 }
 
+const FRAGMENT_HINT: Record<FragmentStatus, string> = {
+  correct: "zgodne ze źródłami",
+  wrong: "niezgodne ze źródłami",
+  unchecked: "",
+};
+
+/** The claim as plain text, with the phrases the sources confirm or contradict highlighted. Fragments are
+ *  the user's verbatim words, so they are found in the claim by search; a phrase the claim rewords stays plain. */
+function ClaimMarks({ text, fragments }: { text: string; fragments: Fragment[] }) {
+  const parts: ReactNode[] = [];
+  let pos = 0;
+  for (const f of [...fragments].sort((a, b) => a.start - b.start)) {
+    const start = f.text ? text.indexOf(f.text, pos) : -1;
+    if (start < 0) continue;
+    if (start > pos) parts.push(text.slice(pos, start));
+    const hint = FRAGMENT_HINT[f.status] ?? "";
+    parts.push(
+      <mark key={start} className="app-frag" data-status={f.status} title={hint || undefined}>
+        {f.text}
+        {hint && <span className="mp-sr"> ({hint})</span>}
+      </mark>,
+    );
+    pos = start + f.text.length;
+  }
+  parts.push(text.slice(pos));
+  return <>{parts}</>;
+}
+
 function ClaimPanel({ c, index, total, inputs }: { c: ClaimResult; index: number; total: number; inputs: InputSummary[] }) {
   const view =
     c.known_disinformation && c.verdict === "unverifiable"
       ? KNOWN_NARRATIVE_OPINION
       : (VERDICT_VIEW[c.verdict] ?? VERDICT_VIEW.error);
-  const details: { label: string; value: ReactNode }[] = [{ label: "Twierdzenie", value: c.claim }];
+  const details: { label: string; value: ReactNode }[] = [
+    { label: "Twierdzenie", value: <ClaimMarks text={c.claim} fragments={c.fragments ?? []} /> },
+  ];
   if (total > 1) details.unshift({ label: "Numer", value: `${index + 1} z ${total}` });
   const origin = originLabel(c, inputs);
   if (origin) details.push({ label: "Pochodzi z", value: origin });
   if (c.known_disinformation) details.push({ label: KNOWN_NARRATIVE, value: "Tak, udokumentowana w bazie weryfikacji" });
-  if (c.strength) details.push({ label: STRENGTH_LABEL, value: c.strength.level_pl });
+  if (c.strength) details.push({ label: strengthLabel(c.strength), value: c.strength.level_pl });
   details.push({ label: "Liczba źródeł", value: String(c.citations.length) });
   return (
     <StatusPanel
@@ -129,8 +164,10 @@ export function resultAsText(res: CheckResult): string {
     const origin = originLabel(c, res.inputs ?? []);
     if (origin) out.push(`Pochodzi z: ${origin}`);
     out.push(`Twierdzenie: ${c.claim}`, `Ocena: ${c.verdict_pl}`);
+    const wrong = (c.fragments ?? []).filter((f) => f.status === "wrong").map((f) => `„${f.text}”`);
+    if (wrong.length) out.push(`Niezgodne ze źródłami: ${wrong.join(", ")}`);
     if (c.strength) {
-      out.push(`${STRENGTH_LABEL}: ${c.strength.level_pl}`);
+      out.push(`${strengthLabel(c.strength)}: ${c.strength.level_pl}`);
       for (const r of c.strength.reasons) out.push(`- ${r}`);
     }
     if (c.known_disinformation) out.push(KNOWN_NARRATIVE);

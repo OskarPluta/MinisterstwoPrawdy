@@ -48,6 +48,18 @@ class Claim(BaseModel):
         description="'user' when the claim comes from <user_input>, otherwise the id of the "
         "<attachment> it comes from, e.g. 'A1'.",
     )
+    quote: str | None = Field(
+        None,
+        description="The exact span of <user_input> or of the attachment's text the claim was "
+        "extracted from, copied character for character, or null if there is none.",
+        json_schema_extra=_schema_without_default,
+    )
+    fragments: list[str] = Field(
+        default_factory=list,
+        description="1-5 short sub-phrases of quote, copied exactly, each carrying one checkable "
+        "detail (who, what, when, where, a number, a scope word). Empty when quote is null.",
+        json_schema_extra=_schema_without_default,
+    )
 
 
 class ClaimExtraction(BaseModel):
@@ -162,6 +174,10 @@ Rules:
   message that carries a public claim (e.g. a suspicious e-mail citing a regulation) does not
   make it out of scope: check the public claim.
 - The claim text is always in Polish, whatever the input language.
+- quote: the exact part of <user_input> or of the attachment text the claim comes from, copied
+  verbatim (same letters, case, punctuation), never paraphrased, translated or shortened with
+  "..."; fragments: 1-5 short pieces of quote, copied the same way, in their order in quote, one
+  checkable detail each (who, what, when, where, a number, a scope word).
 - search_queries: keyword-style queries, neutral wording, no yes/no framing. Polish ones first;
   for non-Polish input add queries in the input's language with its key phrases (documents in
   the database may be in that language); for international politics, war or propaganda

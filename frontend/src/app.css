@@ -76,3 +76,8 @@ html { background: var(--surface); }
 .app-devbar .mp-container { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); padding-top: var(--space-2); padding-bottom: var(--space-2); }
 .app-devbar-tag { font-weight: 700; }
 .app-devbar code { padding: 0 var(--space-1); border: 1px solid var(--border); background: var(--surface); font-family: ui-monospace, monospace; user-select: all; }
+
+/* Phrases of a claim the sources confirm (green) or contradict (red); hidden text says the same for readers. */
+.app-frag { color: inherit; background: none; padding: 0 2px; border-radius: var(--radius-sm); }
+.app-frag[data-status="correct"] { background: var(--success-tint); }
+.app-frag[data-status="wrong"] { background: var(--danger-tint); }

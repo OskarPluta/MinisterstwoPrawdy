@@ -30,6 +30,7 @@ from rag.verify import (
     Verifier,
     _safe_url,
     build_evidence_xml,
+    locate_fragments,
     mask,
     render_markdown,
 )
@@ -452,6 +453,29 @@ def test_check_log_masks_text_derived_from_input(retriever):
     Verifier(retriever, llm, record=True).verify("jan.kowalski@example.com", NOW)
     row = retriever.conn.execute("SELECT input_masked, result_json FROM checks").fetchone()
     assert "example.com" not in row["input_masked"] and "example.com" not in row["result_json"]
+
+
+def test_fragment_colours_follow_the_final_verdict():
+    quote = "w Sandomierzu od wczoraj"
+    texts, statuses = ["w Sandomierzu", "od wczoraj", "Sandomierzu"], ["correct", "wrong", "correct"]
+    assert [(f.start, f.end, f.status) for f in locate_fragments(quote, texts, statuses, "misleading")] == [
+        (0, 13, "correct"), (14, 24, "wrong")], "an overlapping or earlier repeat is dropped"
+    assert [f.status for f in locate_fragments(quote, texts, statuses, "true")] == ["correct", "unchecked"]
+    assert {f.status for f in locate_fragments(quote, texts, statuses, "insufficient")} == {"unchecked"}
+
+
+def test_quote_without_jev_is_shown_uncoloured_and_masked_in_the_log(retriever):
+    msg = "Jan (jan.kowalski@example.com) pisze, że to skandal"
+    c = claim("Jan pisze, że to skandal", checkable=False, quote=msg, fragments=["jan.kowalski@example.com", "skandal"])
+    llm = FakeLLM([c], lambda cl, xml: verdict("unverifiable"))
+    res = Verifier(retriever, llm, record=True, live=False).verify(msg, NOW)
+    cr = res.claims[0]
+    assert cr.quote == msg and {f.status for f in cr.fragments} == {"unchecked"}
+    row = retriever.conn.execute("SELECT result_json FROM checks").fetchone()
+    assert "example.com" not in row["result_json"]
+    logged = json.loads(row["result_json"])["claims"][0]
+    assert all(logged["quote"][f["start"]:f["end"]] == f["text"] for f in logged["fragments"])
+    assert [f["text"] for f in logged["fragments"]] == ["[email]", "skandal"]
 
 
 def test_claim_cannot_forge_evidence_in_verify_prompt():

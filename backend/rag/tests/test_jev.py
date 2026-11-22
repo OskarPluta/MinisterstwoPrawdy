@@ -72,11 +72,11 @@ def test_jev_decides_and_keeps_only_used_passages(retriever):
     assert cr.explanation.startswith("Źródła potwierdzają twierdzenie: ") and "(źródło 1)" in cr.explanation
     assert "Kontekst: " in cr.explanation
     assert cr.strength and cr.strength.confidence == 0.92 and cr.strength.level_pl == "92%"
-    assert cr.strength.level == "strong" and cr.strength.reasons[0] == "Pewność oceny (Jev): 92%."
-    assert "potwierdzone 92%" in cr.strength.reasons[1]
+    assert cr.strength.level == "strong" and not any("Pewność oceny" in r for r in cr.strength.reasons)
+    assert "potwierdzone 92%" in cr.strength.reasons[0]
     assert "(ocena modelu)" not in " ".join(cr.strength.reasons)
     assert judge.usage.calls == 1 and judge.usage.input_tokens == 1000
-    assert "**Siła dowodów:** 92%" in render_markdown(res)
+    assert "**Pewność oceny:** 92%" in render_markdown(res)
 
 
 def test_newer_side_wins_over_jev_verdict(retriever, embedder):
@@ -119,3 +119,35 @@ def test_make_jev_picks_the_provider_from_the_key(monkeypatch):
     assert j and j.url == "https://openrouter.ai/api/v1/systemone"
     monkeypatch.setenv("PRAWDOWID_JEV", "0")
     assert make_jev() is None
+
+
+def test_jev_marks_fragments_of_the_users_words(retriever):
+    msg = "Słyszałem, że na Wiśle w Sandomierzu od wczoraj obowiązuje ostrzeżenie trzeciego stopnia."
+    quote = "na Wiśle w Sandomierzu od wczoraj obowiązuje ostrzeżenie trzeciego stopnia"
+    c = claim("Na Wiśle w Sandomierzu obowiązuje ostrzeżenie hydrologiczne trzeciego stopnia",
+              ["stan wody Wisła Sandomierz"], quote=quote,
+              fragments=["w Sandomierzu", "nie ma w cytacie", "od wczoraj", "trzeciego stopnia"])
+    hits = Verifier(retriever, FakeLLM(), record=False).retrieve(c, NOW)
+    q = build_request(c, hits, {}, NOW, "m")["questions"]
+    assert {"frag_0", "frag_1", "frag_2", "frag_3"} <= set(q)
+    assert "index 2" in q["frag_2"]["instructions"] and "od wczoraj" not in q["frag_2"]["instructions"], \
+        "the user's words stay in state, never in the instructions"
+    used, *rest = [f"P{h.passage_id}" for h in hits]
+    reply = answers("false", {"true": 0.05, "false": 0.85, "misleading": 0.05, "insufficient": 0.05},
+                    {used: "contradicts", **{p: "unrelated" for p in rest}})
+    reply["answers"] |= {
+        "frag_0": {"type": "choice", "choice": "correct", "confidence": 0.8, "probabilities": {"correct": 0.8}},
+        "frag_1": {"type": "choice", "choice": "wrong", "confidence": 0.9, "probabilities": {"wrong": 0.9}},
+        "frag_2": {"type": "choice", "choice": "wrong", "confidence": 0.4, "probabilities": {"wrong": 0.4}},
+        "frag_3": {"type": "choice", "choice": "wrong", "confidence": 0.9, "probabilities": {"wrong": 0.9}},
+    }
+    cr = Verifier(retriever, llm_with(jev_with(reply), [c]), record=False, live=False).verify(msg, NOW).claims[0]
+    assert cr.verdict == "false" and cr.quote == quote
+    # "nie ma w cytacie" is not in the quote: dropped; a weak "wrong" (0.4) stays unchecked.
+    assert [(f.text, f.status) for f in cr.fragments] == [
+        ("w Sandomierzu", "correct"), ("od wczoraj", "unchecked"), ("trzeciego stopnia", "wrong")]
+    assert all(quote[f.start:f.end] == f.text for f in cr.fragments)
+
+    # A quote that is not the user's own words is not shown at all.
+    other = Verifier(retriever, llm_with(jev_with(reply), [c]), record=False, live=False).verify("inna treść", NOW)
+    assert other.claims[0].quote is None and other.claims[0].fragments == []

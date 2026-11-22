@@ -61,6 +61,20 @@ export interface ClaimResult {
   strength: Strength | null;
   /** "user" (typed text) or the id of the InputSummary the claim was read from, e.g. "A1". */
   origin: string;
+  /** The user's own words the claim came from (verbatim). Absent in older shared results. */
+  quote?: string | null;
+  /** Phrases of `quote` (offsets found by code) as Jev judged them against the evidence. */
+  fragments?: Fragment[];
+}
+
+export type FragmentStatus = "correct" | "wrong" | "unchecked";
+
+export interface Fragment {
+  text: string;
+  /** Offsets into ClaimResult.quote, in code points (Python). */
+  start: number;
+  end: number;
+  status: FragmentStatus;
 }
 
 export type InputKind = "url" | "youtube" | "image" | "pdf";

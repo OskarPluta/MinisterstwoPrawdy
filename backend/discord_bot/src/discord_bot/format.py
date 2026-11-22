@@ -63,6 +63,7 @@ VERDICT_VIEW: dict[str, tuple[int, str]] = {
 KNOWN_NARRATIVE_OPINION = (COLOR_WARNING, "Ta opinia powtarza znaną narrację dezinformacyjną")
 KNOWN_NARRATIVE_LABEL = "Znana narracja dezinformacyjna"
 STRENGTH_LABEL = "Siła dowodów"
+CONFIDENCE_LABEL = "Pewność oceny"  # when Jev decided: the value is its confidence
 CONFLICT_MSG = "Źródła podają różne informacje. Szczegóły znajdziesz w cytatach poniżej."
 INJECTION_MSG = (
     "Twoja wiadomość zawierała polecenia skierowane do systemu. "
@@ -201,7 +202,8 @@ def _build_claim_description(claim: ClaimResult, max_chars: int) -> str:
     # Computed by code (assess_strength), not by the model; neutral, not a verdict colour.
     if claim.strength:
         parts.append("")
-        parts.append(f"**{STRENGTH_LABEL}:** {_md(claim.strength.level_pl)}")
+        label = STRENGTH_LABEL if claim.strength.confidence is None else CONFIDENCE_LABEL
+        parts.append(f"**{label}:** {_md(claim.strength.level_pl)}")
         parts.extend(f"• {_md(r)}" for r in claim.strength.reasons)
 
     if claim.notes:
