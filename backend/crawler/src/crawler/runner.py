@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .adapters import ADAPTERS, Ctx, SourceBlocked, Stats
 from .config import Config
@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 STOP = threading.Event()
 ADAPTERS = {**ADAPTERS, "mcp_tool": run_mcp_tool}
 HISTORY_LEN = 10
+NEVER_RUN = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 
 def run_source(ctx: Ctx, src: dict) -> dict:
@@ -90,7 +91,7 @@ def next_due(store: Store, src: dict) -> datetime:
     st = store.state["sources"].get(src["name"], {})
     last = parse_iso(st.get("last_run"))
     if last is None:
-        return now_utc() - timedelta(seconds=1)
+        return NEVER_RUN  # wspólna wartość: kolejność wśród nowych źródeł ustala interwał (pick_next)
     return last + timedelta(minutes=float(src["interval_minutes"]))
 
 
@@ -106,9 +107,10 @@ def run_once(ctx: Ctx, sources: list[dict]) -> list[dict]:
 
 
 def pick_next(schedule: list[tuple[datetime, str, dict]], now: datetime) -> dict | None:
-    """Najbardziej zaległe źródło. Źródła `background: true` (np. całe jednostki gov.pl z mapy strony)
+    """Najbardziej zaległe źródło (przy remisie, np. nigdy nieuruchomionych, najkrótszy interwał). Źródła `background: true` (np. całe jednostki gov.pl z mapy strony)
     idą tylko wtedy, gdy nie czeka żadne zwykłe – inaczej zaległe archiwum zagłodziłoby alerty."""
-    due = sorted((e for e in schedule if e[0] <= now), key=lambda e: (e[0], e[1]))
+    due = sorted((e for e in schedule if e[0] <= now),
+                 key=lambda e: (e[0], float(e[2].get("interval_minutes") or 60), e[1]))
     fg = [e for e in due if not e[2].get("background")]
     return (fg or due)[0][2] if due else None
 

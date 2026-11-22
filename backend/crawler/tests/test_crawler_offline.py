@@ -418,6 +418,10 @@ def test_scheduler_background_sources_wait():
     sched = [(now - timedelta(hours=5), "mapa", bg), (now + timedelta(minutes=4), "alert", alert)]
     assert pick_next(sched, now) is bg, "background, gdy nic zwykłego nie czeka"
     assert pick_next([(now + timedelta(minutes=1), "alert", alert)], now) is None
+    from crawler.runner import NEVER_RUN
+    slow, fast = {"name": "a-wolne", "interval_minutes": 360}, {"name": "z-alert", "interval_minutes": 5}
+    assert pick_next([(NEVER_RUN, "a-wolne", slow), (NEVER_RUN, "z-alert", fast)], now) is fast, \
+        "nigdy nieuruchomione: najpierw najkrótszy interwał"
 
 
 def test_readonly_store_writes_nothing(tmp_path):
