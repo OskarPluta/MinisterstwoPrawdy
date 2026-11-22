@@ -6,3 +6,8 @@ VALUES (%(check_id)s, %(created_at)s, %(input_masked)s, %(status)s, %(result_jso
 
 -- name: logged_text
 SELECT input_masked, result_json FROM checks WHERE check_id = %(check_id)s;
+
+-- name: list
+SELECT check_id, created_at, status, result_json, corpus_version, model, embedding_model, duration_ms
+FROM checks
+ORDER BY created_at DESC;

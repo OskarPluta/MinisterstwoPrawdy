@@ -20,7 +20,7 @@ from rag.config import load_env
 from rag.db import scratch_db
 from rag.embed import HashEmbedder
 from rag.ingest import ingest_corpus, load_corpus
-from rag.llm import Claim, ClaimExtraction, ClaimVerdict, PassageLabel
+from rag.llm import Claim, ClaimExtraction, ClaimVerdict, PassageLabel, Usage
 from rag.verify import MAX_INPUT_CHARS, MSG_OUTAGE
 
 FIXTURES = Path(__file__).resolve().parents[2] / "rag" / "tests" / "fixtures"
@@ -38,17 +38,20 @@ def _claim(text: str) -> Claim:
 class FakeLLM:
     """Extracts one claim; the verdict cites the first passage it was shown as `supports`."""
 
-    model = "fake"
+    model = "gpt-5.5"
 
     def __init__(self, claim_text: str = "Na Wiśle w Sandomierzu obowiązuje ostrzeżenie hydrologiczne"):
         self.claim_text = claim_text
+        self.usage = Usage()
 
     def extract_claims(self, text: str, now: datetime) -> ClaimExtraction:
+        self.usage.add("extract", 500, 100)
         return ClaimExtraction(
             status="ok", clarification_question=None, claims=[_claim(self.claim_text)], injection_detected=False,
         )
 
     def verify_claim(self, claim: Claim, evidence_xml: str, now: datetime) -> ClaimVerdict:
+        self.usage.add("verify", 1500, 200)
         first = evidence_xml.split('id="', 1)[1].split('"', 1)[0]
         return ClaimVerdict(
             verdict="true", passages=[PassageLabel(passage_id=first, role="supports"),
@@ -90,6 +93,7 @@ def test_verify_returns_public_result(client):
     body: dict[str, Any] = r.json()
     assert body["status"] == "ok"
     assert "error" not in body
+    assert "usage" not in body
     c = body["claims"][0]
     assert c["verdict"] == "true" and c["verdict_pl"] == "potwierdzone"
     for internal in ("error", "shortlist_ids", "invented_ids"):
@@ -132,3 +136,31 @@ def test_sources(client):
     assert src and {"source_id", "publisher", "publishing_domain", "source_type",
                     "last_success_at", "last_error", "current_records"} <= set(src[0])
     assert all(s["publishing_domain"].endswith(".test") for s in src)
+
+
+def test_stats_aggregates_checks_and_usage(client, monkeypatch):
+    monkeypatch.delenv("PRAWDOWID_PRICE_IN", raising=False)
+    monkeypatch.delenv("PRAWDOWID_PRICE_OUT", raising=False)
+
+    empty = client.get("/api/stats")
+    assert empty.status_code == 200
+    assert empty.json()["checks"]["total_checks"] == 0
+
+    r1 = client.post("/api/verify", json={"text": "Czy na Wiśle w Sandomierzu jest ostrzeżenie?",
+                                          "now": "2026-11-21T12:00:00"})
+    r2 = client.post("/api/verify", json={"text": "Drugie sprawdzenie.",
+                                          "now": "2026-11-21T12:00:00"})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert "usage" not in r1.json() and "usage" not in r2.json()
+
+    st = client.get("/api/stats")
+    assert st.status_code == 200
+    body = st.json()
+    assert body["corpus"]["current_records"] > 0
+    checks = body["checks"]
+    assert checks["total_checks"] == 2
+    assert checks["by_verdict"] == {"true": 2}
+    assert checks["usage"]["calls"] == 4
+    assert checks["usage"]["input_tokens"] == 4000
+    assert checks["usage"]["output_tokens"] == 600
+    assert checks["usage"]["cost_usd"] == pytest.approx(0.016)

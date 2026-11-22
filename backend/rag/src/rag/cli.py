@@ -11,7 +11,7 @@ import typer
 
 from . import ingest as ingest_mod
 from .config import load_env
-from .db import Connection, corpus_totals
+from .db import Connection, checks_stats, corpus_totals
 from .db import connect as _db_connect
 from .embed import DEFAULT_EMBEDDER, get_embedder
 from .search import Filters, Retriever
@@ -77,8 +77,9 @@ def reembed(
 
 @app.command()
 def stats(db: str | None = typer.Option(None, "--database-url", help=DB_HELP)):
-    """Corpus totals (records are counted before chunking)."""
-    typer.echo(json.dumps(corpus_totals(connect(db)), indent=2))
+    """Corpus totals (records are counted before chunking) and check observability stats."""
+    c = connect(db)
+    typer.echo(json.dumps({**corpus_totals(c), "checks": checks_stats(c)}, indent=2))
 
 
 @app.command()
@@ -109,10 +110,12 @@ def verify(
     embedder: str = typer.Option(DEFAULT_EMBEDDER, help=EMBEDDER_HELP),
     now: str | None = typer.Option(None, help="Request time, ISO 8601 (default: now, Europe/Warsaw)"),
     as_json: bool = typer.Option(False, "--json"),
-    provider: str | None = typer.Option(None, help="openai (default) | anthropic"),
-    model: str | None = typer.Option(None, help="Model id (default: OPENAI_MODEL or gpt-5.5)"),
+    provider: str | None = typer.Option(None, help="pcss (default) | openai | anthropic"),
+    model: str | None = typer.Option(
+        None, help="Model id (default per provider: PCSS_MODEL, OPENAI_MODEL or PRAWDOWID_MODEL)"
+    ),
 ):
-    """Verify a claim end to end with an LLM (needs OPENAI_API_KEY or ANTHROPIC_API_KEY)."""
+    """Verify a claim end to end with an LLM (needs PCSS_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY)."""
     from .llm import make_llm
     from .verify import Verifier, render_markdown
 
@@ -123,11 +126,11 @@ def verify(
     typer.echo(json.dumps(res.to_dict(), ensure_ascii=False, indent=2) if as_json else render_markdown(res))
     if res.error:
         typer.echo(f"\n[internal error] {res.error}", err=True)
-    cost = llm.usage.cost_usd(llm.model)
+    cost = llm.usage.cost(llm.model)
     typer.echo(
         f"\n[{res.status}, {llm.model}, {res.duration_ms} ms, {llm.usage.calls} calls, "
         f"{llm.usage.input_tokens}+{llm.usage.output_tokens} tok, "
-        f"{'cost n/a' if cost is None else f'${cost:.4f}'}]",
+        f"{'cost n/a' if cost is None else cost}]",
         err=True,
     )
 

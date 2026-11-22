@@ -13,7 +13,7 @@ Polecenia: `uv run rag ingest | reembed | stats | search | verify` (opcje: `--he
 | embeddingi | `embed.py` | `E5Embedder` (domyślny) i `HashEmbedder` (testy) |
 | baza | `db.py`, `database/` | Połączenie, schemat, wersjonowany upsert, log sprawdzeń, `scratch_db()` dla testów |
 | wyszukiwanie | `search.py` | `Retriever`: FTS w Postgresie, gęste w NumPy, fuzja RRF, różnorodność, filtry |
-| LLM | `llm.py` | Prompty, schematy Pydantic, klienci OpenAI/Anthropic ze strukturalnym wyjściem, tokeny i koszt |
+| LLM | `llm.py` | Prompty, schematy Pydantic, klienci PCSS/OpenAI/Anthropic ze strukturalnym wyjściem, tokeny i koszt |
 | weryfikacja | `verify.py` | `Verifier`: ekstrakcja → wyszukiwanie → werdykt → kontrola cytatów i notatki → log → `render_markdown` |
 | na żywo | `live.py` | Gdy korpus nie rozstrzyga (`insufficient`): Google Fact Check, EUvsDisinfo (MCP `search`) i gov.pl na żywo przez `crawler.fetcher.Fetcher`, zapis przez `ingest_corpus`, ponowna weryfikacja |
 | pomocnicze | `cli.py`, `config.py` (`.env`), `timeutil.py` (UTC ↔ Europe/Warsaw), `evaluation.py` (recall@k, MRR) | |
@@ -74,7 +74,8 @@ Wektory są zapisane z nazwą modelu. Zapytanie innym embedderem kończy się b�
 
 ## LLM
 
-- Dostawca: `--provider` albo `PRAWDOWID_PROVIDER` (`openai` domyślnie, `anthropic`). Model: `--model`, `OPENAI_MODEL`, `PRAWDOWID_MODEL`.
+- Dostawca: `--provider` albo `PRAWDOWID_PROVIDER` (`pcss` domyślnie, `openai`, `anthropic`). Model: `--model`, `PCSS_MODEL`, `OPENAI_MODEL`, `PRAWDOWID_MODEL`.
+- `pcss` to modele PCSS (`https://llm.hpc.psnc.pl/v1`, zgodne z API OpenAI, ten sam klient i strukturalne wyjście co `openai`). Domyślnie `GLM-5.3-Flash`; tańszy `Bielik-11B-v3.0-Instruct` ma kontekst 33k. Koszt jest raportowany w PLN.
 - Klucze, limit czasu i ceny do raportu kosztu: [`.env.example`](../../.env.example).
 - Jedno sprawdzenie to 1 wywołanie na ekstrakcję i po 1 na każde twierdzenie. Podsumowanie (model, tokeny, koszt) trafia na stderr.
 - Przy danych z przeszłości podaj `--now`, bo okna ważności ostrzeżeń liczą się od czasu zapytania.
@@ -90,7 +91,7 @@ Wektory są zapisane z nazwą modelu. Zapytanie innym embedderem kończy się b�
 ## Testy
 
 `uv run pytest backend/rag`. Testy DB biorą `TEST_DATABASE_URL` (albo `DATABASE_URL`) i każdy pracuje we własnym schemacie `scratch_<id>`. Bez bazy są pomijane.
-Klient OpenAI jest testowany na atrapie HTTP, bez klucza. `conftest.py` udostępnia `FIXTURES`.
+Klienci OpenAI i PCSS są testowani na atrapie HTTP, bez klucza. `conftest.py` udostępnia `FIXTURES`.
 
 ## Ewaluacja
 

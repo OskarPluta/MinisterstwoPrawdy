@@ -10,7 +10,7 @@ import httpx2 as httpx
 import openai
 import pytest
 
-from rag.llm import ClaimExtraction, LLMRefusal, OpenAILLM
+from rag.llm import ClaimExtraction, LLMRefusal, OpenAILLM, Usage
 
 NOW = datetime(2026, 11, 21, 12, tzinfo=ZoneInfo("Europe/Warsaw"))
 
@@ -75,3 +75,87 @@ def test_refusal_and_truncation_raise():
     llm, _ = _llm(lambda r: _completion('{"status": "ok"', finish="length"))
     with pytest.raises(openai.LengthFinishReasonError):
         llm.extract_claims("x", NOW)
+
+
+def test_openai_pricing_prefix_and_usage_delta(monkeypatch):
+    monkeypatch.delenv("PRAWDOWID_PRICE_IN", raising=False)
+    monkeypatch.delenv("PRAWDOWID_PRICE_OUT", raising=False)
+
+    u = Usage()
+    u.add("extract", 1000, 500)
+    snap = u.snapshot()
+    u.add("verify", 2000, 1000)
+
+    delta = u.since(snap)
+    assert delta.calls == 1
+    assert delta.input_tokens == 2000 and delta.output_tokens == 1000
+    assert [c["call"] for c in delta.by_call] == ["verify"]
+
+    # gpt-5.5: $2.50 / 1M in, $10.00 / 1M out -> 2000*2.5/1e6 + 1000*10/1e6 = 0.015
+    assert delta.cost_usd("gpt-5.5") == pytest.approx(0.015)
+    assert delta.cost_usd("gpt-5.5-2026-01-01") == pytest.approx(0.015)
+    assert delta.cost_usd("unknown-model") is None
+
+    monkeypatch.setenv("PRAWDOWID_PRICE_IN", "1.0")
+    monkeypatch.setenv("PRAWDOWID_PRICE_OUT", "2.0")
+    assert delta.cost_usd("gpt-5.5") == pytest.approx(0.004)
+
+
+# ---------------------------------------------------------------------------------------
+# PCSS: same client, pointed at the PCSS OpenAI-compatible endpoint
+# ---------------------------------------------------------------------------------------
+
+
+def test_pcss_posts_to_pcss_endpoint_with_its_key(monkeypatch):
+    from rag.llm import PCSS_BASE_URL, PCSSLLM, make_llm
+
+    for var in ("PCSS_MODEL", "PCSS_BASE_URL", "PCSS_REASONING_EFFORT", "PRAWDOWID_PROVIDER"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("PCSS_API_KEY", "pcss-test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-must-not-be-sent")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-must-not-be-used")
+    monkeypatch.setenv("OPENAI_REASONING_EFFORT", "high")
+
+    llm = make_llm()  # pcss is the default provider
+    assert isinstance(llm, PCSSLLM) and llm.model == "GLM-5.3-Flash"
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_completion(json.dumps(EXTRACTION, ensure_ascii=False)))
+
+    llm.client = llm.client.with_options(http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    llm.extract_claims("Czy IMGW wydał ostrzeżenie?", NOW)
+
+    req = seen[0]
+    assert str(req.url) == f"{PCSS_BASE_URL}/chat/completions"
+    assert req.headers["authorization"] == "Bearer pcss-test-key"
+    body = json.loads(req.content)
+    assert body["model"] == "GLM-5.3-Flash"
+    assert body["response_format"]["json_schema"]["strict"] is True
+    assert "reasoning_effort" not in body
+
+
+def test_pcss_model_override_and_pln_cost(monkeypatch):
+    from rag.llm import make_llm
+
+    for var in ("PRAWDOWID_PRICE_IN", "PRAWDOWID_PRICE_OUT"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("PCSS_API_KEY", "pcss-test-key")
+    llm = make_llm("pcss", "Bielik-11B-v3.0-Instruct")
+    assert llm.model == "Bielik-11B-v3.0-Instruct"
+    llm.usage.add("extract", 1_000_000, 1_000_000)
+    cost = llm.usage.cost(llm.model)
+    assert cost is not None and cost.currency == "PLN"
+    assert cost.amount == pytest.approx(0.423 + 0.846)
+    assert llm.usage.cost("unknown-model") is None
+    assert llm.usage.cost_usd(llm.model) is None  # PLN never lands in the USD totals
+
+
+def test_pcss_without_key_exits(monkeypatch):
+    from rag.llm import make_llm
+
+    monkeypatch.delenv("PCSS_API_KEY", raising=False)
+    with pytest.raises(SystemExit, match="PCSS_API_KEY"):
+        make_llm("pcss")

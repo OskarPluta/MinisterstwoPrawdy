@@ -3,6 +3,7 @@
     GET  /api/health    database reachable, corpus version
     POST /api/verify    {text, now?} -> public view of rag.verify.CheckResult
     GET  /api/sources   source catalog for audit + corpus totals
+    GET  /api/stats     corpus totals + checks observability stats
 
 Verification logic stays in rag.verify.Verifier; this module only adapts HTTP to it.
 One database connection is shared and guarded by a lock (Retriever and the check log
@@ -24,7 +25,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from rag.config import load_env
-from rag.db import Connection, connect, corpus_totals, corpus_version, list_sources
+from rag.db import Connection, checks_stats, connect, corpus_totals, corpus_version, list_sources
 from rag.embed import DEFAULT_EMBEDDER, Embedder, get_embedder
 from rag.search import Retriever
 from rag.timeutil import WARSAW, parse_ts
@@ -33,7 +34,7 @@ from rag.verify import MSG_OUTAGE, CheckResult, Verifier
 log = logging.getLogger(__name__)
 
 # Fields that are internal diagnostics and never reach the user.
-_INTERNAL_RESULT = ("error",)
+_INTERNAL_RESULT = ("error", "usage")
 _INTERNAL_CLAIM = ("error", "shortlist_ids", "invented_ids", "live")  # live: lookup log, the note says it to the user
 # Hard cap on the request body; the Verifier answers `too_long` above its own limit.
 MAX_REQUEST_CHARS = 50_000
@@ -120,6 +121,12 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
         s = svc()
         with s.lock:
             return {"totals": corpus_totals(s.conn), "sources": list_sources(s.conn)}
+
+    @app.get("/api/stats")
+    def stats() -> dict[str, Any]:
+        s = svc()
+        with s.lock:
+            return {"corpus": corpus_totals(s.conn), "checks": checks_stats(s.conn)}
 
     return app
 
