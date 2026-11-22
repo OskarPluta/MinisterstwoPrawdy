@@ -9,7 +9,7 @@ Wskazówki dla agentów i nowych osób w zespole. Ogólny obraz: [`README.md`](R
 | `backend/crawler/` | Pakiet `crawler` (FaktBot): konfiguracja źródeł `sources.yaml`, pobieranie, ekstrakcja, zapis `data/crawl/`. Nie zna bazy ani RAG. |
 | `backend/rag/` | Pakiet `rag`: konwersja danych crawlera, ingest do PostgreSQL, wyszukiwanie, LLM, weryfikacja. Cały SQL jest w `src/rag/database/`. |
 | `backend/rag/tests/fixtures/` | Sztuczny korpus (domena `.test`) i przypadki ewaluacyjne. |
-| `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `checks/{id}` (usunięcie, udostępnienie), `shares/{id}`, `sources`). Tylko adaptuje HTTP do `rag.verify.Verifier`, bez własnej logiki. |
+| `backend/api/` | Pakiet `api`: FastAPI pod `/api` (`health`, `verify`, `checks/{id}` (usunięcie, udostępnienie), `shares/{id}`, `sources`, `export` dla analityka z tokenem). Tylko adaptuje HTTP do `rag.verify.Verifier`, bez własnej logiki. |
 | `backend/discord_bot/` | Pakiet `discord-bot`: kanał Discord (`/sprawdz`, `/zrodla`, wzmianki, DM). Adaptuje Discord do `rag.verify.Verifier` (lub `DISCORD_API_URL`), bez własnej logiki. |
 | `frontend/` | Interfejs WWW: Bun + React + TS. `server.ts` serwuje `src/index.html` i przekazuje `/api/*` do `API_URL`. Własne zależności (`bun install`), poza workspace uv. |
 | `scripts/` | `eval_retrieval.py` (bezpłatna), `eval_verify.py` (płatna, woła LLM). |
@@ -23,13 +23,13 @@ Wskazówki dla agentów i nowych osób w zespole. Ogólny obraz: [`README.md`](R
 ```bash
 uv sync                          # instaluje oba moduły (workspace uv)
 uv run pytest                    # wszystkie testy; DB z TEST_DATABASE_URL lub DATABASE_URL
-uv run rag --help                # ingest | reembed | stats | search | verify | purge | prune-checks | delete-check
+uv run rag --help                # ingest | reembed | stats | search | verify | purge | prune-checks | export | delete-check
 uv run crawler --help            # once | run | status | forget
 uv run api                       # API na 127.0.0.1:8000 (to samo `.env` co rag)
 uv run discord-bot --help        # kanał Discord (wymaga DISCORD_BOT_TOKEN w `.env`)
 
 cd frontend && bun install       # zależności frontu
-bun run dev | typecheck | build  # w frontend/
+bun run dev | typecheck | build | test  # w frontend/
 ```
 
 - Polecenia Pythona uruchamiaj z katalogu głównego, polecenia Bun z `frontend/`.
@@ -58,6 +58,7 @@ bun run dev | typecheck | build  # w frontend/
 - **Kanały mają limity żądań** (`rag/ratelimit.py`: na klienta na minutę i godzinę oraz dzienny limit procesu, `PRAWDOWID_RATE_*`). API ufa `X-Forwarded-For` tylko od lokalnego proxy (`PRAWDOWID_TRUSTED_PROXIES`), a proxy Bun ustawia ten nagłówek samo, nigdy nie przekazuje wartości z przeglądarki.
 - **Udostępniony wynik (`/wynik/<share_id>`) jest tylko do odczytu.** Pochodzi z `checks.result_json`, którego nic nie aktualizuje. `share_id` to osobny losowy klucz, a `check_id` (klucz do usunięcia) nigdy nie wychodzi przez udostępnienie. Link żyje tyle co zapis sprawdzenia.
 - **Tekst użytkownika jest maskowany w logu `checks`.** Treści źródeł nie są maskowane. Log ma retencję (`PRAWDOWID_CHECKS_RETENTION_DAYS`, domyślnie 30 dni) i można go usunąć po `check_id` (`DELETE /api/checks/{check_id}`).
+- **Eksport (CSV/JSON) wypuszcza tylko pola z listy dozwolonych** (`rag/export.py`, `frontend/src/export.ts`). Nigdy `check_id` (klucz usunięcia; w eksporcie analityka zastępuje go skrót `check_ref`), treści wiadomości użytkownika (`input_masked`) ani pól wewnętrznych. Każda komórka CSV zaczynająca się od `= + - @`, tabulatora lub CR dostaje apostrof. `GET /api/export` działa tylko z `PRAWDOWID_ADMIN_TOKEN`.
 - Czas w bazie jest w UTC (ISO 8601, porównywany w Pythonie), a użytkownikowi pokazywany w strefie Europe/Warsaw.
 - Testy nie korzystają z sieci ani z prawdziwego LLM. Korpus testowy używa domeny `.test`.
 
@@ -78,4 +79,5 @@ bun run dev | typecheck | build  # w frontend/
 | dodać dostawcę LLM | `rag/llm.py`: podklasa `_StructuredLLM` z `_parse` oraz `make_llm` | |
 | dodać moduł backendu (API, kanał np. komunikator) | nowy `backend/<nazwa>/` z `pyproject.toml` i `src/<nazwa>/`, dopisany do `dependencies` i `[tool.uv.sources]` w głównym `pyproject.toml` | Wołaj `rag.verify.Verifier(Retriever(conn, get_embedder(...)), make_llm()).verify(text)`, tak jak `rag/cli.py:verify`. Nie duplikuj logiki weryfikacji. API wystawiaj pod prefiksem `/api` (tak proxuje frontend). |
 | zmienić interfejs WWW | `frontend/src/` (strony w `pages/`, wynik w `result.tsx`, typy API w `api.ts`) | Komponenty i tokeny systemu Ministerstwo Prawdy są w `src/design/`. `tokens.css` i `components.css` to kopie 1:1, więc poprawki wpisuj do `extra.css`. Backend wołaj przez `fetch("/api/...")`. Sprawdź przez `bun run typecheck`. |
+| zmienić eksport CSV/JSON | `rag/export.py` (`CSV_COLUMNS`, `EXPORT_VERSION`, pola rekordu), `database/queries/checks.sql` (`export`), `frontend/src/export.ts` (pobieranie pojedynczego wyniku) | Kolumny i pola są lustrzane w obu plikach. Zmiana kształtu JSON wymaga podbicia `EXPORT_VERSION`. Testy: `test_export.py`, `test_api.py`, `cd frontend && bun test`. |
 | zmienić odpowiedź API | `backend/api/src/api/app.py` (`public_result`) i `frontend/src/api.ts` | Typy w `api.ts` odwzorowują dataclassy z `rag/verify.py`. Zmieniaj je razem. Testy: `backend/api/tests/test_api.py`. |

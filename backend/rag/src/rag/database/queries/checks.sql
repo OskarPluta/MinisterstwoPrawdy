@@ -27,3 +27,10 @@ UPDATE checks SET share_id = NULL, shared_at = NULL WHERE check_id = %(check_id)
 -- name: by_share
 SELECT share_id, created_at, shared_at, status, result_json, corpus_version, model
 FROM checks WHERE share_id = %(share_id)s;
+
+-- name: export
+-- Analyst export (rag/export.py): no input text and no keys (check_id is hashed in Python,
+-- share_id is reduced to a flag). Time filters and ordering run in Python (UTC ISO text).
+SELECT check_id, created_at, status, result_json, corpus_version, model, embedding_model,
+       duration_ms, share_id IS NOT NULL AS shared
+FROM checks;

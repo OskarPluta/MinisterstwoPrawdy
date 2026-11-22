@@ -3,6 +3,7 @@
     GET  /api/health    database reachable, corpus version
     POST /api/verify    {text, now?} -> public view of rag.verify.CheckResult
     GET  /api/sources   source catalog for audit + corpus totals
+    GET  /api/export    analyst export of the check log (CSV/JSON), bearer PRAWDOWID_ADMIN_TOKEN
 
 Verification logic stays in rag.verify.Verifier; this module only adapts HTTP to it.
 One database connection is shared and guarded by a lock (Retriever and the check log
@@ -11,6 +12,7 @@ use it), so checks run one at a time: enough for a demo, not for real traffic.
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import threading
@@ -20,9 +22,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi import Path as PathParam
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from rag.config import load_env
@@ -37,6 +39,7 @@ from rag.db import (
     shared_check,
     unshare_check,
 )
+from rag import export as export_mod
 from rag.ratelimit import RateLimiter
 from rag.embed import DEFAULT_EMBEDDER, Embedder, get_embedder
 from rag.search import Retriever
@@ -55,6 +58,17 @@ SHARE_ID_PATTERN = r"^[A-Za-z0-9_-]{16}$"  # secrets.token_urlsafe(12)
 DEFAULT_TRUSTED_PROXIES = "127.0.0.1,::1"
 # Hard cap on the request body; the Verifier answers `too_long` above its own limit.
 MAX_REQUEST_CHARS = 50_000
+# The analyst export is off unless PRAWDOWID_ADMIN_TOKEN holds at least this many characters.
+MIN_ADMIN_TOKEN_CHARS = 16
+
+
+def admin_token_from_env() -> str | None:
+    token = (os.environ.get("PRAWDOWID_ADMIN_TOKEN") or "").strip()
+    if token and len(token) < MIN_ADMIN_TOKEN_CHARS:
+        log.warning("PRAWDOWID_ADMIN_TOKEN is shorter than %d characters; /api/export stays off",
+                    MIN_ADMIN_TOKEN_CHARS)
+        return None
+    return token or None
 
 
 class VerifyRequest(BaseModel):
@@ -91,6 +105,8 @@ class Services:
         p.strip() for p in (os.environ.get("PRAWDOWID_TRUSTED_PROXIES") or DEFAULT_TRUSTED_PROXIES).split(",")
         if p.strip()
     ))
+    # Bearer token of GET /api/export; None: the endpoint does not exist (404).
+    admin_token: str | None = field(default_factory=admin_token_from_env)
     _verifier: Verifier | None = None
 
     def verifier(self) -> Verifier:
@@ -213,6 +229,45 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
                 "expires_at": expires(row["created_at"]), "result": result}
         # Shared pages are for the people given the link, not for search engines.
         return JSONResponse(body, headers={"X-Robots-Tag": "noindex", "Cache-Control": "no-store"})
+
+    @app.get("/api/export", include_in_schema=False)
+    def export(
+        request: Request,
+        fmt: str = Query("json", alias="format", pattern="^(json|csv)$"),
+        since: str | None = Query(None, description="ISO 8601, inclusive; no offset = Europe/Warsaw"),
+        until: str | None = Query(None, description="ISO 8601, exclusive; no offset = Europe/Warsaw"),
+        status: list[str] = Query([], description="Check status; repeatable or comma-separated"),
+        verdict: list[str] = Query([], description="Keep only claims with this verdict; repeatable or comma-separated"),
+    ) -> Response:
+        """Analyst export of the check log (rag/export.py): masked, without the user's message and
+        without deletion keys. Only for the holder of PRAWDOWID_ADMIN_TOKEN (Authorization: Bearer);
+        without the variable the route answers 404, as if it did not exist."""
+        s = svc()
+        if not s.admin_token:
+            raise HTTPException(404, "Not Found")
+        limit(s.write_limiter, request)  # failed attempts count too
+        scheme, _, given = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not hmac.compare_digest(
+            given.strip().encode("utf-8"), s.admin_token.encode("utf-8")
+        ):
+            raise HTTPException(401, "Wymagany token administratora.", headers={"WWW-Authenticate": "Bearer"})
+        try:
+            filters = export_mod.ExportFilters.parse(since, until, status, verdict)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        with s.lock:
+            records = export_mod.load(s.conn, filters)
+        if fmt == "csv":
+            body, media = export_mod.to_csv(records), "text/csv; charset=utf-8"
+        else:
+            body, media = export_mod.to_json(records, filters), "application/json; charset=utf-8"
+        log.info("analyst export: %d checks, format %s", len(records), fmt)
+        return Response(body.encode("utf-8"), media_type=media, headers={
+            "Content-Disposition": f'attachment; filename="{export_mod.filename(fmt)}"',
+            "Cache-Control": "no-store",
+            "X-Robots-Tag": "noindex",
+            "X-Content-Type-Options": "nosniff",
+        })
 
     @app.get("/api/sources")
     def sources() -> dict[str, Any]:

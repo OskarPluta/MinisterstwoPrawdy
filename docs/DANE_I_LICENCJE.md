@@ -11,7 +11,7 @@ Dokument opisuje stan na 2026-11-22. Warunki źródeł odczytano tego dnia ze st
 | `data/crawl/` (poza git) | Bieżące przebiegi crawlera: `documents.jsonl` z wersjami, `state.json`, `crawl_log.jsonl`. | Tak, oprócz fact-checków Google (same metadane). | Dopóki źródło jest w `sources.yaml` i nie trafiło do `removed.yaml`. | Konto systemowe, na którym działa crawler. Brak usługi sieciowej. |
 | PostgreSQL `evidence`, `passages` | Rekordy z wersjami, fragmenty do cytowania, wektory. | Tak, w podziale na fragmenty. | Jak `data/crawl/`. Starsze wersje zostają do śledzenia cytatów. | Baza słucha tylko na `127.0.0.1` (`docker-compose.yml`), hasło w `.env` (poza git). |
 | PostgreSQL `sources` | Katalog źródeł z licencją (`license`, `terms_url`, `attribution`). | Nie | Jak wyżej. | Publiczny przez `GET /api/sources` i stronę „Źródła”. |
-| PostgreSQL `checks` | Log sprawdzeń: zamaskowany tekst użytkownika i wynik z cytatami. | Nie (cytaty mają ≤ 400 znaków) | **30 dni** (`PRAWDOWID_CHECKS_RETENTION_DAYS`, `0` wyłącza log). Usuwanie automatyczne, najwyżej raz na godzinę. | Autor sprawdzenia: usunięcie po `check_id`. Osoby z linkiem: odczyt wyniku, jeśli autor go udostępnił (`/wynik/<share_id>`). |
+| PostgreSQL `checks` | Log sprawdzeń: zamaskowany tekst użytkownika i wynik z cytatami. | Nie (cytaty mają ≤ 400 znaków) | **30 dni** (`PRAWDOWID_CHECKS_RETENTION_DAYS`, `0` wyłącza log). Usuwanie automatyczne, najwyżej raz na godzinę. | Autor sprawdzenia: usunięcie po `check_id`. Osoby z linkiem: odczyt wyniku, jeśli autor go udostępnił (`/wynik/<share_id>`). Administrator (token `PRAWDOWID_ADMIN_TOKEN`, konto systemowe): eksport CSV/JSON bez treści wiadomości i bez `check_id`. |
 | Wyszukiwanie na żywo (`rag/live.py`) | Artykuły gov.pl, sprawy i artykuły EUvsDisinfo oraz ClaimReview, pobrane w trakcie sprawdzenia. | Tak (gov.pl, EUvsDisinfo) | Jak `evidence`. Źródła `live-*` też podlegają `removed.yaml` i `rag purge`. | Jak `evidence`. |
 
 API nie ma endpointu zwracającego cały dokument. Użytkownik widzi tylko cytowane fragmenty (≤ 400 znaków) z linkiem do oryginału.
@@ -51,6 +51,9 @@ Reguły są w [`backend/crawler/sources.yaml`](../backend/crawler/sources.yaml) 
 - Limity żądań: API i bot przyjmują od jednego klienta 5 sprawdzeń na minutę i 30 na godzinę, a cały proces najwyżej 1000 na dobę (`PRAWDOWID_RATE_*`). Nadmiar dostaje 429 z komunikatem.
 - Udostępnienie wyniku: `POST /api/checks/{check_id}/share` tworzy osobny losowy `share_id`. Strona `/wynik/<share_id>` pokazuje zamaskowany wynik z logu, tylko do odczytu i z `noindex`. Link przestaje działać po wyłączeniu udostępniania, usunięciu zapisu albo po upływie retencji.
 - Usunięcie zapisu sprawdzenia: `DELETE /api/checks/{check_id}`. `check_id` to losowy UUID4 zwracany tylko autorowi sprawdzenia, więc nikt inny go nie zna. Innych operacji zapisu API nie udostępnia.
+- Eksport dla analityka (`GET /api/export`, `uv run rag export`): tylko dla kogoś, kto zna `PRAWDOWID_ADMIN_TOKEN` (nagłówek `Authorization: Bearer`, porównanie w stałym czasie, co najmniej 16 znaków) albo ma dostęp do bazy na koncie systemowym. Bez tej zmiennej endpoint odpowiada 404. Żądania, także nieudane, liczy ten sam limit co zapisy (20 na minutę). Eksport zawiera tylko dane już zamaskowane: twierdzenia, werdykty, siłę dowodów, cytaty (≤ 400 znaków) z linkami, model i wersję korpusu. Nie zawiera treści wiadomości użytkownika ani `check_id`, który jest kluczem usunięcia. Zamiast niego jest `check_ref`, czyli skrót SHA-256, z którego nie da się odtworzyć klucza. Udostępnienie widać tylko jako flagę `shared`, bez `share_id`.
+- Wyeksportowany plik żyje poza retencją bazy. Odbiorca odpowiada za usunięcie go po 30 dniach albo po wniosku (wiersz znajdzie po `check_ref`, który właściciel `check_id` może policzyć: `rag.export.check_ref`). Cytaty zachowują licencje źródeł (`GET /api/sources`), w tym wymagane oznaczenia (`attribution` w JSON).
+- Przyciski „Pobierz JSON” i „Pobierz CSV” pod wynikiem budują plik w przeglądarce z wyświetlonego wyniku. Serwer nic nie wydaje, a plik nie zawiera `check_id`.
 - `data/crawl/` i `.env` są w `.gitignore`. Do repozytorium trafia tylko `data/snapshot/`.
 
 ## Procedura usunięcia
@@ -69,6 +72,7 @@ Doraźnie, bez rejestru: `uv run rag purge --url <adres> --source <id>`. Bez wpi
 ### Wniosek użytkownika
 
 - W interfejsie WWW pod wynikiem jest przycisk „Usuń zapis tego sprawdzenia” (`DELETE /api/checks/{check_id}`).
+- Usunięcie zapisu nie sięga do plików wyeksportowanych wcześniej (patrz „Kontrola dostępu”).
 - Ręcznie: `uv run rag delete-check <check_id>`. Bez identyfikatora zapis zniknie sam po 30 dniach. Zapisu nie wiążemy z kontem, więc bez `check_id` nie wskażemy, który należy do kogo.
 
 ## Zmiany

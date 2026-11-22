@@ -215,3 +215,85 @@ def test_verify_rate_limit_per_client(client):
     svc.trusted_proxies = frozenset()  # untrusted peer: a forged X-Forwarded-For must not help
     assert post("198.51.100.8").status_code == 200
     assert post("198.51.100.9").status_code == 429, "header ignored, both count as the same peer"
+
+
+# Analyst export (GET /api/export, rag/export.py)
+
+ADMIN_TOKEN = "test-admin-token-0123456789"
+AUTH = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+
+
+def test_export_disabled_without_token(client):
+    client.app.state.svc.admin_token = None
+    assert client.get("/api/export").status_code == 404
+    assert client.get("/api/export", headers=AUTH).status_code == 404, "no token configured: no route at all"
+
+
+def test_export_short_token_keeps_it_disabled(monkeypatch):
+    from api.app import admin_token_from_env
+
+    monkeypatch.setenv("PRAWDOWID_ADMIN_TOKEN", "krotki")
+    assert admin_token_from_env() is None
+    monkeypatch.setenv("PRAWDOWID_ADMIN_TOKEN", ADMIN_TOKEN)
+    assert admin_token_from_env() == ADMIN_TOKEN
+    monkeypatch.delenv("PRAWDOWID_ADMIN_TOKEN")
+    assert admin_token_from_env() is None
+
+
+def test_export_requires_the_bearer_token(client):
+    client.app.state.svc.admin_token = ADMIN_TOKEN
+    r = client.get("/api/export")
+    assert r.status_code == 401 and r.headers["www-authenticate"] == "Bearer"
+    assert client.get("/api/export", headers={"Authorization": "Bearer zly-token"}).status_code == 401
+    assert client.get("/api/export", headers={"Authorization": ADMIN_TOKEN}).status_code == 401, "scheme required"
+    assert client.get("/api/export", params={"token": ADMIN_TOKEN}).status_code == 401, "never in the URL"
+
+
+def test_export_json(client):
+    client.app.state.svc.admin_token = ADMIN_TOKEN
+    check_id = client.post("/api/verify", json=QUESTION).json()["check_id"]
+    r = client.get("/api/export", params={"format": "json"}, headers=AUTH)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/json; charset=utf-8"
+    assert r.headers["content-disposition"].startswith('attachment; filename="prawdowid-export-20')
+    assert r.headers["content-disposition"].endswith('.json"')
+    assert r.headers["x-robots-tag"] == "noindex" and r.headers["cache-control"] == "no-store"
+    doc = r.json()
+    assert doc["format"] == "prawdowid-export" and doc["version"] == 1 and doc["count"] == 1
+    (check,) = doc["checks"]
+    assert check["status"] == "ok" and check["model"] == "fake" and check["claims"][0]["verdict"] == "true"
+    assert check_id not in r.text, "the deletion key never leaves through the export"
+    for internal in ("shortlist_ids", "invented_ids", "passage_id", "input_masked"):
+        assert internal not in r.text
+
+
+def test_export_csv_and_filters(client):
+    client.app.state.svc.admin_token = ADMIN_TOKEN
+    client.post("/api/verify", json=QUESTION)
+    r = client.get("/api/export", params={"format": "csv"}, headers=AUTH)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "text/csv; charset=utf-8"
+    assert r.headers["content-disposition"].endswith('.csv"') and r.headers["x-robots-tag"] == "noindex"
+    text = r.content.decode("utf-8")
+    assert text.startswith("﻿check_ref,checked_at_warsaw,checked_at_utc,status,")
+    lines = text.strip().split("\r\n")
+    assert len(lines) == 2 and ",true,potwierdzone," in lines[1]
+
+    assert client.get("/api/export", params={"format": "csv", "verdict": "false"}, headers=AUTH).text.count("\r\n") == 1
+    assert client.get("/api/export", params={"since": "2999-01-01"}, headers=AUTH).json()["count"] == 0
+    assert client.get("/api/export", params={"status": "ok"}, headers=AUTH).json()["count"] == 1
+    assert client.get("/api/export", params={"since": "wczoraj"}, headers=AUTH).status_code == 422
+    assert client.get("/api/export", params={"verdict": "maybe"}, headers=AUTH).status_code == 422
+    assert client.get("/api/export", params={"format": "xml"}, headers=AUTH).status_code == 422
+
+
+def test_export_is_rate_limited(client):
+    from rag.ratelimit import RateLimiter
+
+    svc = client.app.state.svc
+    svc.admin_token = ADMIN_TOKEN
+    svc.write_limiter = RateLimiter(per_minute=2, per_hour=0, per_day_total=0)
+    assert client.get("/api/export", headers={"Authorization": "Bearer zgaduje"}).status_code == 401
+    assert client.get("/api/export", headers=AUTH).status_code == 200
+    r = client.get("/api/export", headers=AUTH)
+    assert r.status_code == 429 and int(r.headers["retry-after"]) > 0, "failed guesses count toward the limit"

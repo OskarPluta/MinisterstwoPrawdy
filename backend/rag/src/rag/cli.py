@@ -1,4 +1,4 @@
-"""rag ingest | reembed | stats | search | verify | purge | prune-checks | delete-check"""
+"""rag ingest | reembed | stats | search | verify | purge | prune-checks | export | delete-check"""
 
 from __future__ import annotations
 
@@ -172,6 +172,37 @@ def prune_checks_cmd(
     keep = checks_retention_days() if days is None else max(0, days)
     n = prune_checks(connect(db), datetime.now(timezone.utc) - timedelta(days=keep))
     typer.echo(f"deleted {n} checks older than {keep} days")
+
+
+@app.command()
+def export(
+    fmt: str = typer.Option("json", "--format", help="json | csv"),
+    since: str | None = typer.Option(None, help="From this time, inclusive (ISO 8601; no offset = Europe/Warsaw)"),
+    until: str | None = typer.Option(None, help="Before this time, exclusive (ISO 8601; no offset = Europe/Warsaw)"),
+    status: list[str] = typer.Option([], "--status", help="ok | needs_clarification | out_of_scope | too_long | error (repeatable)"),
+    verdict: list[str] = typer.Option([], "--verdict", help="Keep only claims with this verdict, e.g. false (repeatable)"),
+    out: Path | None = typer.Option(None, "--out", help="Output file (default: stdout)"),
+    bom: bool = typer.Option(True, "--bom/--no-bom", help="CSV: UTF-8 BOM so spreadsheets read Polish letters (--no-bom for pipes and tools)"),
+    db: str | None = typer.Option(None, "--database-url", help=DB_HELP),
+):
+    """Analyst export of the check log (masked; no user message, no deletion keys). See rag/export.py."""
+    from . import export as ex
+
+    if fmt not in ("json", "csv"):
+        raise typer.BadParameter("expected json or csv", param_hint="--format")
+    try:
+        filters = ex.ExportFilters.parse(since, until, status, verdict)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from None
+    records = ex.load(connect(db), filters)
+    body = ex.to_json(records, filters) if fmt == "json" else ex.to_csv(records, bom=bom)
+    if out is None:
+        typer.echo(body, nl=False)
+        return
+    # newline="": the CSV writer already ends rows with CRLF (RFC 4180).
+    with out.open("w", encoding="utf-8", newline="") as f:
+        f.write(body)
+    typer.echo(f"exported {len(records)} checks to {out}", err=True)
 
 
 @app.command("delete-check")

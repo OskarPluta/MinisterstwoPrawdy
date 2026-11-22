@@ -17,6 +17,7 @@ import {
 } from "./api";
 import { Button, Notice, StatusPanel, TextField, type Tone } from "./design/components";
 import { CitationList } from "./design/extra";
+import { downloadText, exportFilename, resultAsCsv, resultAsJson } from "./export";
 
 /** Non-ok statuses: one Notice; the form stays filled in so the person can fix the input. */
 export const STATUS_NOTICE: Record<Exclude<CheckStatus, "ok">, { tone: Tone; title: string }> = {
@@ -223,10 +224,23 @@ function ShareBox({ checkId, erased }: { checkId: string; erased: boolean }) {
   );
 }
 
-/** `readOnly`: a shared result (/wynik/<id>) – no reset, delete or share controls. */
-export function ResultView({ res, onReset, readOnly = false }: { res: CheckResult; onReset?: () => void; readOnly?: boolean }) {
-  const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
+/** `readOnly`: a shared result (/wynik/<id>) – no reset, delete or share controls.
+ *  `checkedAt`: UTC ISO time of the check for the downloaded file (default: when the result was shown). */
+export function ResultView({
+  res,
+  onReset,
+  readOnly = false,
+  checkedAt,
+}: {
+  res: CheckResult;
+  onReset?: () => void;
+  readOnly?: boolean;
+  checkedAt?: string | null;
+}) {
+  // One status line for copy and download, announced by screen readers.
+  const [actionState, setActionState] = useState("");
   const [erase, setErase] = useState<Async>({ kind: "idle" });
+  const [shownAt] = useState(() => new Date().toISOString());
 
   async function eraseLog() {
     if (erase.kind === "busy" || erase.kind === "done") return;
@@ -242,9 +256,22 @@ export function ResultView({ res, onReset, readOnly = false }: { res: CheckResul
   async function copy() {
     try {
       await navigator.clipboard.writeText(resultAsText(res));
-      setCopied("ok");
+      setActionState("Skopiowano wynik do schowka.");
     } catch {
-      setCopied("fail");
+      setActionState("Nie udało się skopiować. Zaznacz tekst ręcznie.");
+    }
+  }
+
+  /** Built from the displayed result in the browser; the check_id (deletion key) is never written. */
+  function download(ext: "json" | "csv") {
+    const ctx = { checkedAt: checkedAt ?? shownAt, shared: readOnly ? true : null };
+    const name = exportFilename(ext);
+    try {
+      if (ext === "json") downloadText(name, resultAsJson(res, ctx), "application/json;charset=utf-8");
+      else downloadText(name, resultAsCsv(res, ctx), "text/csv;charset=utf-8");
+      setActionState(`Pobrano plik ${name}.`);
+    } catch {
+      setActionState("Nie udało się zapisać pliku. Skopiuj wynik do schowka.");
     }
   }
 
@@ -265,6 +292,12 @@ export function ResultView({ res, onReset, readOnly = false }: { res: CheckResul
         <Button variant="secondary" icon="file-text" iconPosition="start" onClick={copy}>
           Kopiuj wynik
         </Button>
+        <Button variant="secondary" icon="download" iconPosition="start" onClick={() => download("json")}>
+          Pobierz JSON
+        </Button>
+        <Button variant="secondary" icon="download" iconPosition="start" onClick={() => download("csv")}>
+          Pobierz CSV
+        </Button>
         {onReset ? (
           <Button variant="link" onClick={onReset}>
             Sprawdź inną wiadomość
@@ -276,7 +309,7 @@ export function ResultView({ res, onReset, readOnly = false }: { res: CheckResul
         )}
       </div>
       <p className="app-copy-state" role="status">
-        {copied === "ok" ? "Skopiowano wynik do schowka." : copied === "fail" ? "Nie udało się skopiować. Zaznacz tekst ręcznie." : ""}
+        {actionState}
       </p>
       {owner && <ShareBox checkId={res.check_id} erased={erase.kind === "done"} />}
       {owner && (

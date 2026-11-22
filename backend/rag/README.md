@@ -60,6 +60,7 @@ Wzorcowy przykład wszystkich rodzajów rekordów: [`tests/fixtures/fake_corpus.
 - Rekordy i źródła z `backend/crawler/removed.yaml` są pomijane przy każdym `ingest_corpus` (licznik `removed`).
 - `rag purge` (bez argumentów stosuje `removed.yaml`, albo `--url`/`--source`) kasuje w jednej transakcji wszystkie wersje rekordów, ich fragmenty, wiersze źródeł i logi `checks` cytujące usunięte adresy.
 - Log `checks`: `Verifier` usuwa wpisy starsze niż `PRAWDOWID_CHECKS_RETENTION_DAYS` (domyślnie 30, `0` wyłącza log) najwyżej raz na godzinę. Ręcznie: `rag prune-checks`, `rag delete-check <id>`, w API `DELETE /api/checks/{id}`.
+- Eksport logu dla analityka: `rag export --format csv|json [--since] [--until] [--status] [--verdict] [--out]` (`rag/export.py`; w API `GET /api/export` z tokenem `PRAWDOWID_ADMIN_TOKEN`). Bez treści wiadomości, `check_id` zastąpiony skrótem `check_ref`, komórki CSV zabezpieczone przed formułami.
 - Opis dla jury i zespołu: [`docs/DANE_I_LICENCJE.md`](../../docs/DANE_I_LICENCJE.md).
 
 ## Konwencje SQL

@@ -57,7 +57,7 @@ export function SharedPage({ shareId }: { shareId: string }) {
             {state.data.expires_at && <p>Link działa do {formatDate(state.data.expires_at)}.</p>}
             <p>Ocena dotyczy stanu źródeł z dnia sprawdzenia. Informacje mogły się od tego czasu zmienić.</p>
           </Notice>
-          <ResultView res={state.data.result} readOnly />
+          <ResultView res={state.data.result} readOnly checkedAt={state.data.checked_at} />
         </>
       )}
     </>

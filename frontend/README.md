@@ -7,6 +7,7 @@ cd frontend
 bun install
 bun run dev        # http://localhost:3000, hot reload
 bun run typecheck
+bun test           # testy eksportu (src/export.test.ts)
 bun run build      # statyczny zrzut do dist/
 bun run start      # serwer produkcyjny
 ```
@@ -47,6 +48,8 @@ Zasady z systemu, których pilnuje kod:
 
 Mapowanie odpowiedzi API na widok (ton, tytuł, komunikaty) jest w [`result.tsx`](src/result.tsx). Tekst modelu jest wyświetlany jako zwykły tekst. Linki pochodzą tylko z `citation.url` (z bazy).
 
+Pod wynikiem (także na `/wynik/<id>`) są przyciski „Pobierz JSON” i „Pobierz CSV”. Plik powstaje w przeglądarce z wyświetlonego wyniku (Blob, bez zapytania do serwera) w formacie eksportu analityka (`prawdowid-export` v1, te same kolumny CSV), ale bez `check_id`, modelu i wersji korpusu. Komórki CSV zaczynające się od `= + - @`, tabulatora lub CR dostają apostrof. Kod: [`export.ts`](src/export.ts), testy: `bun test`.
+
 ## Backend
 
 [`backend/api/`](../backend/api/) (FastAPI) woła `rag.verify.Verifier`. Uruchom z katalogu głównego: `uv run api`. Typy odpowiedzi są w [`src/api.ts`](src/api.ts) i odwzorowują dataclassy z `rag/verify.py`.
@@ -59,6 +62,7 @@ Mapowanie odpowiedzi API na widok (ton, tytuł, komunikaty) jest w [`result.tsx`
 | `GET /api/shares/{share_id}` | `{share_id, checked_at, shared_at, expires_at, result}`. `result.check_id` jest zawsze pusty. 404, gdy link wygasł lub został wyłączony. |
 | `DELETE /api/checks/{check_id}` | `{deleted, check_id}`; 404, gdy zapisu już nie ma. Przycisk „Usuń zapis tego sprawdzenia” pod wynikiem. |
 | `GET /api/sources` | `{totals, sources}`: katalog źródeł z licencją, stanem pobrania i liczbą rekordów |
+| `GET /api/export?format=csv\|json&since&until&status&verdict` | Eksport logu dla analityka (plik do pobrania). Tylko z `Authorization: Bearer <PRAWDOWID_ADMIN_TOKEN>`; bez tej zmiennej 404. Front z niego nie korzysta. |
 
 ## Znane braki
 
