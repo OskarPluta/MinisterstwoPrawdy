@@ -1,13 +1,16 @@
 """HTTP API for the web frontend. Routes live under /api (the frontend proxies /api/*).
 
-    GET  /api/health    database reachable, corpus version
-    POST /api/verify    {text, now?} -> public view of rag.verify.CheckResult
-    GET  /api/sources   source catalog for audit + corpus totals
-    GET  /api/stats     corpus totals + checks observability stats
+    GET  /api/health         database reachable, corpus version
+    POST /api/verify         {text, now?} -> public view of rag.verify.CheckResult;
+                             links in the text are read as attachments
+    POST /api/verify/upload  multipart: text?, now?, files (images, PDF; up to 3) -> same
+    GET  /api/sources        source catalog for audit + corpus totals
+    GET  /api/stats          corpus totals + checks observability stats
 
-Verification logic stays in rag.verify.Verifier; this module only adapts HTTP to it.
-One database connection is shared and guarded by a lock (Retriever and the check log
-use it), so checks run one at a time: enough for a demo, not for real traffic.
+Verification logic stays in rag.verify.Verifier and reading material in intake.Intake;
+this module only adapts HTTP to them. One database connection is shared and guarded by a
+lock (Retriever and the check log use it), so checks run one at a time: enough for a demo,
+not for real traffic. Fetching links and reading images run outside the lock.
 """
 
 from __future__ import annotations
@@ -21,9 +24,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from intake import Intake, Upload, make_intake
+from intake.core import MAX_FILE_BYTES, MAX_FILES
+from rag.attachments import Attachment
 from rag.config import load_env
 from rag.db import Connection, checks_stats, connect, corpus_totals, corpus_version, list_sources
 from rag.embed import DEFAULT_EMBEDDER, Embedder, get_embedder
@@ -36,6 +42,7 @@ log = logging.getLogger(__name__)
 # Fields that are internal diagnostics and never reach the user.
 _INTERNAL_RESULT = ("error", "usage")
 _INTERNAL_CLAIM = ("error", "shortlist_ids", "invented_ids", "live")  # live: lookup log, the note says it to the user
+_INTERNAL_INPUT = ("meta",)
 # Hard cap on the request body; the Verifier answers `too_long` above its own limit.
 MAX_REQUEST_CHARS = 50_000
 
@@ -52,6 +59,9 @@ def public_result(res: CheckResult) -> dict[str, Any]:
     for c in out["claims"]:
         for k in _INTERNAL_CLAIM:
             c.pop(k, None)
+    for i in out["inputs"]:
+        for k in _INTERNAL_INPUT:
+            i.pop(k, None)
     return out
 
 
@@ -60,6 +70,7 @@ class Services:
     conn: Connection
     embedder: Embedder
     llm_factory: Callable[[], Any]
+    intake: Intake = field(default_factory=lambda: Intake(None))
     owns_conn: bool = True  # False when the caller (a test) closes the connection itself
     lock: threading.Lock = field(default_factory=threading.Lock)
     _verifier: Verifier | None = None
@@ -75,7 +86,7 @@ def _default_services() -> Services:
 
     load_env()
     embedder = get_embedder(os.environ.get("PRAWDOWID_EMBEDDER") or DEFAULT_EMBEDDER)
-    return Services(conn=connect(), embedder=embedder, llm_factory=make_llm)
+    return Services(conn=connect(), embedder=embedder, llm_factory=make_llm, intake=make_intake())
 
 
 def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
@@ -97,13 +108,15 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
         with s.lock:
             return {"status": "ok", "corpus_version": corpus_version(s.conn)}
 
-    @app.post("/api/verify")
-    def verify(req: VerifyRequest) -> dict[str, Any]:
-        now: datetime | None = None
-        if req.now:
-            now = parse_ts(req.now, naive_tz=WARSAW)
-            if now is None:
-                raise HTTPException(422, "now: oczekiwano czasu w formacie ISO 8601")
+    def parse_now(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        now = parse_ts(value, naive_tz=WARSAW)
+        if now is None:
+            raise HTTPException(422, "now: oczekiwano czasu w formacie ISO 8601")
+        return now
+
+    def run_check(text: str, now: datetime | None, files: list[Upload]) -> dict[str, Any]:
         s = svc()
         with s.lock:
             try:
@@ -111,10 +124,41 @@ def create_app(services: Callable[[], Services] = _default_services) -> FastAPI:
             except (Exception, SystemExit) as e:  # make_llm exits when no API key is set
                 log.error("cannot create LLM client: %s", e)
                 raise HTTPException(503, MSG_OUTAGE) from None
-            res = verifier.verify(req.text, now)
+            domains = {src["publishing_domain"] for src in list_sources(s.conn)}
+        # Network and OCR without the database lock; the LLM client is thread-safe.
+        attachments: list[Attachment] = s.intake.collect(
+            text, files, transcriber=verifier.llm, known_domains=lambda: domains,
+        )
+        with s.lock:
+            res = verifier.verify(text, now, attachments)
         if res.error:
             log.warning("check %s: %s", res.check_id, res.error)
         return public_result(res)
+
+    @app.post("/api/verify")
+    def verify(req: VerifyRequest) -> dict[str, Any]:
+        return run_check(req.text, parse_now(req.now), [])
+
+    @app.post("/api/verify/upload")
+    def verify_upload(
+        text: str = Form(""), now: str | None = Form(None), files: list[UploadFile] = File(default=[]),
+    ) -> dict[str, Any]:
+        if len(text) > MAX_REQUEST_CHARS:
+            raise HTTPException(422, "text: wiadomość jest za długa")
+        files = [f for f in files if f.filename or f.size]
+        if len(files) > MAX_FILES:
+            raise HTTPException(422, f"Możesz dodać najwyżej {MAX_FILES} pliki.")
+        if not text.strip() and not files:
+            raise HTTPException(422, "Wpisz treść wiadomości albo dodaj plik.")
+        uploads = []
+        for f in files:
+            data = f.file.read(MAX_FILE_BYTES + 1)
+            if len(data) > MAX_FILE_BYTES:
+                raise HTTPException(413, f"Plik jest za duży (limit {MAX_FILE_BYTES // 1_000_000} MB).")
+            if not data:
+                raise HTTPException(422, "Jeden z plików jest pusty.")
+            uploads.append(Upload(f.filename or "plik", data))
+        return run_check(text, parse_now(now), uploads)
 
     @app.get("/api/sources")
     def sources() -> dict[str, Any]:

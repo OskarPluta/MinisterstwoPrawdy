@@ -1,44 +1,18 @@
 // Components the product needs that the design system does not ship. Built from the same tokens
-// and rules: square shapes, 1px hairlines, status always as icon + word, no coloured left border.
-import type { TextareaHTMLAttributes } from "react";
-import type { Citation, Role, Source } from "../api";
+// and rules: 1px hairlines, status always as icon + word, no coloured left border.
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
+import type { Citation, InputSummary, Role, Source } from "../api";
 import { formatDate } from "../api";
-import { cx, FieldMessages, Icon, useFieldIds, type IconName } from "./components";
-
-/** Multi-line TextField: same label, hint and error wiring, plus a character counter. */
-export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  label: string;
-  hint?: string;
-  error?: string;
-  /** Shows "n / max znaków" under the field; does not block typing (validate on submit). */
-  maxChars?: number;
-}
-export function TextArea({ label, hint, error, maxChars, className, id, value, ...rest }: TextAreaProps) {
-  const { fid, hintId, errId, describedBy } = useFieldIds(id, hint, error);
-  const count = typeof value === "string" ? value.length : 0;
-  const counterId = `${fid}-count`;
-  return (
-    <div className={cx("mp-field", error && "mp-field-invalid", className)}>
-      <label className="mp-field-label" htmlFor={fid}>
-        {label}
-      </label>
-      <FieldMessages hint={hint} error={error} hintId={hintId} errId={errId} />
-      <textarea
-        className="mp-field-input mp-textarea"
-        id={fid}
-        value={value}
-        aria-describedby={[describedBy, maxChars ? counterId : null].filter(Boolean).join(" ") || undefined}
-        aria-invalid={error ? true : undefined}
-        {...rest}
-      />
-      {maxChars !== undefined && (
-        <span className={cx("mp-field-hint mp-counter", count > maxChars && "mp-counter-over")} id={counterId}>
-          {count.toLocaleString("pl-PL")} / {maxChars.toLocaleString("pl-PL")} znaków
-        </span>
-      )}
-    </div>
-  );
-}
+import { cx, Icon, type IconName } from "./components";
 
 const ROLE: Record<Role, { word: string; icon: IconName; cls: string }> = {
   supports: { word: "potwierdza", icon: "circle-check", cls: "mp-role-supports" },
@@ -162,5 +136,282 @@ export function SourcesTable({ sources }: { sources: Source[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${Math.round(bytes / 1000)} kB`;
+  return `${(bytes / 1_000_000).toLocaleString("pl-PL", { maximumFractionDigits: 1 })} MB`;
+}
+
+/** Small preview so the person can confirm they attached the right picture. */
+function Thumb({ file }: { file: File }) {
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  if (!src)
+    return (
+      <span className="mp-chip-icon">
+        <Icon name="file-text" size={20} />
+      </span>
+    );
+  return <img className="mp-chip-thumb" src={src} alt="" onError={() => setSrc(undefined)} />;
+}
+
+export interface ComposerProps {
+  id: string;
+  /** Accessible name of the text box (visually hidden: the page heading says what to do). */
+  label: string;
+  placeholder: string;
+  /** Short help under the box. */
+  hint: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  /** The counter appears only near the limit; it does not block typing (validate on submit). */
+  maxChars: number;
+  files: File[];
+  accept: string;
+  /** The attach button is hidden when the file limit is reached. */
+  canAdd: boolean;
+  onAddFiles: (files: File[]) => void;
+  onRemoveFile: (index: number) => void;
+  busy: boolean;
+  submitLabel: string;
+}
+
+/** Message box: grows with the text, Enter submits the surrounding form (Shift+Enter is a new line).
+ *  Files can be attached with the button, pasted (Ctrl+V) or dropped onto the box. */
+export function Composer({
+  id,
+  label,
+  placeholder,
+  hint,
+  value,
+  onChange,
+  error,
+  maxChars,
+  files,
+  accept,
+  canAdd,
+  onAddFiles,
+  onRemoveFile,
+  busy,
+  submitLabel,
+}: ComposerProps) {
+  const area = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const hintId = `${id}-hint`;
+  const errId = `${id}-err`;
+  const countId = `${id}-count`;
+  const showCount = value.length > maxChars * 0.8;
+
+  // Height follows the content; CSS max-height caps it and the box scrolls from there.
+  const fit = useCallback(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+  useLayoutEffect(fit, [value, fit]);
+  useEffect(() => {
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [fit]);
+
+  function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // isComposing: Enter that confirms an IME candidate must not send.
+    if (e.key !== "Enter" || e.shiftKey || e.altKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
+  }
+
+  /** Ctrl+V of a screenshot. Text from Word or a web page also carries a picture of itself: keep only the text then. */
+  function onPaste(e: ClipboardEvent) {
+    const pasted = Array.from(e.clipboardData.files);
+    if (pasted.length && !e.clipboardData.types.includes("text/plain")) {
+      e.preventDefault();
+      onAddFiles(pasted);
+    }
+  }
+
+  function onDragOver(e: DragEvent) {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    setDragging(true);
+  }
+
+  function onDrop(e: DragEvent) {
+    setDragging(false);
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    onAddFiles(Array.from(e.dataTransfer.files));
+  }
+
+  return (
+    <div className="mp-composer-wrap">
+      <div
+        className={cx("mp-composer", error && "mp-composer-invalid", dragging && "mp-composer-drag")}
+        onPaste={onPaste}
+        onDragOver={onDragOver}
+        onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setDragging(false)}
+        onDrop={onDrop}
+        // A click on the box's padding or bar puts the cursor in the text, like in a chat window.
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget || (e.target as Element).classList.contains("mp-composer-bar")) {
+            e.preventDefault();
+            area.current?.focus();
+          }
+        }}
+      >
+        <label className="mp-sr" htmlFor={id}>
+          {label}
+        </label>
+        {files.length > 0 && (
+          <ul className="mp-chips" aria-label="Dodane pliki">
+            {files.map((f, i) => (
+              <li key={`${f.name}-${f.size}-${f.lastModified}`} className="mp-chip">
+                <Thumb file={f} />
+                <span className="mp-chip-name">{f.name}</span>
+                <span className="mp-chip-size">{formatSize(f.size)}</span>
+                <button type="button" className="mp-chip-x" onClick={() => onRemoveFile(i)} aria-label={`Usuń plik ${f.name}`}>
+                  <Icon name="x" size={18} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <textarea
+          ref={area}
+          id={id}
+          className="mp-composer-input"
+          rows={2}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          enterKeyHint="send"
+          aria-describedby={[hintId, error ? errId : null, showCount ? countId : null].filter(Boolean).join(" ")}
+          aria-invalid={error ? true : undefined}
+        />
+        <input
+          ref={picker}
+          type="file"
+          className="mp-sr"
+          tabIndex={-1}
+          aria-hidden="true"
+          multiple
+          accept={accept}
+          onChange={(e) => {
+            onAddFiles(Array.from(e.target.files ?? []));
+            e.target.value = ""; // the same file can be chosen again after removing it
+          }}
+        />
+        <div className="mp-composer-bar">
+          {canAdd && (
+            <button type="button" className="mp-composer-attach" onClick={() => picker.current?.click()}>
+              <Icon name="paperclip" size={20} />
+              <span>Dodaj plik</span>
+            </button>
+          )}
+          <span className={cx("mp-composer-count", value.length > maxChars && "mp-counter-over")} id={countId}>
+            {showCount && `${value.length.toLocaleString("pl-PL")} / ${maxChars.toLocaleString("pl-PL")}`}
+          </span>
+          <button type="submit" className="mp-btn mp-btn-primary mp-composer-send" aria-disabled={busy || undefined}>
+            <span>{submitLabel}</span>
+            <Icon name={busy ? "loader" : "arrow-right"} size={20} className={busy ? "mp-spin" : undefined} />
+          </button>
+        </div>
+      </div>
+      {error && (
+        <p className="mp-field-error mp-composer-error" id={errId}>
+          <Icon name="circle-x" size={18} />
+          <span className="mp-sr">Błąd: </span>
+          {error}
+        </p>
+      )}
+      <p className="mp-composer-hint" id={hintId}>
+        {hint}
+      </p>
+    </div>
+  );
+}
+
+/** What was read from each link, video, image or PDF, and what could not be done. Plain text only:
+ *  labels are user input (no links), `text` is OCR or page text. */
+export function MaterialList({ inputs, headingLevel = 3 }: { inputs: InputSummary[]; headingLevel?: 2 | 3 }) {
+  if (inputs.length === 0) return null;
+  const H = headingLevel === 2 ? "h2" : "h3";
+  return (
+    <section className="mp-material" aria-labelledby="material-t">
+      <H id="material-t" className="mp-material-title">
+        Co odczytaliśmy z przesłanego materiału
+      </H>
+      <p className="mp-material-lead">
+        Materiał to to, co sprawdzamy, a nie dowód. Ocenę opieramy tylko na źródłach z naszej bazy.
+      </p>
+      <ol className="mp-material-list">
+        {inputs.map((m) => (
+          <li key={m.id} className="mp-material-item">
+            <div className="mp-material-head">
+              <span className="mp-material-id" aria-hidden="true">
+                {m.id}
+              </span>
+              <div className="mp-material-meta">
+                <p className="mp-material-kind">
+                  <span className="mp-sr">Materiał {m.id}: </span>
+                  {m.kind_pl}
+                </p>
+                <p className="mp-material-label">{m.label}</p>
+                {m.date_label && <p className="mp-material-date">{m.date_label}</p>}
+              </div>
+              {m.readable ? (
+                <span className="mp-state mp-state-success">
+                  <Icon name="circle-check" size={18} />
+                  Odczytano
+                </span>
+              ) : (
+                <span className="mp-state mp-state-warning">
+                  <Icon name="triangle-alert" size={18} />
+                  Nie odczytano
+                </span>
+              )}
+            </div>
+            {m.notes.length > 0 && (
+              <ul className="mp-material-notes">
+                {m.notes.map((n, i) => (
+                  <li key={i}>
+                    <Icon name="info" size={18} />
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {m.limitations.length > 0 && (
+              <div className="mp-material-limits">
+                <p className="mp-material-limits-title">Ograniczenia</p>
+                <ul>
+                  {m.limitations.map((n, i) => (
+                    <li key={i}>{n}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {m.readable && (
+              <details className="mp-material-text">
+                <summary>Pokaż odczytany tekst</summary>
+                <pre>{m.text}</pre>
+              </details>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

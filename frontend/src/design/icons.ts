@@ -1,5 +1,6 @@
 // The 14 Lucide outline glyphs (ISC licence) from the Ministerstwo Prawdy design system,
 // copied from components/bundle.js: 24px grid, drawn in currentColor with a 2px stroke.
+// Added for the message composer (extra.tsx), same set and style: paperclip, x, arrow-right, loader.
 
 export type IconName =
   | "house"
@@ -15,7 +16,11 @@ export type IconName =
   | "file-text"
   | "calendar"
   | "log-in"
-  | "download";
+  | "download"
+  | "paperclip"
+  | "x"
+  | "arrow-right"
+  | "loader";
 
 type Part = readonly ["path" | "circle" | "rect", Readonly<Record<string, string>>];
 
@@ -86,5 +91,19 @@ export const ICONS: Record<IconName, readonly Part[]> = {
     ["path", {"d": "M12 15V3"}],
     ["path", {"d": "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"}],
     ["path", {"d": "m7 10 5 5 5-5"}],
+  ],
+  "paperclip": [
+    ["path", {"d": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"}],
+  ],
+  "x": [
+    ["path", {"d": "M18 6 6 18"}],
+    ["path", {"d": "m6 6 12 12"}],
+  ],
+  "arrow-right": [
+    ["path", {"d": "M5 12h14"}],
+    ["path", {"d": "m12 5 7 7-7 7"}],
+  ],
+  "loader": [
+    ["path", {"d": "M21 12a9 9 0 1 1-6.219-8.56"}],
   ],
 };

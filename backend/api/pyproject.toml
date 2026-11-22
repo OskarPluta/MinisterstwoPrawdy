@@ -1,10 +1,12 @@
 [project]
 name = "api"
 version = "0.1.0"
-description = "Prawdowid: HTTP API for the web frontend (wraps rag.verify.Verifier)"
+description = "Prawdowid: HTTP API for the web frontend (wraps intake + rag.verify.Verifier)"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
+    "intake",
+    "python-multipart>=0.0.9",
     "uvicorn>=0.30",
     "rag",
 ]

@@ -13,9 +13,11 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urlparse
 
+from . import attachments as att
 from . import live as live_mod
+from .attachments import Attachment, InputSummary
 from .db import corpus_version, record_check
-from .llm import LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape
+from .llm import LLM, Claim, ClaimVerdict, LLMRefusal, PassageLabel, _escape, build_attachments_xml
 from .search import Filters, Hit, Retriever
 from .timeutil import WARSAW, fmt_local, parse_ts, utcnow_iso
 
@@ -47,6 +49,10 @@ MSG_REFUSED = "Nie mogę przetworzyć tego zapytania."
 MSG_TOO_LONG = (
     f"Wiadomość jest za długa (limit {MAX_INPUT_CHARS} znaków). "
     "Wklej fragment z twierdzeniem, które chcesz sprawdzić."
+)
+MSG_UNREADABLE = (
+    "Nie udało się odczytać przesłanego materiału, więc nie ma czego sprawdzić. "
+    "Wklej jego treść albo prześlij zrzut ekranu."
 )
 NOTE_INJECTION = "Jedno ze źródeł zawierało instrukcję skierowaną do systemu; została zignorowana."
 MSG_OPINION = "To opinia lub ocena, a nie twierdzenie o faktach, więc nie da się jej zweryfikować źródłami."
@@ -104,6 +110,7 @@ class ClaimResult:
     # (set only when a debunk from DISINFO_SOURCE_TYPES is cited as `contradicts`).
     known_disinformation: bool = False
     strength: Strength | None = None  # None only for `error`
+    origin: str = "user"  # "user" or the id of the attachment (InputSummary.id) the claim comes from
     error: str | None = None  # internal detail, not shown to the user
     live: dict[str, Any] | None = None  # live lookup log (rag/live.py), internal
 
@@ -111,9 +118,10 @@ class ClaimResult:
 @dataclass
 class CheckResult:
     check_id: str
-    status: str  # ok | needs_clarification | out_of_scope | too_long | error
+    status: str  # ok | needs_clarification | out_of_scope | too_long | unreadable | error
     message: str | None
     claims: list[ClaimResult] = field(default_factory=list)
+    inputs: list[InputSummary] = field(default_factory=list)  # attachments, in id order
     injection_detected: bool = False
     duration_ms: int = 0
     error: str | None = None  # internal detail, not shown to the user
@@ -394,7 +402,21 @@ def _masked_result(res: CheckResult) -> dict[str, Any]:
         for k in ("claim", "explanation", "error"):
             if c[k]:
                 c[k] = mask(c[k])
+    for i in d["inputs"]:
+        # Retention: the log keeps a short masked excerpt and the hash, not the material itself.
+        i["label"] = mask(i["label"])
+        i["text"] = mask(i["text"][: att.LOG_EXCERPT_CHARS])
+        i["notes"] = [mask(n) for n in i["notes"]]
+        i["limitations"] = [mask(n) for n in i["limitations"]]
     return d
+
+
+def _masked_input(text: str, attachments: list[Attachment]) -> str:
+    out = mask(text[:MAX_INPUT_CHARS])
+    for a in attachments:
+        sha = a.meta.get("sha256", "")
+        out += f"\n[załącznik {a.id}: {a.kind}, {mask(a.label)}{', sha256 ' + sha if sha else ''}]"
+    return out
 
 
 class Verifier:
@@ -489,12 +511,23 @@ class Verifier:
                 "Nie udało się sprawdzić tego twierdzenia. Spróbuj ponownie później.", error=repr(e),
             )
 
-    def _run(self, res: CheckResult, text: str, now: datetime) -> None:
+    def _run(self, res: CheckResult, text: str, now: datetime, attachments: list[Attachment]) -> None:
         if len(text) > MAX_INPUT_CHARS:
             res.status, res.message = "too_long", MSG_TOO_LONG
             return
-        ext = self.llm.extract_claims(text, now)
-        res.injection_detected = ext.injection_detected
+        suspicious = False
+        for a in attachments:
+            if a.readable and (looks_like_instructions(a.text) or a.meta.get("contains_instructions")):
+                a.notes.append(att.NOTE_INSTRUCTIONS)
+                suspicious = True
+        res.inputs = [att.summary(a) for a in attachments]
+        readable = [a for a in attachments if a.readable]
+        if attachments and not readable and not _URL_RX.sub("", text).strip():  # only links, none readable
+            # Nothing to check: a technical limitation, never a verdict (scenario J).
+            res.status, res.message = "unreadable", MSG_UNREADABLE
+            return
+        ext = self.llm.extract_claims(text, now, build_attachments_xml(readable))
+        res.injection_detected = ext.injection_detected or suspicious
         if ext.status == "needs_clarification":
             res.status = "needs_clarification"
             res.message = ext.clarification_question or "Doprecyzuj, proszę, miejsce lub czas."
@@ -512,19 +545,32 @@ class Verifier:
             res.claims = list(pool.map(lambda c, h: self._check_isolated(c, h, now), claims, shortlists))
         if self.live:  # claims the corpus could not settle: look them up live in trusted sources (rag/live.py)
             res.claims = live_mod.live_pass(self, claims, res.claims, now)
+        # After the live pass: it replaces the results it re-checks, which would drop the origin.
+        by_id = {a.id: a for a in readable}
+        for claim, cr in zip(claims, res.claims):
+            source = by_id.get((claim.origin or "").strip())
+            if source is None:
+                continue
+            cr.origin = source.id
+            if note := att.old_material_note(source, now):
+                cr.notes.insert(0, note)
         failed = [c for c in res.claims if c.verdict == "error"]
         if len(failed) == len(res.claims):
             res.status, res.message, res.error = "error", MSG_OUTAGE, failed[0].error
 
-    def verify(self, text: str, now: datetime | None = None) -> CheckResult:
+    def verify(
+        self, text: str, now: datetime | None = None, attachments: list[Attachment] | None = None,
+    ) -> CheckResult:
+        """`attachments`: material the user forwarded, already read by the intake package."""
         now = now or datetime.now(WARSAW)
         now = (now if now.tzinfo else now.replace(tzinfo=WARSAW)).astimezone(WARSAW)
         t0 = time.monotonic()
         res = CheckResult(check_id=str(uuid.uuid4()), status="ok", message=None)
         llm_usage = getattr(self.llm, "usage", None)
         snap = llm_usage.snapshot() if hasattr(llm_usage, "snapshot") else None
+        atts = att.prepare(list(attachments or []))
         try:
-            self._run(res, text, now)
+            self._run(res, text, now, atts)
         except LLMRefusal as e:
             res.status, res.message, res.claims, res.error = "error", MSG_REFUSED, [], repr(e)
         except Exception as e:  # noqa: BLE001 - outage, network, schema failure: shown as an outage
@@ -545,7 +591,7 @@ class Verifier:
             record_check(conn, {
                 "check_id": res.check_id,
                 "created_at": utcnow_iso(),
-                "input_masked": mask(text[:MAX_INPUT_CHARS]),
+                "input_masked": _masked_input(text, atts),
                 "status": res.status,
                 "result_json": json.dumps(_masked_result(res), ensure_ascii=False),
                 "corpus_version": corpus_version(conn),
@@ -575,11 +621,25 @@ def _model_text(text: str) -> str:
     return _md(_URL_RX.sub("(adres usunięty)", text))
 
 
+def _render_inputs(res: CheckResult) -> list[str]:
+    out: list[str] = []
+    for i in res.inputs:
+        # Labels are user input (addresses included): no links outside citations.
+        head = f"**Materiał {i.id}:** {i.kind_pl}, {_model_text(i.label)}"
+        out.append(head + (f" · {i.date_label}" if i.date_label else ""))
+        out.extend(f"ℹ {_model_text(n)}" for n in i.notes)
+        out.extend(f"⚠ {_model_text(n)}" for n in i.limitations)
+    return out + ([""] if out else [])
+
+
 def render_markdown(res: CheckResult) -> str:
     if res.status != "ok":
-        return _model_text(res.message or "")
+        return "\n".join([_model_text(res.message or ""), *([""] + _render_inputs(res) if res.inputs else [])]).strip()
     out: list[str] = [_model_text(res.message)] if res.message else []
+    out.extend(_render_inputs(res))
     for c in res.claims:
+        if c.origin != "user":
+            out.append(f"_Z materiału {_md(c.origin)}_")
         out.append(f"**Twierdzenie:** {_model_text(c.claim)}")
         out.append(f"**Ocena:** {c.verdict_pl}")
         if c.strength:

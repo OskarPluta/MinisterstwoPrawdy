@@ -1,5 +1,17 @@
-/* Styles for design/extra.tsx and the utility-bar toggle. Only tokens from tokens.css; same rules as
-   components.css: flat, square, 1px hairlines, focus ring from .mp-focus, colour transitions only. */
+/* Styles for design/extra.tsx and the utility-bar toggle, plus product overrides of the system.
+   Only tokens from tokens.css; flat, 1px hairlines, short colour/shadow transitions. */
+
+/* Softer corners than the system's square look (product decision). Header, footer and page bands stay square. */
+:root { --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; }
+.mp-notice, .mp-status, .mp-material-item, .mp-table-wrap { border-radius: var(--radius-lg); }
+.mp-cite-quote, .mp-material-limits, .mp-material-text pre { border-radius: var(--radius-md); }
+.mp-material-id { border-radius: var(--radius-sm); }
+@media (max-width: 640px) { .mp-table tr { border-radius: var(--radius-lg); } }
+
+/* Soft focus for text entry (Composer): a blue border and a light glow instead of the black ring + yellow halo,
+   which is kept for keyboard focus on links and buttons. */
+:root, [data-theme="light"] { --focus-soft: rgba(10, 77, 158, 0.22); --danger-soft: rgba(179, 38, 30, 0.18); }
+[data-theme="contrast"] { --focus-soft: rgba(255, 255, 0, 0.45); --danger-soft: rgba(255, 255, 0, 0.45); }
 
 /* Utility bar: a toggle button that looks like the bar's links */
 .mp-utility-btn { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: var(--ink); cursor: pointer; text-decoration: none; }
@@ -13,16 +25,56 @@
 .mp-status.mp-tone-warning { border-color: var(--warning); }
 .mp-status.mp-tone-danger { border-color: var(--danger); }
 
-/* TextArea */
-.mp-textarea { height: auto; min-height: calc(28px * 6 + var(--space-3) * 2); padding: var(--space-3); line-height: 28px; resize: vertical; }
-.mp-counter { margin-top: 0; text-align: right; }
+/* Composer: the message box on the check page */
+.mp-composer { display: flex; flex-direction: column; background: var(--surface); border: 2px solid var(--border-strong); border-radius: var(--radius-lg);
+  cursor: text; transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease; }
+.mp-composer:hover { border-color: var(--ink-muted); }
+.mp-composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px var(--focus-soft); }
+.mp-composer-invalid, .mp-composer-invalid:hover { border-color: var(--danger); }
+.mp-composer-invalid:focus-within { border-color: var(--danger); box-shadow: 0 0 0 4px var(--danger-soft); }
+.mp-composer-drag, .mp-composer-drag:hover { border-color: var(--primary); border-style: dashed; background: var(--surface-tint); }
+.mp-composer-input { display: block; box-sizing: border-box; width: 100%; min-height: calc(28px * 2 + var(--space-4) + var(--space-2)); max-height: min(60vh, 480px);
+  margin: 0; padding: var(--space-4) var(--space-4) var(--space-2); border: 0; outline: none; background: transparent; color: var(--ink);
+  font: inherit; font-size: 18px; line-height: 28px; resize: none; overflow-y: auto; }
+.mp-composer-input::placeholder { color: var(--ink-muted); opacity: 1; }
+.mp-composer-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2); }
+.mp-composer-attach { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md);
+  background: none; color: var(--primary); font: inherit; font-size: 16px; line-height: 24px; font-weight: 600; cursor: pointer; transition: background-color .12s ease; }
+.mp-composer-attach:hover { background: var(--surface-tint); color: var(--primary-hover); }
+.mp-composer-count { flex: 1; text-align: right; font-size: 14px; line-height: 20px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.mp-composer-send { min-height: 44px; padding: var(--space-2) var(--space-5); border-radius: var(--radius-md); }
+.mp-composer-send[aria-disabled="true"], .mp-composer-send[aria-disabled="true"]:hover { opacity: 1; cursor: progress; background: var(--primary-hover); border-color: var(--primary-hover); }
+/* Inside the box, keyboard focus uses the same soft blue as the box itself. */
+.mp-composer-attach:focus-visible, .mp-composer .mp-btn:focus-visible, .mp-chip-x:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: none; }
+.mp-composer-error { margin: var(--space-2) 0 0; }
+.mp-composer-hint { margin: var(--space-2) 0 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .mp-counter-over { color: var(--danger); font-weight: 600; }
+
+/* Attached files, shown as chips at the top of the box */
+.mp-chips { list-style: none; margin: 0; padding: var(--space-3) var(--space-3) 0; display: flex; flex-wrap: wrap; gap: var(--space-2); cursor: default; }
+.mp-chip { display: flex; align-items: center; gap: var(--space-2); max-width: 100%; box-sizing: border-box; padding: var(--space-1) var(--space-1) var(--space-1) var(--space-1);
+  border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); font-size: 14px; line-height: 20px; }
+.mp-chip-thumb { flex: none; width: 36px; height: 36px; object-fit: cover; border-radius: var(--radius-sm); }
+.mp-chip-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-muted); }
+.mp-chip-name { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.mp-chip-size { flex: none; color: var(--ink-muted); white-space: nowrap; }
+.mp-chip-x { flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none;
+  color: var(--ink-muted); cursor: pointer; transition: background-color .12s ease, color .12s ease; }
+.mp-chip-x:hover { background: var(--border); color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) { .mp-chip { animation: mp-pop .18s ease-out both; } }
+@keyframes mp-pop { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@media (max-width: 480px) { .mp-composer-attach span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); } .mp-chip-name { max-width: 140px; } }
+
+/* Spinner for busy states; still for people who ask for less motion */
+.mp-spin { animation: mp-spin .9s linear infinite; }
+@keyframes mp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mp-spin { animation: none; } }
 
 /* CitationList */
 .mp-cites { margin-top: var(--space-5); }
 .mp-cites-title { margin: 0 0 var(--space-3); font-size: 18px; line-height: 26px; font-weight: 700; }
 .mp-cites-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
-.mp-cite { border: 1px solid var(--border); border-radius: var(--radius-0); padding: var(--space-4); background: var(--surface); }
+.mp-cite { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); background: var(--surface); }
 .mp-cite-head { display: flex; align-items: flex-start; gap: var(--space-3); }
 .mp-cite-n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: 14px; line-height: 28px; text-align: center; }
 .mp-cite-meta { flex: 1; min-width: 0; }
@@ -65,3 +117,29 @@
   .mp-table td > * { min-width: 0; overflow-wrap: anywhere; }
   .mp-state { white-space: normal; }
 }
+
+/* MaterialList */
+.mp-material { margin: 0 0 var(--space-5); }
+.mp-material-title { margin: 0 0 var(--space-2); font-size: 20px; line-height: 28px; font-weight: 700; }
+.mp-material-lead { margin: 0 0 var(--space-3); color: var(--ink-muted); font-size: 16px; line-height: 24px; }
+.mp-material-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.mp-material-item { border: 1px solid var(--border); padding: var(--space-4); background: var(--surface); }
+.mp-material-head { display: flex; align-items: flex-start; gap: var(--space-3); }
+.mp-material-id { flex: none; min-width: 28px; height: 28px; padding: 0 var(--space-1); box-sizing: border-box; border: 1px solid var(--border-strong); font-weight: 700; font-size: 14px; line-height: 26px; text-align: center; }
+.mp-material-meta { flex: 1; min-width: 0; }
+.mp-material-meta p { margin: 0; }
+.mp-material-kind { font-weight: 600; font-size: 16px; line-height: 24px; }
+.mp-material-label { font-size: 14px; line-height: 20px; color: var(--ink-muted); overflow-wrap: anywhere; }
+.mp-material-date { font-size: 14px; line-height: 20px; }
+.mp-material-notes { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-2); }
+.mp-material-notes li { display: flex; gap: var(--space-2); align-items: flex-start; font-size: 16px; line-height: 24px; }
+.mp-material-notes .mp-icon, .mp-material-notes svg { flex: none; margin-top: 3px; color: var(--info); }
+.mp-material-limits { margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--warning); background: var(--surface-muted); }
+.mp-material-limits-title { margin: 0 0 var(--space-1); font-weight: 700; display: flex; align-items: center; gap: var(--space-2); }
+.mp-material-limits ul { margin: 0; padding-left: var(--space-5); }
+.mp-material-limits li { font-size: 16px; line-height: 24px; }
+.mp-material-text { margin-top: var(--space-3); }
+.mp-material-text summary { cursor: pointer; color: var(--primary); font-weight: 600; text-decoration: underline; }
+.mp-material-text summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.mp-material-text pre { margin: var(--space-2) 0 0; padding: var(--space-3); max-height: 320px; overflow: auto; background: var(--surface-muted); border: 1px solid var(--border); font: inherit; font-size: 15px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .mp-material-head { flex-wrap: wrap; } .mp-material-meta { flex-basis: calc(100% - 28px - var(--space-3)); } .mp-material-head > .mp-state { margin-left: calc(28px + var(--space-3)); } }

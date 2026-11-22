@@ -58,7 +58,7 @@ class FakeLLM:
     def __init__(self, claim_text: str = "Na Wiśle w Sandomierzu obowiązuje ostrzeżenie hydrologiczne"):
         self.claim_text = claim_text
 
-    def extract_claims(self, text: str, now: datetime) -> ClaimExtraction:
+    def extract_claims(self, text: str, now: datetime, attachments_xml: str = "") -> ClaimExtraction:
         return ClaimExtraction(
             status="ok",
             clarification_question=None,

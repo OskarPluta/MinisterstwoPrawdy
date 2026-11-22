@@ -61,6 +61,29 @@ export function HowPage() {
         </p>
       </InfoSection>
 
+      <InfoSection title="Linki, zdjęcia i pliki PDF" id="material">
+        <ul>
+          <li>
+            Link pobieramy jeden raz, jak zwykła przeglądarka, i tylko wtedy, gdy strona na to pozwala. Nie obchodzimy zabezpieczeń ani
+            logowania. Jeśli strona nas nie wpuści, powiemy Ci o tym.
+          </li>
+          <li>Z filmów w serwisie YouTube odczytujemy tylko tytuł, kanał, opis i datę publikacji. Nie analizujemy samego nagrania.</li>
+          <li>
+            Tekst ze zdjęcia odczytuje model językowy u dostawcy usługi (poza Unią Europejską). Odczyt może zawierać błędy, dlatego
+            pokazujemy go obok wyniku. Przed wysłaniem usuwamy z obrazu metadane, w tym lokalizację.
+          </li>
+          <li>Nie sprawdzamy, czy zdjęcie było edytowane, i nie szukamy jego wcześniejszych wystąpień w internecie.</li>
+          <li>
+            Treść materiału to to, co sprawdzamy, a nie dowód. Ocenę zawsze opieramy na źródłach z naszej bazy. Domena strony nie
+            decyduje o ocenie.
+          </li>
+          <li>
+            Nie zapisujemy przesłanych plików ani pobranych stron. W dzienniku sprawdzeń zostaje skrót pliku (hash) i krótki fragment
+            odczytanego tekstu, z ukrytymi danymi osobowymi.
+          </li>
+        </ul>
+      </InfoSection>
+
       <InfoSection title="Deklaracja dostępności" id="dostepnosc">
         <p>
           Serwis można obsłużyć z klawiatury i czytnikiem ekranu. Oceny mają zawsze ikonę i słowo, a nie tylko kolor. W górnym pasku
