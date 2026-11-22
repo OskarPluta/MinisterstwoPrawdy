@@ -374,6 +374,38 @@ def test_json_api_pages_filter_details(tmp_path):
     assert "https://api.invalid/l/5" not in [u for u, _ in asked], "json_api: strona bez nowych rekordów kończy"
 
 
+def test_json_api_token_pagination(tmp_path):
+    """Jak Google Fact Check: nextPageToken → kolejna strona z ?pageToken=, klucz tylko w nagłówku."""
+    asked = []
+
+    class TokenFetcher:
+        def http_get(self, url, conditional=True, accept=None, private=None):
+            asked.append((url, conditional, private))
+            if "pageToken=T2" in url:
+                body = {"claims": [{"id": 3}]}  # ostatnia strona: bez nextPageToken
+            elif "pageToken=T1" in url:
+                body = {"claims": [{"id": 2}], "nextPageToken": "T2"}
+            else:
+                body = {"claims": [{"id": 1}], "nextPageToken": "T1"}
+            return Resp(url=url, final_url=url, status=200, text=json.dumps(body), headers={})
+
+        def commit_validators(self, resp):
+            pass
+
+    store = Store(tmp_path / "tok")
+    src = {"name": "t", "institution": "X", "urls": ["https://api.invalid/claims?q=pl&pageSize=1"],
+           "records_path": "claims", "id_field": "id", "next_token_path": "nextPageToken",
+           "token_param": "pageToken"}
+    run_json_api(Ctx(store=store, fetcher=TokenFetcher()), src, store.source_state("t"), Stats())
+    assert sorted(d["url"].split("#")[1] for d in docs(tmp_path / "tok")) == ["1", "2", "3"], "3 strony przez token"
+    assert [u for u, _, _ in asked][1] == "https://api.invalid/claims?q=pl&pageSize=1&pageToken=T1"
+    assert not any(c for _, c, _ in asked), "stronicowanie tokenem bez zapytań warunkowych"
+    stats = Stats()
+    asked.clear()
+    run_json_api(Ctx(store=store, fetcher=TokenFetcher()), {**src, "max_pages": 2}, store.source_state("t"), stats)
+    assert len(asked) == 2 and any("max_pages" in m for m in stats.messages), "max_pages ogranicza liczbę stron"
+
+
 def test_readonly_store_writes_nothing(tmp_path):
     ro_dir = tmp_path / "u3"
     ro_dir.mkdir()

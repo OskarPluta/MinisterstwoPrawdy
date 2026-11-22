@@ -79,8 +79,9 @@ Dodatkowe klucze `json_api` (przykłady: źródła `rso-*` i `gios-indeks-powiet
 | `require_fields` | Rekord bez któregoś z tych pól jest pomijany (`skipped`) |
 | `headers` | Dodatkowe nagłówki, np. `{X-Goog-Api-Key: "${GOOGLE_FACTCHECK_API_KEY}"}`. `${ZMIENNA}` pochodzi ze środowiska (brak zmiennej daje `error` źródła). Idą tylko do hosta źródła, nie po przekierowaniu na inny host. `User-Agent` jest zabroniony. Klucza nie wpisuj do `sources.yaml` ani do URL, bo URL trafia do danych |
 | `url_template` | Adres dokumentu z pól rekordu zamiast `endpoint#id`, np. `{claimReview[0].url}` (artykuł weryfikacji) |
+| `next_token_path`, `token_param`, `max_pages` | Stronicowanie tokenem: wartość spod `next_token_path` (np. `nextPageToken`) trafia do parametru `token_param` (np. `pageToken`) kolejnego zapytania. Koniec, gdy nie ma tokenu albo po `max_pages` (domyślnie 10) |
 
-Przy `page_template` lub `detail_url` zapytania są bezwarunkowe, bo 304 dla pierwszej strony nic nie mówi o reszcie.
+Przy `page_template`, `next_token_path` lub `detail_url` zapytania są bezwarunkowe, bo 304 dla pierwszej strony nic nie mówi o reszcie.
 Endpointy aplikacji JS najłatwiej znaleźć w narzędziach deweloperskich przeglądarki (zakładka Sieć, filtr Fetch/XHR).
 
 Lista kluczy jest w nagłówku `sources.yaml`, a wartości domyślne w `config.py`. Profil `x-govpl` to kotwica YAML; klucze wpisane w źródle nadpisują profil (łączenie płytkie).

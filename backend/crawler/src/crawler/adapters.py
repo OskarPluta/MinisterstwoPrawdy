@@ -467,6 +467,14 @@ def _dig(obj: Any, path: str | None) -> Any:
     return obj
 
 
+def _dig_opt(obj: Any, path: str) -> Any:
+    """Jak _dig, ale brak klucza/indeksu daje None (np. brak nextPageToken na ostatniej stronie)."""
+    try:
+        return _dig(obj, path)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
 def _records_of(data: Any, path: str | None) -> list:
     records = _dig(data, path)
     if isinstance(records, dict):
@@ -519,13 +527,32 @@ def _fetch_json_pages(ctx: Ctx, src: dict, stats: Stats) -> tuple[list, list] | 
     accept = src.get("accept") or "application/json"
     priv = _private_kw(src)
     page_tpl = src.get("page_template")
+    token_path = src.get("next_token_path")  # np. Google: nextPageToken → kolejna strona z ?pageToken=
     # Przy stronicowaniu i dociąganiu szczegółów 304 na liście nic nie mówi o całości – pobieramy zawsze.
-    conditional = not page_tpl and not src.get("detail_url")
+    conditional = not page_tpl and not token_path and not src.get("detail_url")
     resp = ctx.fetcher.http_get(endpoint, conditional=conditional, accept=accept, **priv)
     if resp.not_modified:
         return None
-    records = _records_of(json.loads(resp.text), src.get("records_path"))
+    data = json.loads(resp.text)
+    records = _records_of(data, src.get("records_path"))
     responses = [resp]
+    if token_path:
+        param = src.get("token_param") or "pageToken"
+        max_pages = int(src.get("max_pages", 10))
+        pages = 1
+        token = _dig_opt(data, token_path)
+        seen_tokens: set[str] = set()
+        while token and pages < max_pages and token not in seen_tokens:
+            seen_tokens.add(token)
+            p = urlsplit(endpoint)
+            q = [(k, v) for k, v in parse_qsl(p.query) if k != param] + [(param, str(token))]
+            data = json.loads(ctx.fetcher.http_get(urlunsplit((p.scheme, p.netloc, p.path, urlencode(q), "")),
+                                                   conditional=False, accept=accept, **priv).text)
+            records += _records_of(data, src.get("records_path"))
+            token = _dig_opt(data, token_path)
+            pages += 1
+        if token and pages >= max_pages:
+            stats.msg(f"osiągnięto max_pages={max_pages} – są dalsze strony")
     if page_tpl:
         first_len = len(records)
         page = int(src.get("page_start", 0)) + 1
