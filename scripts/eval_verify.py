@@ -71,7 +71,7 @@ def run(conn: Connection, args: argparse.Namespace) -> None:
         latencies.append(res.duration_ms)
         expected = expected_verdicts(c)
         if res.status != "ok":
-            got, cited_keys, notes = res.status, set(), []
+            got, cited_keys, notes, strength = res.status, set(), [], None
         else:
             cr = res.claims[0]  # cases are single-claim
             got = cr.verdict
@@ -79,6 +79,7 @@ def run(conn: Connection, args: argparse.Namespace) -> None:
             meta = passage_meta(conn, ids)
             cited_keys = {f"{m['source_id']}:{m['upstream_id']}" for m in meta.values()}
             notes = [n for cl in res.claims for n in cl.notes]
+            strength = cr.strength.level if cr.strength else None
         verdict_ok = got in expected
         must = set(c.get("must_cite") or [])
         cite_ok = (not must) or bool(must & cited_keys)
@@ -86,11 +87,12 @@ def run(conn: Connection, args: argparse.Namespace) -> None:
         rows.append({
             "id": c["id"], "tags": c["tags"], "expected": expected, "got": got,
             "verdict_ok": verdict_ok, "cite_ok": cite_ok, "note_ok": note_ok,
+            "strength": strength,
             "ms": res.duration_ms, "invented": [i for cl in res.claims for i in cl.invented_ids],
         })
         flag = "OK " if verdict_ok and cite_ok and note_ok else "XX "
         print(f"{flag}{c['id']:<4} expected={'/'.join(expected):<24} got={got:<20} "
-              f"cite={'ok' if cite_ok else 'MISS'} {res.duration_ms} ms")
+              f"cite={'ok' if cite_ok else 'MISS'} strength={strength or '-':<8} {res.duration_ms} ms")
         if args.verbose or not (verdict_ok and cite_ok):
             print("    " + render_markdown(res).replace("\n", "\n    "))
 

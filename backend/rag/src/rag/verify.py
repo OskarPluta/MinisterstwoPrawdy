@@ -79,6 +79,16 @@ class Citation:
 
 
 @dataclass
+class Strength:
+    """Strength of the basis for a verdict, computed by code from the kept citations
+    (assess_strength); `reasons` lists the explicit premises in Polish."""
+
+    level: str  # a STRENGTH_PL key
+    level_pl: str
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ClaimResult:
     claim: str
     verdict: str  # a VERDICT_PL key
@@ -93,6 +103,7 @@ class ClaimResult:
     # The claim repeats a narrative a fact-check database documents as disinformation
     # (set only when a debunk from DISINFO_SOURCE_TYPES is cited as `contradicts`).
     known_disinformation: bool = False
+    strength: Strength | None = None  # None only for `error`
     error: str | None = None  # internal detail, not shown to the user
     live: dict[str, Any] | None = None  # live lookup log (rag/live.py), internal
 
@@ -222,6 +233,120 @@ def _notes(claim: Claim, cited: list[Hit], shortlist: list[Hit], now: datetime) 
     return list(dict.fromkeys(notes))
 
 
+# ---------------------------------------------------------------------------------------
+# Strength of evidence: explicit premises, computed by code
+# ---------------------------------------------------------------------------------------
+
+STRENGTH_PL = {"strong": "silna", "moderate": "umiarkowana", "weak": "słaba", "none": "brak"}
+_LEVELS = ("none", "weak", "moderate", "strong")
+# Primary sources: the office, the measurement or the fact-check itself. Anything else
+# (media, portals) is secondary and alone cannot give more than a weak basis.
+PRIMARY_SOURCE_TYPES = {"official", "structured", "factcheck"}
+SOURCE_TYPE_PL = {
+    "official": "urzędowe",
+    "structured": "dane urzędowe (pomiary, ostrzeżenia)",
+    "factcheck": "fact-checking",
+    "secondary": "wtórne (media)",
+}
+_ROLE_ADJ = {"supports": "potwierdzające", "contradicts": "przeczące"}
+_MATCH_PL = {"strong": "pełna", "moderate": "częściowa", "weak": "słaba", "none": "brak"}
+
+
+def origin(h: Hit) -> str:
+    """Independence key: a reprint counts as its original's source, and texts of one source
+    count once."""
+    sf = h.meta["syndicated_from"]
+    return sf.split(":", 1)[0] if sf else h.meta["source_id"]
+
+
+def _date_of(h: Hit) -> str | None:
+    m = h.meta
+    return m["published_at"] or m["observed_at"] or m["valid_from"]
+
+
+def assess_strength(
+    verdict: str, kept: list[PassageLabel], by_id: dict[str, Hit], claim: Claim, now: datetime,
+    model_strength: str | None = None, model_conflict: bool = False, downgraded: str | None = None,
+) -> Strength:
+    """Strength of the basis for a verdict from explicit premises: the number of independent
+    sources that carry it, their type, their recency and agreement. The model's own rating only
+    caps the result (it judges how well the passages match the claim) and is shown as such."""
+    needed = REQUIRED_ROLES.get(verdict)
+    if not needed:
+        if downgraded:
+            reason = "Model nie wskazał źródeł, które potwierdzają jego ocenę, dlatego nie ma werdyktu."
+        elif verdict == "unverifiable":
+            reason = "To opinia lub ocena: źródła nie mogą jej potwierdzić ani obalić."
+        elif kept and all(lab.role == "context" for lab in kept):
+            reason = "Znalezione źródła dają tylko kontekst; żadne nie rozstrzyga twierdzenia."
+        elif kept:
+            reason = "Znalezione źródła nie wystarczają, by rozstrzygnąć twierdzenie."
+        else:
+            reason = "Nie znaleziono źródeł, które rozstrzygają twierdzenie."
+        return Strength("none", STRENGTH_PL["none"], [reason])
+
+    deciding = [(lab.role, by_id[lab.passage_id]) for lab in kept if lab.role in needed]
+    hits = [h for _, h in deciding]
+    origins = {origin(h) for h in hits}
+    primary = any(h.meta["source_type"] in PRIMARY_SOURCE_TYPES for h in hits)
+    level = 3 if len(origins) >= 2 and primary else 2 if len(origins) >= 2 or primary else 1
+    reasons: list[str] = []
+
+    for role in ("supports", "contradicts"):
+        if role not in needed:
+            continue
+        pubs: dict[str, str] = {}
+        for r, h in deciding:
+            if r == role:
+                pubs.setdefault(origin(h), h.meta["publisher"])
+        if pubs:  # `misleading` needs only one of its two roles
+            reasons.append(f"Niezależne źródła {_ROLE_ADJ[role]}: {len(pubs)} – {'; '.join(pubs.values())}.")
+    if len(hits) > len(origins):
+        reasons.append("Przedruki i kolejne teksty tego samego wydawcy liczą się jako jedno źródło.")
+
+    types = list(dict.fromkeys(SOURCE_TYPE_PL.get(h.meta["source_type"], h.meta["source_type"]) for h in hits))
+    reasons.append(f"Rodzaj źródeł: {', '.join(types)}."
+                   + ("" if primary else " Brak źródła pierwotnego (urzędowego lub fact-checkingowego)."))
+
+    dated = [(parse_ts(d), d) for d in map(_date_of, hits) if d and parse_ts(d)]
+    if dated:
+        reasons.append(f"Najnowsze z nich: {fmt_local(max(dated)[1], with_time=False)}.")
+    ref = parse_ts(claim.time_from, naive_tz=WARSAW) or now
+    stale = None
+    for h in hits:
+        m = h.meta
+        obs = parse_ts(m["observed_at"])
+        if m["last_error"]:
+            stale = f"ostatnia aktualizacja źródła {m['publisher']} nie powiodła się, dane mogą być nieaktualne"
+        elif (m["source_type"] == "structured" and m["kind"] not in TIMED_KINDS and obs
+              and abs(ref - obs) > STALE_AFTER):
+            stale = f"pomiar z {fmt_local(m['observed_at'])} dotyczy innego okresu niż twierdzenie"
+        if stale:
+            break
+    if stale:
+        level -= 1
+        reasons.append(f"Obniżono: {stale}.")
+
+    if verdict in ("true", "false"):
+        opposite = {"true": "contradicts", "false": "supports"}[verdict]
+        if model_conflict or any(lab.role == opposite for lab in kept):
+            level -= 1
+            reasons.append("Obniżono: część źródeł podaje informacje sprzeczne z werdyktem.")
+        else:
+            reasons.append("Brak źródeł sprzecznych z werdyktem.")
+
+    level = max(1, level)
+    if model_strength in _MATCH_PL:
+        match = _MATCH_PL[model_strength]
+        cap = max(1, _LEVELS.index(model_strength))
+        if cap < level:
+            level = cap
+            reasons.append(f"Obniżono: zgodność treści źródeł z twierdzeniem (ocena modelu) – {match}.")
+        else:
+            reasons.append(f"Zgodność treści źródeł z twierdzeniem (ocena modelu): {match}.")
+    return Strength(_LEVELS[level], STRENGTH_PL[_LEVELS[level]], reasons)
+
+
 def _safe_url(url: str | None) -> str | None:
     """http(s) URLs only, with characters that could break a Markdown link encoded."""
     u = urlparse(url or "")
@@ -300,12 +425,14 @@ class Verifier:
     def check_claim(self, claim: Claim, now: datetime, hits: list[Hit] | None = None) -> ClaimResult:
         hits = self.retrieve(claim) if hits is None else hits
         if not claim.checkable and not hits:
-            return ClaimResult(claim.text, "unverifiable", VERDICT_PL["unverifiable"], MSG_OPINION)
+            return ClaimResult(claim.text, "unverifiable", VERDICT_PL["unverifiable"], MSG_OPINION,
+                               strength=assess_strength("unverifiable", [], {}, claim, now))
         if not hits:
             return ClaimResult(
                 claim.text, "insufficient", VERDICT_PL["insufficient"],
                 "Nie znalazłem w bazie źródeł, które dotyczą tego twierdzenia. "
                 "Brak wyniku w bazie nie oznacza, że twierdzenie jest fałszywe.",
+                strength=assess_strength("insufficient", [], {}, claim, now),
             )
         by_id = {pid(h): h for h in hits}
         raw = self.llm.verify_claim(claim, build_evidence_xml(hits), now)
@@ -320,6 +447,7 @@ class Verifier:
             return ClaimResult(
                 claim.text, "unverifiable", VERDICT_PL["unverifiable"], MSG_OPINION,
                 shortlist_ids=list(by_id), invented_ids=invented,
+                strength=assess_strength("unverifiable", [], {}, claim, now),
             )
 
         # Supporting/contradicting evidence first, then context.
@@ -345,6 +473,8 @@ class Verifier:
             shortlist_ids=list(by_id), invented_ids=invented, downgraded_from=downgraded,
             conflict=raw.conflict or {"supports", "contradicts"} <= roles,
             known_disinformation=known,
+            strength=assess_strength(verdict, kept, by_id, claim, now, raw.evidence_strength,
+                                     raw.conflict, downgraded),
         )
 
     def _check_isolated(self, claim: Claim, hits: list[Hit], now: datetime) -> ClaimResult:
@@ -440,6 +570,9 @@ def render_markdown(res: CheckResult) -> str:
     for c in res.claims:
         out.append(f"**Twierdzenie:** {_model_text(c.claim)}")
         out.append(f"**Ocena:** {c.verdict_pl}")
+        if c.strength:
+            out.append(f"**Siła dowodów:** {c.strength.level_pl}")
+            out.extend(f"- {_md(r)}" for r in c.strength.reasons)
         if c.known_disinformation:
             out.append("**Znana narracja dezinformacyjna**")
         out.append(_model_text(c.explanation))

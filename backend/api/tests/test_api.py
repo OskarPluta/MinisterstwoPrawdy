@@ -95,6 +95,9 @@ def test_verify_returns_public_result(client):
     for internal in ("error", "shortlist_ids", "invented_ids"):
         assert internal not in c
     assert c["known_disinformation"] is False  # public field, mirrored in frontend/src/api.ts
+    # Strength of evidence: computed by code, public, mirrored in frontend/src/api.ts.
+    assert set(c["strength"]) == {"level", "level_pl", "reasons"}
+    assert c["strength"]["level"] in ("strong", "moderate", "weak") and c["strength"]["reasons"]
     assert len(c["citations"]) == 1  # the invented P999999 was dropped by the Verifier
     cit = c["citations"][0]
     assert set(cit) >= {"n", "role", "title", "publisher", "url", "date_label", "text", "is_verbatim"}

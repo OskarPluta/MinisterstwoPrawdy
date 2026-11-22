@@ -1,7 +1,7 @@
 // CheckResult → UI. Model-written text (explanation, claim, message) is rendered as plain text only;
 // links come only from citation.url, which the backend takes from the database.
 import { useState, type ReactNode } from "react";
-import type { CheckResult, CheckStatus, ClaimResult, Verdict } from "./api";
+import type { CheckResult, CheckStatus, ClaimResult, Strength, Verdict } from "./api";
 import { Button, Notice, StatusPanel, type Tone } from "./design/components";
 import { CitationList } from "./design/extra";
 
@@ -33,6 +33,24 @@ const INJECTION =
 
 export const RESULT_HEADING_ID = "wynik";
 
+const STRENGTH_LABEL = "Siła dowodów";
+
+/** Premises behind the verdict's strength. Neutral styling: strength is not a verdict colour. */
+function StrengthBox({ s }: { s: Strength }) {
+  return (
+    <section className="app-strength" aria-label={STRENGTH_LABEL}>
+      <p className="app-strength-title">
+        {STRENGTH_LABEL}: <strong data-level={s.level}>{s.level_pl}</strong>
+      </p>
+      <ul>
+        {s.reasons.map((r, i) => (
+          <li key={i}>{r}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ClaimPanel({ c, index, total }: { c: ClaimResult; index: number; total: number }) {
   const view =
     c.known_disinformation && c.verdict === "unverifiable"
@@ -41,6 +59,7 @@ function ClaimPanel({ c, index, total }: { c: ClaimResult; index: number; total:
   const details: { label: string; value: ReactNode }[] = [{ label: "Twierdzenie", value: c.claim }];
   if (total > 1) details.unshift({ label: "Numer", value: `${index + 1} z ${total}` });
   if (c.known_disinformation) details.push({ label: KNOWN_NARRATIVE, value: "Tak, udokumentowana w bazie weryfikacji" });
+  if (c.strength) details.push({ label: STRENGTH_LABEL, value: c.strength.level_pl });
   details.push({ label: "Liczba źródeł", value: String(c.citations.length) });
   return (
     <StatusPanel
@@ -53,6 +72,7 @@ function ClaimPanel({ c, index, total }: { c: ClaimResult; index: number; total:
     >
       <p className="app-explanation">{c.explanation}</p>
       {c.conflict && <p className="app-conflict">{CONFLICT}</p>}
+      {c.strength && <StrengthBox s={c.strength} />}
       {c.notes.length > 0 && (
         <Notice tone="warning" title="Zwróć uwagę">
           {c.notes.length === 1 ? (
@@ -77,6 +97,10 @@ export function resultAsText(res: CheckResult): string {
   if (res.message) out.push(res.message, "");
   for (const c of res.claims) {
     out.push(`Twierdzenie: ${c.claim}`, `Ocena: ${c.verdict_pl}`);
+    if (c.strength) {
+      out.push(`${STRENGTH_LABEL}: ${c.strength.level_pl}`);
+      for (const r of c.strength.reasons) out.push(`- ${r}`);
+    }
     if (c.known_disinformation) out.push(KNOWN_NARRATIVE);
     out.push(c.explanation);
     if (c.conflict) out.push(CONFLICT);

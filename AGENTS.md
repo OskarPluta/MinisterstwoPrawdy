@@ -42,6 +42,7 @@ bun run dev | typecheck | build  # w frontend/
 - **W bazie rekordy są wersjonowane, a nie nadpisywane.** Tożsamość to `(source_id, upstream_id)`. Stara wersja zostaje, ale wypada z wyszukiwania. `ingest` musi pozostać idempotentny.
 - **Cytaty egzekwuje kod.** Model widzi tylko listę fragmentów. Identyfikatory spoza listy są odrzucane, a werdykt bez cytatu o właściwej roli spada do `insufficient`. Linki pochodzą wyłącznie z `citation_url` w bazie, nigdy z tekstu modelu.
 - **Brak dowodów oznacza `insufficient`, a nie `false`.**
+- **Siłę dowodów liczy kod** (`assess_strength` w `rag/verify.py`) z zachowanych cytatów: liczba niezależnych źródeł (przedruk = źródło oryginału), rodzaj źródła, aktualność, zgodność. Ocena modelu (`evidence_strength`) może ją tylko obniżyć i jest pokazywana jako ocena modelu. Każda przesłanka trafia do `strength.reasons`.
 - **Flagę `known_disinformation` (znana narracja dezinformacyjna) ustawia kod** tylko przy zachowanym cytacie `contradicts` ze źródła `source_type: factcheck`. Cytat samej narracji nigdy nie potwierdza twierdzenia.
 - **Wyszukiwanie na żywo (`rag/live.py`) idzie tylko przez `crawler.fetcher.Fetcher`** (te same reguły co crawler: robots.txt, ≥3 s na host, wycofanie) i tylko do zaufanych źródeł. Wyniki trafiają do bazy przez `ingest_corpus`, więc linki dalej pochodzą z `citation_url`.
 - **SQL tylko jako nazwane zapytania** w `database/queries/<grupa>.sql` (`-- name: <nazwa>`), wywoływane przez `query("<grupa>.<nazwa>")`. Wartości przekazuje się tylko jako `%(nazwa)s`. Nie składaj SQL f-stringiem.
@@ -59,7 +60,7 @@ bun run dev | typecheck | build  # w frontend/
 | dodać źródło | `backend/crawler/sources.yaml` | Bez zmian w kodzie. Jeśli źródło ma API, użyj `json_api` (stronicowanie, szczegóły rekordu: crawler README). Instrukcja: [crawler README](backend/crawler/README.md#dodanie-źródła). Nowy `doc_type` zmapuj w `ARTICLE_KINDS` w `rag/crawler_import.py`. |
 | dodać rodzaj rekordu lub szablon strukturalny | `rag/crawler_import.py` (konwerter pól, jak `_meteo`/`_hydro`), `rag/chunking.py` (`render_structured`, `REQUIRED_FIELDS`), `rag/verify.py` (`TIMED_KINDS`, jeśli rekord ma okres ważności) | Dodaj przykład do `fake_corpus.json` i test. |
 | zmienić prompty | `rag/llm.py` (`EXTRACT_SYSTEM`, `VERIFY_SYSTEM`, schematy Pydantic) | Wspólne dla OpenAI i Anthropic. Sprawdź przez `eval_verify.py --only ...`. |
-| zmienić reguły werdyktu, notatki, render | `rag/verify.py` (`REQUIRED_ROLES`, `_enforce`, `_notes`, `render_markdown`, `VERDICT_PL`) | Testy: `test_verify.py`. |
+| zmienić reguły werdyktu, siłę dowodów, notatki, render | `rag/verify.py` (`REQUIRED_ROLES`, `_enforce`, `assess_strength`, `PRIMARY_SOURCE_TYPES`, `_notes`, `render_markdown`, `VERDICT_PL`) | Testy: `test_verify.py`. |
 | zmienić wyszukiwanie lub fuzję | `rag/search.py` (`Retriever`, `fts_query`, `STOPWORDS`, `RRF_K`) | Porównaj wyniki przed i po: `scripts/eval_retrieval.py`. |
 | zmienić wyszukiwanie na żywo | `rag/live.py` (`SOURCES`, `TRUSTED_FACTCHECK_DOMAINS`, `BUDGET_S`, `needs_live`) | Testy: `test_live.py` na nagranych odpowiedziach w `tests/fixtures/live/`. Nowe nagranie: prawdziwa odpowiedź, bez kluczy w pliku. |
 | zmienić podział na fragmenty | `rag/chunking.py` (`MAX_WORDS`, `split_section`) | Potem ponowny `ingest` na świeżej bazie. |

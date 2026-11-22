@@ -20,6 +20,16 @@ export interface Citation {
   is_verbatim: boolean;
 }
 
+export type StrengthLevel = "strong" | "moderate" | "weak" | "none";
+
+/** Computed by code from the kept citations (assess_strength in verify.py), not by the model. */
+export interface Strength {
+  level: StrengthLevel;
+  level_pl: string;
+  /** Explicit premises in Polish: independent sources, source type, recency, agreement. */
+  reasons: string[];
+}
+
 export interface ClaimResult {
   claim: string;
   verdict: Verdict;
@@ -32,6 +42,8 @@ export interface ClaimResult {
   conflict: boolean;
   /** Set by code only when a debunk from a fact-check database (EUvsDisinfo, fact-check verdicts) is cited. */
   known_disinformation: boolean;
+  /** null only when the claim could not be checked (verdict "error"). */
+  strength: Strength | null;
 }
 
 export interface CheckResult {

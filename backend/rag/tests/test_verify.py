@@ -447,3 +447,84 @@ def test_safe_url_only_allows_http_and_encodes_brackets():
     assert _safe_url("javascript:alert(1)") is None
     assert _safe_url("data:text/html,x") is None
     assert _safe_url("https://a.test/x (1)") == "https://a.test/x%20%281%29"
+
+
+# --- strength of evidence (explicit premises, computed by code) ----------------------------
+
+
+def _strength_case(retriever, c: Claim, labels: list[tuple[str, str]], v: str = "true", model: str = "strong",
+                   conflict: bool = False) -> ClaimResult:
+    ver = Verifier(retriever, FakeLLM(), record=False)
+    pids = [(_pid_for(ver, c, k), role) for k, role in labels]
+    ver.llm = FakeLLM([c], lambda cl, xml: verdict(v, tuple(pids), evidence_strength=model, conflict=conflict))
+    return ver.verify("x", NOW).claims[0]
+
+
+WIND = claim("Na Mazowszu obowiązuje ostrzeżenie przed silnym wiatrem",
+             ["silny wiatr Mazowsze ostrzeżenie", "alert RCB silny wiatr"])
+TIMETABLE = claim("Nowy rozkład jazdy pociągów obowiązuje od 13 grudnia 2026",
+                  ["nowy rozkład jazdy pociągów 13 grudnia", "rozkład jazdy PKP"])
+
+
+def test_two_independent_primary_sources_are_strong(retriever):
+    cr = _strength_case(retriever, WIND, [("imgw_meteo:OST-2026-1121-MAZ-WIATR", "supports"),
+                                          ("rcb:RCB-2026-11-21-ALERT-WIATR", "supports")])
+    assert cr.strength and cr.strength.level == "strong" and cr.strength.level_pl == "silna"
+    assert any(r.startswith("Niezależne źródła potwierdzające: 2") for r in cr.strength.reasons)
+    assert any("Najnowsze z nich: 21.11.2026" in r for r in cr.strength.reasons)
+    assert "Brak źródeł sprzecznych z werdyktem." in cr.strength.reasons
+
+
+def test_model_match_rating_only_caps_the_strength(retriever):
+    cr = _strength_case(retriever, WIND, [("imgw_meteo:OST-2026-1121-MAZ-WIATR", "supports"),
+                                          ("rcb:RCB-2026-11-21-ALERT-WIATR", "supports")], model="weak")
+    assert cr.strength and cr.strength.level == "weak"
+    assert any(r.startswith("Obniżono: zgodność treści") for r in cr.strength.reasons)
+    # A "none" rating cannot erase a verdict the code accepted: the floor is weak.
+    cr = _strength_case(retriever, WIND, [("imgw_meteo:OST-2026-1121-MAZ-WIATR", "supports")], model="none")
+    assert cr.verdict == "true" and cr.strength and cr.strength.level == "weak"
+
+
+def test_reprint_is_not_an_independent_confirmation(retriever):
+    cr = _strength_case(retriever, TIMETABLE, [("mi_gov:MI-2026-11-12-ROZKLAD-JAZDY", "supports"),
+                                               ("portal:PORTAL-2026-11-12-ROZKLAD", "supports")])
+    assert cr.strength and cr.strength.level == "moderate"  # one primary source, reprinted
+    assert any(r.startswith("Niezależne źródła potwierdzające: 1") for r in cr.strength.reasons)
+    assert any("Przedruki" in r for r in cr.strength.reasons)
+
+
+def test_secondary_source_alone_is_weak(retriever):
+    cr = _strength_case(retriever, TIMETABLE, [("portal:PORTAL-2026-11-12-ROZKLAD", "supports")])
+    assert cr.strength and cr.strength.level == "weak"
+    assert any("Brak źródła pierwotnego" in r for r in cr.strength.reasons)
+
+
+def test_conflicting_source_lowers_the_strength(retriever):
+    cr = _strength_case(retriever, WIND, [("imgw_meteo:OST-2026-1121-MAZ-WIATR", "supports"),
+                                          ("rcb:RCB-2026-11-21-ALERT-WIATR", "supports")], conflict=True)
+    assert cr.strength and cr.strength.level == "moderate"
+    assert any("sprzeczne z werdyktem" in r for r in cr.strength.reasons)
+
+
+def test_misleading_lists_only_the_roles_it_cites(retriever):
+    cr = _strength_case(retriever, WIND, [("imgw_meteo:OST-2026-1121-MAZ-WIATR", "contradicts"),
+                                          ("rcb:RCB-2026-11-21-ALERT-WIATR", "contradicts")], v="misleading")
+    assert cr.verdict == "misleading" and cr.strength and cr.strength.level == "strong"
+    assert not any("potwierdzające" in r for r in cr.strength.reasons)
+    assert any(r.startswith("Niezależne źródła przeczące: 2") for r in cr.strength.reasons)
+
+
+def test_no_verdict_means_no_strength_and_is_rendered(retriever, new_db, embedder):
+    from rag.search import Retriever
+
+    c = claim("Na Księżycu otwarto nową stację kolejową", ["stacja kolejowa Księżyc"])
+    cr = Verifier(Retriever(new_db(), embedder), FakeLLM([c]), record=False).verify("x", NOW).claims[0]
+    assert cr.verdict == "insufficient" and cr.strength and cr.strength.level == "none"
+    cr = _strength_case(retriever, WIND, [("imgw_meteo:OST-2026-1121-MAZ-WIATR", "context")])
+    assert cr.downgraded_from == "true" and cr.strength and cr.strength.level == "none"
+    assert "nie wskazał źródeł" in cr.strength.reasons[0]
+    cr = _strength_case(retriever, WIND, [("imgw_meteo:OST-2026-1121-MAZ-WIATR", "context")], v="insufficient")
+    assert cr.verdict == "insufficient" and cr.strength and cr.strength.level == "none"
+    assert "tylko kontekst" in cr.strength.reasons[0]
+    md = render_markdown(CheckResult("id", "ok", None, [cr]))
+    assert "**Siła dowodów:** brak" in md and "- Znalezione źródła dają tylko kontekst" in md
